@@ -17,8 +17,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test test/round-trip.test.js test/output-matrix.test.js test/unit/*.test.js tests/telemetry-sanitize.test.js tests/telemetry-config.test.js tests/telemetry-consent-version.test.js tests/telemetry-flags.test.js tests/redactWorkbook-leak-check.test.js",
-    "postinstall": "patch-package"
+    "test": "node --test test/round-trip.test.js test/output-matrix.test.js test/unit/*.test.js tests/telemetry-sanitize.test.js tests/telemetry-config.test.js tests/telemetry-consent-version.test.js tests/telemetry-flags.test.js tests/redactWorkbook-leak-check.test.js"
   },
   "keywords": [
     "xlsx",

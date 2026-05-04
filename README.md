@@ -315,7 +315,7 @@ The CLI install (`npm install -g xlsx-for-ai`) is clean — no deprecation warni
 
 Run `rm -rf node_modules package-lock.json && npm install` and the warnings will clear. xlsx-for-ai's tests pass against these versions, so the upgrade is safe.
 
-As of 1.5.4 the postinstall hook applies `patch-package` automatically (the infrastructure is wired; no patches are bundled today). Future code-level fixes for upstream issues can land as patch files in `patches/` rather than waiting on an upstream release.
+`patch-package` is in `devDependencies` for authoring patches. The postinstall hook is *not* wired today — no patches exist, and a hook that tries to invoke a missing dev-only binary would break consumer installs. When the first patch lands, the hook is added in the same commit as the patch file.
 
 ### Audit findings on install
 
