@@ -18,15 +18,6 @@
       "reason": "Same package as above; same npm-availability constraint. ReDoS is a CLI-availability concern only — xlsx-for-ai is a developer tool, not a server. A malicious workbook can hang the user's own CLI invocation; nothing crosses a trust boundary. Tracked for replacement alongside GHSA-4r6h-8v6p-xvw6.",
       "reassess": "2026-07-31",
       "owner": "senoff"
-    },
-    {
-      "ghsa": "GHSA-w5hq-g745-h8pq",
-      "package": "uuid",
-      "severity": "moderate",
-      "title": "uuid: Missing buffer bounds check in v3/v5/v6 when buf is provided",
-      "reason": "Reaches us as a transitive of exceljs. Fix requires an exceljs major bump (currently ^4.4.0; advisory's fixAvailable points at 3.4.0 which is a regression). The vulnerable code path requires the caller to pass a pre-allocated buffer to uuid.v4() etc.; exceljs does not. Severity moderate, not blocking today's high+ gate — tracked here so the next exceljs major review consciously closes it.",
-      "reassess": "2026-07-31",
-      "owner": "senoff"
     }
   ]
 }
