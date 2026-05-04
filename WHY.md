@@ -30,7 +30,6 @@ A few examples people find useful:
 - **Compare two versions of the same spreadsheet** ("what changed between V11 and V14?") and get a list of every cell that moved.
 - **Turn a CSV export from QuickBooks into a clean SQL database table** in one command, with the column types figured out automatically.
 - **Walk through a 50-tab model someone else built** and have the AI explain how the sheets reference each other.
-- **Process a folder of legacy `.xls` files** that won't even open in modern Excel without complaint.
 
 But the biggest unlock is the next thing.
 

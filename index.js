@@ -31,8 +31,7 @@ const engine = require('./lib/engine');
 
 // Lazy-load heavy deps only when their feature is used (keeps cold start fast
 // for the common --stdout / --json / --md path that needs none of them).
-let _xlsxLib, _papaLib, _formulaJsLib, _tokenizerLib;
-const lazyXlsx       = () => (_xlsxLib       ??= require('xlsx'));
+let _papaLib, _formulaJsLib, _tokenizerLib;
 const lazyPapa       = () => (_papaLib       ??= require('papaparse'));
 const lazyFormulaJs  = () => (_formulaJsLib  ??= require('@formulajs/formulajs'));
 const lazyTokenizer  = () => (_tokenizerLib  ??= require('gpt-tokenizer'));
@@ -108,7 +107,7 @@ coding agents can read. Preserves values, formulas, formatting, layout.
 The 'write' sub-command does the reverse: takes a JSON or markdown spec and
 produces an .xlsx file. Run 'xlsx-for-ai write --help' for details.
 
-Input formats: .xlsx .xls .xlsb .ods .csv .tsv
+Input formats: .xlsx .csv .tsv
 
 Output modes (mutually exclusive; default = text):
   --md              Markdown tables — best LLM comprehension per token
@@ -1081,40 +1080,14 @@ async function loadAnyWorkbook(filePath) {
     return wb;
   }
   if (ext === '.xls' || ext === '.xlsb' || ext === '.ods') {
-    return loadViaSheetJS(filePath);
+    throw new Error(
+      `Legacy format ${ext} is no longer supported. Convert to .xlsx first ` +
+      `(e.g. open in Excel/LibreOffice and Save As .xlsx). See ` +
+      `https://github.com/senoff/xlsx-for-ai/issues/26 for the discussion of ` +
+      `whether to restore native support.`
+    );
   }
-  throw new Error(`Unsupported extension: ${ext}. Supported: .xlsx .xls .xlsb .ods .csv .tsv`);
-}
-
-// Read a non-xlsx spreadsheet via SheetJS, materialize into the engine's
-// workbook representation so the rest of the code (dump/markdown/json/sql/
-// schema) works unchanged. Loses some formatting; preserves values + formulas.
-function loadViaSheetJS(filePath) {
-  const XLSX = lazyXlsx();
-  const sheetJsWb = XLSX.readFile(filePath, { cellFormula: true, cellDates: true });
-  const wb = engine.createWorkbook();
-  for (const name of sheetJsWb.SheetNames) {
-    const sjsSheet = sheetJsWb.Sheets[name];
-    const ws = wb.addWorksheet(name);
-    if (!sjsSheet['!ref']) continue;
-    const range = XLSX.utils.decode_range(sjsSheet['!ref']);
-    for (let r = range.s.r; r <= range.e.r; r++) {
-      for (let c = range.s.c; c <= range.e.c; c++) {
-        const addr = XLSX.utils.encode_cell({ r, c });
-        const cell = sjsSheet[addr];
-        if (!cell) continue;
-        const target = ws.getRow(r + 1).getCell(c + 1);
-        if (cell.f) {
-          target.value = { formula: cell.f, result: cell.v };
-        } else if (cell.t === 'd') {
-          target.value = cell.v instanceof Date ? cell.v : new Date(cell.v);
-        } else {
-          target.value = cell.v;
-        }
-      }
-    }
-  }
-  return wb;
+  throw new Error(`Unsupported extension: ${ext}. Supported: .xlsx .csv .tsv`);
 }
 
 // ---------------------------------------------------------------------------
@@ -1938,7 +1911,7 @@ async function main() {
   }
   // Min 22 bytes (zip EOCD) only meaningful for binary formats; CSV/TSV can be smaller.
   const ext = path.extname(filePath).toLowerCase();
-  const isBinary = ext === '.xlsx' || ext === '.xls' || ext === '.xlsb' || ext === '.ods';
+  const isBinary = ext === '.xlsx';
   if (isBinary && stat.size < 22) {
     console.error(`File is too small (${stat.size} bytes) to be a valid spreadsheet: ${filePath}`);
     process.exit(1);

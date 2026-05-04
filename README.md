@@ -2,7 +2,7 @@
 
 > 👋 **New here? Not a programmer?** → [Read WHY.md for the plain-English version](WHY.md). The README below is the technical reference.
 
-**The bidirectional bridge between spreadsheets and AI agents.** Reads `.xlsx` (and `.xls`, `.xlsb`, `.ods`, `.csv`, `.tsv`) into the formats LLMs actually consume — markdown, JSON, text, SQL — and writes spreadsheets back out from AI-generated specs. Same tool, both directions.
+**The bidirectional bridge between spreadsheets and AI agents.** Reads `.xlsx` (plus `.csv`, `.tsv`) into the formats LLMs actually consume — markdown, JSON, text, SQL — and writes spreadsheets back out from AI-generated specs. Same tool, both directions.
 
 AI tools — Claude, Cursor, Copilot, ChatGPT, and other LLM coding agents — can read text files but **not** `.xlsx` binaries. This CLI closes the loop:
 
@@ -10,7 +10,7 @@ AI tools — Claude, Cursor, Copilot, ChatGPT, and other LLM coding agents — c
 
 **✍️ Write mode (`xlsx-for-ai write`)** — turn an AI-generated JSON or markdown spec into a real `.xlsx` file. Closes the round-trip so an agent that *reviews* your spreadsheet can also *deliver the corrected file*. The output includes a `_xlsx-for-ai` review tab explaining every structural change the round-trip made (with risks, tradeoffs, and overrides) — the supervisor model: AI does the work, the human stays in control of every decision. Verified lossless on 29/30 real workbooks.
 
-**Input formats:** `.xlsx` `.xls` `.xlsb` `.ods` `.csv` `.tsv`
+**Input formats:** `.xlsx` `.csv` `.tsv` (legacy `.xls` / `.xlsb` / `.ods` removed in 1.5.4 — convert to `.xlsx` first; see [#26](https://github.com/senoff/xlsx-for-ai/issues/26))
 
 **Output modes:** text dump, markdown tables (best LLM comprehension per token), JSON, SQL `CREATE TABLE`+`INSERT`, inferred schema, workbook diff, real `.xlsx` (write mode).
 
@@ -315,28 +315,16 @@ The CLI install (`npm install -g xlsx-for-ai`) is clean — no deprecation warni
 
 Run `rm -rf node_modules package-lock.json && npm install` and the warnings will clear. xlsx-for-ai's tests pass against these versions, so the upgrade is safe.
 
-A future release may apply these dep upgrades via `patch-package` so they travel through the dep graph automatically. The infrastructure is in place; the patches haven't been needed urgently because most installs are CLI-direct.
+As of 1.5.4 the postinstall hook applies `patch-package` automatically (the infrastructure is wired; no patches are bundled today). Future code-level fixes for upstream issues can land as patch files in `patches/` rather than waiting on an upstream release.
 
-### Audit findings on install (what's inherited from upstream)
+### Audit findings on install
 
-When you `npm install xlsx-for-ai` (especially as a library dep, not the top-level project), `npm audit` may surface one or more advisories. Most are inherited transitively from `@protobi/exceljs` and the legacy `xlsx` fallback parser. Each one has been triaged and is documented in [`.github/audit-allowlist.json`](.github/audit-allowlist.json), which is the canonical list our CI's `audit.yml` job reads.
+As of 1.5.4, `npm install xlsx-for-ai` finds **no inherited audit advisories**. The previous `xlsx` (sheetJS) and `uuid` findings were closed by:
 
-Each allowlist entry includes:
+- **`xlsx` removed in 1.5.4** — see [#26](https://github.com/senoff/xlsx-for-ai/issues/26). The legacy `.xls` / `.xlsb` / `.ods` input path that depended on it is no longer supported; the modern `@protobi/exceljs` engine handles `.xlsx` (and CSV / TSV continue to use `papaparse`).
+- **`uuid` bumped to ^14 via `overrides`** — clears the `GHSA-w5hq-g745-h8pq` advisory inherited transitively from ExcelJS. Mirrors the upstream protobi/exceljs gift PR locally.
 
-- **`ghsa`** — the advisory ID (e.g. `GHSA-w5hq-g745-h8pq`).
-- **`package`** — the dependency the advisory lives on.
-- **`severity`** — the advisory's published severity.
-- **`reason`** — why the finding is accepted, including the code path's reachability in our usage.
-- **`reassess`** — the date by which we will re-evaluate (typically a quarterly cadence).
-- **`owner`** — who owns the re-evaluation.
-
-The current set covers two `xlsx` advisories (the npm-published 0.18.5 line is unmaintained; we carry it as a fallback parser only) and one `uuid` advisory inherited from ExcelJS (`v4()` call sites in ExcelJS do not pass a pre-allocated buffer, so the bounds-check gap is unreachable here). An upstream gift PR is open to bump uuid in the protobi fork; once merged and released, the `uuid` line will drop on the next `@protobi/exceljs` update.
-
-If you embed xlsx-for-ai in a product with stricter audit policies than ours, you have three clean options:
-
-1. **Mirror the allowlist entries** into your own audit configuration (e.g. `npm audit --omit=dev` filters, Snyk policy file, GitHub Dependabot ignore rules) using the same `ghsa` IDs.
-2. **Pin to a future xlsx-for-ai release** that bumps `@protobi/exceljs` past the upstream uuid bump (will drop the `uuid` advisory automatically; tracked in the allowlist's `reassess` date).
-3. **Vendor the parser path you actually use** — if you only need the modern `@protobi/exceljs` engine and not the legacy `xlsx` fallback, you can disable the fallback in your wrapper and the `xlsx` advisories cease to apply to your dep graph.
+The triage workflow lives in [`.github/audit-allowlist.json`](.github/audit-allowlist.json) (currently empty) and `audit.yml` for whenever a future advisory needs accepting.
 
 ## Reporting bugs
 
