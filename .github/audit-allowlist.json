@@ -1,32 +1,4 @@
 {
   "$comment": "Triaged advisories that audit.yml will not fail the build on. Each entry MUST include a reassess date. A PR that adds an entry here is a security-policy change — review accordingly.",
-  "advisories": [
-    {
-      "ghsa": "GHSA-4r6h-8v6p-xvw6",
-      "package": "xlsx",
-      "severity": "high",
-      "title": "Prototype Pollution in sheetJS",
-      "reason": "SheetJS has not published xlsx to npm since 2023; the fix is only on their self-hosted CDN. We carry xlsx as a fallback parser path. The prototype pollution requires attacker-controlled property names in a workbook we then walk untyped — our read path materializes plain values, not arbitrary objects, so the gadget surface is small. Tracked for replacement.",
-      "reassess": "2026-07-31",
-      "owner": "senoff"
-    },
-    {
-      "ghsa": "GHSA-5pgg-2g8v-p4x9",
-      "package": "xlsx",
-      "severity": "high",
-      "title": "SheetJS Regular Expression Denial of Service (ReDoS)",
-      "reason": "Same package as above; same npm-availability constraint. ReDoS is a CLI-availability concern only — xlsx-for-ai is a developer tool, not a server. A malicious workbook can hang the user's own CLI invocation; nothing crosses a trust boundary. Tracked for replacement alongside GHSA-4r6h-8v6p-xvw6.",
-      "reassess": "2026-07-31",
-      "owner": "senoff"
-    },
-    {
-      "ghsa": "GHSA-w5hq-g745-h8pq",
-      "package": "uuid",
-      "severity": "moderate",
-      "title": "uuid: Missing buffer bounds check in v3/v5/v6 when buf is provided",
-      "reason": "Reaches us as a transitive of exceljs. Fix requires an exceljs major bump (currently ^4.4.0; advisory's fixAvailable points at 3.4.0 which is a regression). The vulnerable code path requires the caller to pass a pre-allocated buffer to uuid.v4() etc.; exceljs does not. Severity moderate, not blocking today's high+ gate — tracked here so the next exceljs major review consciously closes it.",
-      "reassess": "2026-07-31",
-      "owner": "senoff"
-    }
-  ]
+  "advisories": []
 }
