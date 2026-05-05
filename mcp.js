@@ -147,22 +147,25 @@ async function dispatchTool(name, args) {
   }
 
   // xlsx_diff: two files
+  // Server expects file_a_b64 / file_b_b64 (matches xlsx-diff.ts schema).
   if (name === 'xlsx_diff') {
     const body = {
-      file_b64_a: fileToB64(args.file_path_a),
-      file_b64_b: fileToB64(args.file_path_b),
+      file_a_b64: fileToB64(args.file_path_a),
+      file_b_b64: fileToB64(args.file_path_b),
       options: { sheet: args.sheet },
     };
     return callTool('xlsx_diff', body);
   }
 
   // xlsx_write: spec or spec_path
+  // Server expects { spec, base_file_b64? } — out_path is handled client-side,
+  // the server returns the workbook as base64 in _meta.file_b64.
   if (name === 'xlsx_write') {
     let spec = args.spec;
     if (!spec && args.spec_path) {
       spec = JSON.parse(fs.readFileSync(args.spec_path, 'utf8'));
     }
-    return callTool('xlsx_write', { spec, options: { out_path: args.out_path } });
+    return callTool('xlsx_write', { spec });
   }
 
   // xlsx_redact: two paths (in + out)
