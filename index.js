@@ -73,9 +73,12 @@ async function main() {
   await ensureRegistered();
 
   const fileB64 = fs.readFileSync(absPath).toString('base64');
+  // Server format enum is 'md' | 'json' | 'sql'. The legacy CLI default 'text'
+  // maps to the server's default (md). Don't send 'text' — server rejects it.
+  const apiFormat = opts.format === 'text' ? undefined : opts.format;
   const body = {
     file_b64: fileB64,
-    options: { format: opts.format, sheet: opts.sheet, evaluate: opts.evaluate },
+    options: { format: apiFormat, sheet: opts.sheet, evaluate: opts.evaluate },
   };
 
   let result;
