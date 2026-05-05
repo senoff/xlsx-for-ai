@@ -10,7 +10,7 @@ AI tools — Claude, Cursor, Copilot, ChatGPT, and other LLM coding agents — c
 
 **✍️ Write mode (`xlsx-for-ai write`)** — turn an AI-generated JSON or markdown spec into a real `.xlsx` file. Closes the round-trip so an agent that *reviews* your spreadsheet can also *deliver the corrected file*. The output includes a `_xlsx-for-ai` review tab explaining every structural change the round-trip made (with risks, tradeoffs, and overrides) — the supervisor model: AI does the work, the human stays in control of every decision. Verified lossless on 29/30 real workbooks.
 
-**Input formats:** `.xlsx` `.csv` `.tsv` (legacy `.xls` / `.xlsb` / `.ods` removed in 1.5.4 — convert to `.xlsx` first; see [#26](https://github.com/senoff/xlsx-for-ai/issues/26))
+**Input formats:** `.xlsx` `.csv` `.tsv`
 
 **Output modes:** text dump, markdown tables (best LLM comprehension per token), JSON, SQL `CREATE TABLE`+`INSERT`, inferred schema, workbook diff, real `.xlsx` (write mode).
 
@@ -321,7 +321,7 @@ Run `rm -rf node_modules package-lock.json && npm install` and the warnings will
 
 As of 1.5.4, `npm install xlsx-for-ai` finds **no inherited audit advisories**. The previous `xlsx` (sheetJS) and `uuid` findings were closed by:
 
-- **`xlsx` removed in 1.5.4** — see [#26](https://github.com/senoff/xlsx-for-ai/issues/26). The legacy `.xls` / `.xlsb` / `.ods` input path that depended on it is no longer supported; the modern `@protobi/exceljs` engine handles `.xlsx` (and CSV / TSV continue to use `papaparse`).
+- **Engine consolidation in 1.5.4** — moved fully onto `@protobi/exceljs` for `.xlsx` and `papaparse` for CSV/TSV, eliminating the previous secondary parser dependency.
 - **`uuid` bumped to ^14 via `overrides`** — clears the `GHSA-w5hq-g745-h8pq` advisory inherited transitively from ExcelJS. Mirrors the upstream protobi/exceljs gift PR locally.
 
 The triage workflow lives in [`.github/audit-allowlist.json`](.github/audit-allowlist.json) (currently empty) and `audit.yml` for whenever a future advisory needs accepting.
