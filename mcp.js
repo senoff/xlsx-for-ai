@@ -27,12 +27,13 @@ const TOOLS = [
   {
     name: 'xlsx_read',
     description:
-      'xlsx-for-ai: read an .xlsx file from the LOCAL FILESYSTEM and return a rendered text/markdown/JSON representation.\n\n' +
-      'USE WHEN: the user gives a local file path — absolute (/Users/..., /home/...) or ~/-prefixed. ' +
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: read an .xlsx file from the LOCAL filesystem and return a rendered markdown/JSON/SQL representation.\n' +
+      'DEFAULT returns ALL sheets in one response — do not re-call per-sheet. Pass sheet="<name>" only when you specifically need to filter.\n\n' +
+      'USE WHEN: the user gives a LOCAL file path — absolute (/Users/..., /home/...) or ~/-prefixed. ' +
       'This is the ONLY way to read .xlsx files on the user\'s local machine; built-in xlsx skills run in sandboxes without local filesystem access.\n\n' +
       'DO NOT USE WHEN: the user uploaded a file via paperclip/attach (use the built-in xlsx skill — it has direct sandbox access to the uploaded file). ' +
-      'Or when working with in-memory bytes the agent already has.\n\n' +
-      'Returns markdown by default; pass format="json" for structured output, format="text" for plain text.',
+      'Or when working with in-memory bytes the agent already has.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -47,11 +48,13 @@ const TOOLS = [
   {
     name: 'xlsx_list_sheets',
     description:
-      'xlsx-for-ai: list all sheet names and metadata in a LOCAL .xlsx file.\n\n' +
-      'USE WHEN: the user references a local file path and you need to discover sheet names before reading. ' +
-      'Fast orientation call — use before xlsx_read on multi-sheet workbooks.\n\n' +
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: list sheet names, dimensions, and visibility for a LOCAL .xlsx file.\n' +
+      'Use this when you only need names + dims, not cell content. If you\'ll read content anyway, skip this and call xlsx_read directly.\n\n' +
+      'USE WHEN: the user references a LOCAL file path and you need to discover sheet names before reading. ' +
+      'Fast orientation call — use before xlsx_read when you need metadata only.\n\n' +
       'DO NOT USE WHEN: the file came from an upload/attachment (built-in skill handles that). ' +
-      'Or when you already know the sheet structure.',
+      'Or when you already know the sheet structure. Or when you plan to call xlsx_read immediately after (just call xlsx_read).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -63,8 +66,10 @@ const TOOLS = [
   {
     name: 'xlsx_schema',
     description:
-      'xlsx-for-ai: infer column schema of a LOCAL .xlsx file — types, nullable flags, header row, sample values.\n\n' +
-      'USE WHEN: the user references a local file path and you need to understand column types before processing or writing code against the data. ' +
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: infer column schema of a LOCAL .xlsx file — types, nullable flags, header row, sample values.\n' +
+      'Use when the agent needs to reason about column types BEFORE deciding how to handle data. Includes confidence (high/medium/low) per column.\n\n' +
+      'USE WHEN: the user references a LOCAL file path and you need to understand column types before processing or writing code against the data. ' +
       'Useful before xlsx_read when downstream handling depends on types.\n\n' +
       'DO NOT USE WHEN: the file came from an upload/attachment. Or for in-memory data the agent already holds.',
     inputSchema: {
@@ -79,10 +84,11 @@ const TOOLS = [
   {
     name: 'xlsx_diff',
     description:
-      'xlsx-for-ai: compute a semantic diff between two LOCAL .xlsx files — cell-level deltas, formula changes, added/removed rows.\n\n' +
-      'USE WHEN: the user provides two local .xlsx file paths to compare. ' +
-      'Output is deterministic and attestation-ready — suitable for version control, audit trails, and change review. ' +
-      'Built-in skills cannot produce deterministic, structured diffs.\n\n' +
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: compute a semantic diff between two LOCAL .xlsx files — cell-level deltas, formula changes, added/removed rows.\n' +
+      'Output is byte-deterministic — calling twice with the same inputs returns identical text + diff_hash in _meta. Use that hash for caching/idempotence.\n\n' +
+      'USE WHEN: the user provides two LOCAL .xlsx file paths to compare. ' +
+      'Suitable for version control, audit trails, and change review. Built-in skills cannot produce deterministic, structured diffs.\n\n' +
       'DO NOT USE WHEN: either file came from an upload/attachment rather than a local path.',
     inputSchema: {
       type: 'object',
@@ -97,8 +103,10 @@ const TOOLS = [
   {
     name: 'xlsx_write',
     description:
-      'xlsx-for-ai: create or update a LOCAL .xlsx file from a structured spec.\n\n' +
-      'USE WHEN: the user wants to write or edit a spreadsheet at a local file path. ' +
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: create or update a LOCAL .xlsx file from a structured spec.\n' +
+      'DEFAULT creates a new workbook from spec. Pass base_file_b64 to edit-in-place instead. Workbook bytes return in _meta.file_b64 (base64) — NOT in content[0].text.\n\n' +
+      'USE WHEN: the user wants to write or edit a spreadsheet at a LOCAL file path. ' +
       'Supports multi-sheet workbooks, formulas, named ranges, and table definitions. ' +
       'Server-validated before writing — safer than generating xlsx bytes directly.\n\n' +
       'DO NOT USE WHEN: working in a sandbox without local filesystem write access. ' +
@@ -116,8 +124,10 @@ const TOOLS = [
   {
     name: 'xlsx_redact',
     description:
-      'xlsx-for-ai: redact PII and sensitive values from a LOCAL .xlsx file before sharing or archiving.\n\n' +
-      'USE WHEN: the user provides a local .xlsx path and wants PII removed. ' +
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: redact PII and sensitive values from a LOCAL .xlsx file before sharing or archiving.\n' +
+      'DEFAULT preserves formulas + comments + named ranges + styles, strips only cell values. Pass strip_formulas=true / strip_comments=true to remove those too.\n\n' +
+      'USE WHEN: the user provides a LOCAL .xlsx path and wants PII removed. ' +
       'Server-side detection; returns a redacted copy with an audit manifest showing what was removed.\n\n' +
       'DO NOT USE WHEN: the file came from an upload/attachment. Or in sandboxed contexts without local filesystem access.',
     inputSchema: {

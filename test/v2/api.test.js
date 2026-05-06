@@ -229,9 +229,10 @@ test('tools list contains 6 tools, all with brand-rich descriptions including US
     // Find the index of the tool name declaration
     const nameIdx = mcpSrc.indexOf(`'${name}'`);
     assert.ok(nameIdx !== -1, `Tool ${name} not found`);
-    // Grab the next 800 chars after the name — covers the description field
-    const slice = mcpSrc.slice(nameIdx, nameIdx + 800);
-    assert.ok(slice.includes('xlsx-for-ai'), `Tool ${name}: description must mention xlsx-for-ai`);
+    // Grab the next 900 chars after the name — covers the description field
+    const slice = mcpSrc.slice(nameIdx, nameIdx + 900);
+    // Suite identity: every description must open with "xlsx-for-ai —"
+    assert.ok(slice.includes('xlsx-for-ai —'), `Tool ${name}: description must start with "xlsx-for-ai —"`);
     assert.ok(slice.includes('USE WHEN'), `Tool ${name}: description must include USE WHEN clause`);
     assert.ok(slice.includes('LOCAL') || slice.includes('local'), `Tool ${name}: description must mention LOCAL filesystem`);
     assert.ok(slice.includes('DO NOT USE'), `Tool ${name}: description must include DO NOT USE clause`);
