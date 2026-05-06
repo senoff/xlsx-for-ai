@@ -29,7 +29,9 @@ const TOOLS = [
     description:
       'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
       'This tool: read an .xlsx file from the LOCAL filesystem and return a rendered markdown/JSON/SQL representation.\n' +
-      'DEFAULT returns ALL sheets in one response — do not re-call per-sheet. Pass sheet="<name>" only when you specifically need to filter.\n\n' +
+      'DEFAULT returns ALL sheets in one response — do not re-call per-sheet. Pass sheet="<name>" only when you specifically need to filter.\n' +
+      'Pass format="md" (default — markdown table), "json" (structured rows), or "sql" (CREATE TABLE + INSERTs).\n' +
+      'Synonyms accepted: "markdown" maps to "md", "text" maps to "md". Use the short forms to avoid guessing.\n\n' +
       'USE WHEN: the user gives a LOCAL file path — absolute (/Users/..., /home/...) or ~/-prefixed. ' +
       'This is the ONLY way to read .xlsx files on the user\'s local machine; built-in xlsx skills run in sandboxes without local filesystem access.\n\n' +
       'DO NOT USE WHEN: the user uploaded a file via paperclip/attach (use the built-in xlsx skill — it has direct sandbox access to the uploaded file). ' +
@@ -38,7 +40,12 @@ const TOOLS = [
       type: 'object',
       properties: {
         file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
-        format:    { type: 'string', enum: ['text', 'json', 'markdown'], default: 'text' },
+        format:    {
+          type: 'string',
+          enum: ['md', 'json', 'sql'],
+          default: 'md',
+          description: 'Output format. Use "md" (markdown table, default), "json" (structured rows), or "sql" (CREATE TABLE + INSERTs). Synonyms: "markdown"→"md", "text"→"md".',
+        },
         sheet:     { type: 'string', description: 'Sheet name or index (default: all sheets).' },
         evaluate:  { type: 'boolean', description: 'Evaluate formulas server-side (default: false).' },
       },
