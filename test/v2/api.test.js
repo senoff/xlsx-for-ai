@@ -205,7 +205,7 @@ test('non-read tools fail clearly when API is unreachable', async () => {
 // Test: MCP tools/list returns 6 tools with brand-rich descriptions
 // ---------------------------------------------------------------------------
 
-test('tools list contains 6 tools, all with brand-rich descriptions', async () => {
+test('tools list contains 6 tools, all with brand-rich descriptions including USE WHEN and LOCAL', async () => {
   // Import TOOLS directly from mcp.js — parse it without starting the server
   // We use a trick: require the mcp module internals via a test-only export.
   // Since mcp.js doesn't export TOOLS, we read the file and verify statically.
@@ -213,7 +213,7 @@ test('tools list contains 6 tools, all with brand-rich descriptions', async () =
     path.join(__dirname, '../../mcp.js'), 'utf8'
   );
 
-  // Count tool name entries
+  // All 6 tools must be present
   const toolNames = [
     'xlsx_read', 'xlsx_list_sheets', 'xlsx_schema',
     'xlsx_diff', 'xlsx_write', 'xlsx_redact',
@@ -222,13 +222,19 @@ test('tools list contains 6 tools, all with brand-rich descriptions', async () =
     assert.ok(mcpSrc.includes(`'${name}'`), `Tool ${name} missing from mcp.js`);
   }
 
-  // Every tool description must mention 'xlsx-for-ai'
-  const descMatches = [...mcpSrc.matchAll(/description:\s*\n?\s*'(.*?)'/gs)];
-  for (const [, desc] of descMatches) {
-    // Only check tool description lines (skip input schema descriptions)
-    if (desc.length > 60) {
-      assert.ok(desc.includes('xlsx-for-ai'), `Tool description not brand-rich: ${desc.slice(0, 80)}`);
-    }
+  // Extract top-level tool description strings (multi-line template concatenations)
+  // Strategy: find each name block and assert the surrounding description text
+  // contains required signal phrases.
+  for (const name of toolNames) {
+    // Find the index of the tool name declaration
+    const nameIdx = mcpSrc.indexOf(`'${name}'`);
+    assert.ok(nameIdx !== -1, `Tool ${name} not found`);
+    // Grab the next 800 chars after the name — covers the description field
+    const slice = mcpSrc.slice(nameIdx, nameIdx + 800);
+    assert.ok(slice.includes('xlsx-for-ai'), `Tool ${name}: description must mention xlsx-for-ai`);
+    assert.ok(slice.includes('USE WHEN'), `Tool ${name}: description must include USE WHEN clause`);
+    assert.ok(slice.includes('LOCAL') || slice.includes('local'), `Tool ${name}: description must mention LOCAL filesystem`);
+    assert.ok(slice.includes('DO NOT USE'), `Tool ${name}: description must include DO NOT USE clause`);
   }
 
   assert.equal(toolNames.length, 6);
