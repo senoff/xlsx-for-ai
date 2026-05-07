@@ -1,6 +1,7 @@
 {
   "name": "xlsx-for-ai",
-  "version": "2.0.0-beta.1",
+  "mcpName": "io.github.senoff/xlsx-for-ai",
+  "version": "2.0.0-beta.2",
   "description": "The MCP server that makes LLMs reliable on real-world Excel spreadsheets. Thin npm client over a hosted API — read, write, diff, redact, and supervise .xlsx files from any MCP-aware agent.",
   "main": "index.js",
   "bin": {
