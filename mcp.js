@@ -17,6 +17,7 @@ const { ensureRegistered } = require('./lib/register');
 const { callTool }         = require('./lib/client');
 const { fallbackRead }     = require('./lib/fallback-read');
 const fs                   = require('fs');
+const fsPromises           = require('fs/promises');
 const path                 = require('path');
 
 // ---------------------------------------------------------------------------
@@ -113,6 +114,9 @@ const TOOLS = [
       'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
       'This tool: create or update a LOCAL .xlsx file from a structured spec.\n' +
       'DEFAULT creates a new workbook from spec. Pass base_file_b64 to edit-in-place instead. Workbook bytes return in _meta.file_b64 (base64) — NOT in content[0].text.\n\n' +
+      'ALWAYS pass out_path when the user wants the written file saved to disk.\n' +
+      'WITHOUT out_path: workbook bytes return in _meta.file_b64 (base64) — caller must save them.\n' +
+      'The response text confirms whether a save happened — trust the response, do not infer.\n\n' +
       'USE WHEN: the user wants to write or edit a spreadsheet at a LOCAL file path. ' +
       'Supports multi-sheet workbooks, formulas, named ranges, and table definitions. ' +
       'Server-validated before writing — safer than generating xlsx bytes directly.\n\n' +
@@ -134,6 +138,9 @@ const TOOLS = [
       'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
       'This tool: redact PII and sensitive values from a LOCAL .xlsx file before sharing or archiving.\n' +
       'DEFAULT preserves formulas + comments + named ranges + styles, strips only cell values. Pass strip_formulas=true / strip_comments=true to remove those too.\n\n' +
+      'ALWAYS pass out_path when the user wants the redacted file saved to disk.\n' +
+      'WITHOUT out_path: redacted bytes return in _meta.file_b64 (base64) — caller must save them.\n' +
+      'The response text confirms whether a save happened — trust the response, do not infer.\n\n' +
       'USE WHEN: the user provides a LOCAL .xlsx path and wants PII removed. ' +
       'Server-side detection; returns a redacted copy with an audit manifest showing what was removed.\n\n' +
       'DO NOT USE WHEN: the file came from an upload/attachment. Or in sandboxed contexts without local filesystem access.',
@@ -154,6 +161,39 @@ const TOOLS = [
 
 function fileToB64(filePath) {
   return fs.readFileSync(filePath).toString('base64');
+}
+
+// ---------------------------------------------------------------------------
+// File-save helper for tools that return _meta.file_b64
+//
+// If out_path is provided and _meta.file_b64 is present:  decode + write + append confirmation.
+// If out_path is provided but _meta.file_b64 is absent:   append warning (don't claim save).
+// If out_path is not provided:                            leave response unchanged.
+// ---------------------------------------------------------------------------
+
+async function applyFileB64(result, outPath) {
+  if (!outPath) {
+    // No save requested — leave response untouched (b64 stays in _meta for caller)
+    return result;
+  }
+
+  const absPath = path.resolve(outPath);
+
+  if (result._meta && result._meta.file_b64) {
+    await fsPromises.writeFile(absPath, Buffer.from(result._meta.file_b64, 'base64'));
+    // Append save confirmation to first text content block
+    if (result.content && result.content[0] && result.content[0].type === 'text') {
+      result.content[0].text += `\n\nFile saved to: ${absPath}`;
+    }
+  } else {
+    // out_path requested but server didn't return file bytes — don't claim save
+    if (result.content && result.content[0] && result.content[0].type === 'text') {
+      result.content[0].text +=
+        '\n\nWarning: out_path was provided but the server did not return file bytes (_meta.file_b64 missing). File was NOT written to disk.';
+    }
+  }
+
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -196,16 +236,23 @@ async function dispatchTool(name, args) {
     if (!spec && args.spec_path) {
       spec = JSON.parse(fs.readFileSync(args.spec_path, 'utf8'));
     }
-    return callTool('xlsx_write', { spec });
+    const writeBody = { spec };
+    if (args.base_file_b64) writeBody.base_file_b64 = args.base_file_b64;
+    const result = await callTool('xlsx_write', writeBody);
+    return applyFileB64(result, args.out_path);
   }
 
   // xlsx_redact: two paths (in + out)
+  // out_path is client-side only — strip it before forwarding to the server.
   if (name === 'xlsx_redact') {
+    // Forward all server-side options; exclude client-local fields (file_path, out_path).
+    const { file_path: _fp, out_path: _op, ...serverOpts } = args;
     const body = {
       file_b64: fileToB64(args.file_path),
-      options: { out_path: args.out_path },
+      options: serverOpts,
     };
-    return callTool('xlsx_redact', body);
+    const result = await callTool('xlsx_redact', body);
+    return applyFileB64(result, args.out_path);
   }
 
   // All other tools (list_sheets, schema) — single-file relay
@@ -255,7 +302,13 @@ async function main() {
   await server.connect(transport);
 }
 
-main().catch((err) => {
-  process.stderr.write(`xlsx-for-ai MCP fatal: ${err.message}\n`);
-  process.exit(1);
-});
+// Guard: don't auto-start when required by tests
+if (require.main === module) {
+  main().catch((err) => {
+    process.stderr.write(`xlsx-for-ai MCP fatal: ${err.message}\n`);
+    process.exit(1);
+  });
+}
+
+// Test-only exports — never import these in production code
+module.exports = { applyFileB64, dispatchTool };

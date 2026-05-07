@@ -26,6 +26,26 @@ const MOCK_RESPONSE  = {
   _meta: { engine: 'server', version: '2.0.0' },
 };
 
+// Minimal valid xlsx bytes (1-byte placeholder); tests only care about round-trip decode
+const MOCK_FILE_BYTES = Buffer.from('FAKEXLSXBYTES');
+const MOCK_FILE_B64   = MOCK_FILE_BYTES.toString('base64');
+
+const MOCK_REDACT_RESPONSE = {
+  content: [{ type: 'text', text: 'Redacted 38 cells across 1 sheet.' }],
+  _meta: { engine: 'server', version: '2.0.0', file_b64: MOCK_FILE_B64 },
+};
+
+const MOCK_WRITE_RESPONSE = {
+  content: [{ type: 'text', text: 'Workbook written: 2 sheets, 10 rows.' }],
+  _meta: { engine: 'server', version: '2.0.0', file_b64: MOCK_FILE_B64 },
+};
+
+// Variant without file_b64 — edge case: server omits it
+const MOCK_REDACT_NO_B64 = {
+  content: [{ type: 'text', text: 'Redacted 5 cells across 1 sheet.' }],
+  _meta: { engine: 'server', version: '2.0.0' },
+};
+
 let server;
 let serverPort;
 let lastRequest; // captures the last inbound request details for assertion
@@ -56,6 +76,22 @@ function startMockServer() {
           if (tool === 'xlsx_read' && parsed.options && parsed.options._force_5xx) {
             res.statusCode = 500;
             res.end(JSON.stringify({ error: 'internal server error' }));
+            return;
+          }
+
+          // xlsx_redact: return file_b64 (or omit if _force_no_b64 option set)
+          if (tool === 'xlsx_redact') {
+            if (parsed.options && parsed.options._force_no_b64) {
+              res.end(JSON.stringify(MOCK_REDACT_NO_B64));
+            } else {
+              res.end(JSON.stringify(MOCK_REDACT_RESPONSE));
+            }
+            return;
+          }
+
+          // xlsx_write: return file_b64
+          if (tool === 'xlsx_write') {
+            res.end(JSON.stringify(MOCK_WRITE_RESPONSE));
             return;
           }
 
@@ -98,7 +134,7 @@ after(async () => {
 function freshRequire(mod) {
   // Clear module cache entries for our lib so env vars take effect
   Object.keys(require.cache).forEach((k) => {
-    if (k.includes('xlsx-for-ai/lib/') || k.includes('xlsx-for-ai/index')) {
+    if (k.includes('xlsx-for-ai/lib/') || k.includes('xlsx-for-ai/index') || k.includes('xlsx-for-ai/mcp')) {
       delete require.cache[k];
     }
   });
@@ -229,8 +265,9 @@ test('tools list contains 6 tools, all with brand-rich descriptions including US
     // Find the index of the tool name declaration
     const nameIdx = mcpSrc.indexOf(`'${name}'`);
     assert.ok(nameIdx !== -1, `Tool ${name} not found`);
-    // Grab the next 900 chars after the name — covers the description field
-    const slice = mcpSrc.slice(nameIdx, nameIdx + 900);
+    // Grab the next 1200 chars after the name — covers the description field
+    // (xlsx_write description grew with the out_path guidance additions)
+    const slice = mcpSrc.slice(nameIdx, nameIdx + 1200);
     // Suite identity: every description must open with "xlsx-for-ai —"
     assert.ok(slice.includes('xlsx-for-ai —'), `Tool ${name}: description must start with "xlsx-for-ai —"`);
     assert.ok(slice.includes('USE WHEN'), `Tool ${name}: description must include USE WHEN clause`);
@@ -269,4 +306,119 @@ test('cursor-reads-xlsx is registered as a bin alias', () => {
   );
   assert.equal(pkg.bin['cursor-reads-xlsx'], pkg.bin['xlsx-for-ai'],
     'cursor-reads-xlsx must point to same entry as xlsx-for-ai');
+});
+
+// ---------------------------------------------------------------------------
+// Test: xlsx_redact with out_path — writes file, appends confirmation
+// ---------------------------------------------------------------------------
+
+test('xlsx_redact with out_path writes decoded bytes to disk and appends confirmation', async () => {
+  const { applyFileB64 } = freshRequire('../../mcp.js');
+  const outPath = path.join(tmpDir, 'redacted-out.xlsx');
+
+  // Build a mock result as the server would return it
+  const mockResult = {
+    content: [{ type: 'text', text: 'Redacted 38 cells across 1 sheet.' }],
+    _meta: { engine: 'server', version: '2.0.0', file_b64: MOCK_FILE_B64 },
+  };
+
+  const result = await applyFileB64(mockResult, outPath);
+
+  assert.ok(fs.existsSync(outPath), 'file must exist at out_path after applyFileB64');
+  assert.deepEqual(fs.readFileSync(outPath), MOCK_FILE_BYTES, 'decoded bytes must match original');
+  assert.ok(result.content[0].text.includes('File saved to:'), 'response text must include save confirmation');
+  assert.ok(result.content[0].text.includes(path.resolve(outPath)), 'response text must include absolute path');
+  assert.ok(result.content[0].text.includes('Redacted 38 cells'), 'original server text must be preserved');
+});
+
+// ---------------------------------------------------------------------------
+// Test: xlsx_redact without out_path — no file written, response unchanged
+// ---------------------------------------------------------------------------
+
+test('xlsx_redact without out_path leaves response unchanged and writes no file', async () => {
+  const { applyFileB64 } = freshRequire('../../mcp.js');
+
+  const originalText = 'Redacted 38 cells across 1 sheet.';
+  const mockResult = {
+    content: [{ type: 'text', text: originalText }],
+    _meta: { engine: 'server', version: '2.0.0', file_b64: MOCK_FILE_B64 },
+  };
+
+  const filesBefore = fs.readdirSync(tmpDir);
+  const result = await applyFileB64(mockResult, undefined);
+  const filesAfter = fs.readdirSync(tmpDir);
+
+  const newXlsx = filesAfter.filter((f) => f.endsWith('.xlsx') && !filesBefore.includes(f));
+  assert.equal(newXlsx.length, 0, 'no xlsx file should be written when out_path is absent');
+  assert.equal(result.content[0].text, originalText, 'response text must not be modified when out_path absent');
+  assert.ok(!result.content[0].text.includes('File saved to:'), 'no save claim in text');
+  assert.ok(result._meta.file_b64, '_meta.file_b64 must be preserved for caller');
+});
+
+// ---------------------------------------------------------------------------
+// Test: xlsx_write with out_path — writes file, appends confirmation
+// ---------------------------------------------------------------------------
+
+test('xlsx_write with out_path writes decoded bytes to disk and appends confirmation', async () => {
+  const { applyFileB64 } = freshRequire('../../mcp.js');
+  const outPath = path.join(tmpDir, 'written-out.xlsx');
+
+  const mockResult = {
+    content: [{ type: 'text', text: 'Workbook written: 2 sheets, 10 rows.' }],
+    _meta: { engine: 'server', version: '2.0.0', file_b64: MOCK_FILE_B64 },
+  };
+
+  const result = await applyFileB64(mockResult, outPath);
+
+  assert.ok(fs.existsSync(outPath), 'file must exist at out_path after applyFileB64');
+  assert.deepEqual(fs.readFileSync(outPath), MOCK_FILE_BYTES, 'decoded bytes must match original');
+  assert.ok(result.content[0].text.includes('File saved to:'), 'response text must include save confirmation');
+  assert.ok(result.content[0].text.includes(path.resolve(outPath)), 'response text must include absolute path');
+  assert.ok(result.content[0].text.includes('Workbook written:'), 'original server text must be preserved');
+});
+
+// ---------------------------------------------------------------------------
+// Test: xlsx_write without out_path — no file written, response unchanged
+// ---------------------------------------------------------------------------
+
+test('xlsx_write without out_path leaves response unchanged and writes no file', async () => {
+  const { applyFileB64 } = freshRequire('../../mcp.js');
+
+  const originalText = 'Workbook written: 2 sheets, 10 rows.';
+  const mockResult = {
+    content: [{ type: 'text', text: originalText }],
+    _meta: { engine: 'server', version: '2.0.0', file_b64: MOCK_FILE_B64 },
+  };
+
+  const filesBefore = fs.readdirSync(tmpDir);
+  const result = await applyFileB64(mockResult, undefined);
+  const filesAfter = fs.readdirSync(tmpDir);
+
+  const newXlsx = filesAfter.filter((f) => f.endsWith('.xlsx') && !filesBefore.includes(f));
+  assert.equal(newXlsx.length, 0, 'no xlsx file should be written when out_path is absent');
+  assert.equal(result.content[0].text, originalText, 'response text must not be modified');
+  assert.ok(!result.content[0].text.includes('File saved to:'), 'no save claim in text');
+  assert.ok(result._meta.file_b64, '_meta.file_b64 must be preserved');
+});
+
+// ---------------------------------------------------------------------------
+// Test: edge case — out_path provided but server returns no file_b64
+// ---------------------------------------------------------------------------
+
+test('out_path provided but server returns no file_b64: warning appended, no file written', async () => {
+  const { applyFileB64 } = freshRequire('../../mcp.js');
+  const outPath = path.join(tmpDir, 'should-not-exist-edge.xlsx');
+
+  // Server response missing file_b64
+  const mockResult = {
+    content: [{ type: 'text', text: 'Redacted 5 cells across 1 sheet.' }],
+    _meta: { engine: 'server', version: '2.0.0' },
+  };
+
+  const result = await applyFileB64(mockResult, outPath);
+
+  assert.ok(!fs.existsSync(outPath), 'file must NOT be written when file_b64 absent');
+  assert.ok(result.content[0].text.includes('Warning:'), 'warning must appear in response text');
+  assert.ok(result.content[0].text.includes('NOT written'), 'warning must state file was not written');
+  assert.ok(!result.content[0].text.includes('File saved to:'), 'must not claim file was saved');
 });
