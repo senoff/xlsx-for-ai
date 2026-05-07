@@ -96,7 +96,7 @@ Server-side audit logs (request metadata, not workbook content) are retained for
 
 ## Data deletion requests
 
-To request deletion of your audit log records: email `privacy@xlsx-for-ai.dev` with your client_id (found in `~/.xlsx-for-ai/config.json`). We will delete all audit log entries for that client_id within 30 days and confirm by reply.
+To request deletion of your audit log records: email `hello@xlsx-for-ai.dev` with your client_id (found in `~/.xlsx-for-ai/config.json`) and "privacy request" in the subject line. We will delete all audit log entries for that client_id within 30 days and confirm by reply.
 
 ---
 
