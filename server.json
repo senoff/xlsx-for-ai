@@ -1,7 +1,7 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.senoff/xlsx-for-ai",
-  "description": "The MCP server that makes LLMs reliable on real-world Excel spreadsheets. Thin npm client over a hosted API — read, write, diff, redact, and supervise .xlsx files from any MCP-aware agent.",
+  "description": "MCP server for production-grade Excel/.xlsx tooling. Read, write, diff, redact. Free tier.",
   "repository": {
     "url": "https://github.com/senoff/xlsx-for-ai",
     "source": "github"
