@@ -1,6 +1,6 @@
 # Privacy
 
-**Last updated:** 2026-05-05
+**Last updated:** 2026-05-07
 
 This document covers how xlsx-for-ai handles your data. It is written for developers who want to audit the data flow before deploying xlsx-for-ai in an agent, and for FP&A teams who need to forward it to legal before using an agent that touches financial spreadsheets.
 
@@ -34,9 +34,17 @@ We do not send or collect:
 
 ## What happens to the file bytes
 
-File bytes are processed in memory. They are not written to disk on the server, not persisted to a database, and not stored in any cache beyond the duration of a single request.
+File bytes are processed in memory. In normal (non-error) requests, they are not written to disk on the server, not persisted to a database, and not stored in any cache beyond the duration of a single request.
 
-**Audit log:** we log the following per request: timestamp, client_id, endpoint, file size (bytes), sheet count, error class (if any), latency, and which hardening checks ran. We do not log cell values, formula text, row data, or any representation of workbook content.
+**Error-triggered capture (optional, not currently enabled):** when a request results in an error (5xx, hardening rejection, or engine exception), we may retain a redacted copy of the workbook for up to 30 days, solely for debugging and improving the engine. "Redacted" means cell values are stripped before persistence — the same transform that `xlsx_redact` runs. Structure is preserved (formulas, named ranges, formatting, x14 features) so we can reproduce the failure, but your data is not stored. Captures auto-delete after 30 days via an R2 lifecycle rule.
+
+This capture feature is **not currently enabled**. We will document the activation date in [CHANGELOG.md](CHANGELOG.md) when it is provisioned.
+
+**Opt out of capture:** add the request header `X-XFA-Privacy: strict` to disable capture for a specific request. Use the CLI flag `--privacy=strict` to add this header to all requests from a CLI session, or set the environment variable `XFA_PRIVACY=strict` to opt out globally across all requests.
+
+Captures are never used to train language models, never shared with third parties, and never used for any purpose other than diagnosing production errors.
+
+**Audit log:** we log the following per request: timestamp, client_id, endpoint, file size (bytes), sheet count, structural fingerprints (formula count, sheet dimensions, feature flags like "uses_LAMBDA"), error class (if any), latency, and which hardening checks ran. We do not log cell values, formula text, row data, or any representation of workbook content.
 
 ---
 

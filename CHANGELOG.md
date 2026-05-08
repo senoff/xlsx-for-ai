@@ -7,6 +7,48 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 
 ---
 
+## [2.0.0-beta.3] - 2026-05-07
+
+### Data flywheel infrastructure (server-side, Layers 1–3)
+
+**Layer 1 — Structural fingerprints** (ships live, no privacy delta):
+
+- All 6 tool routes now extract workbook feature flags and structural metrics and write them to `request_log` alongside every audit row.
+- Feature flags detected: `uses_LAMBDA`, `uses_dynamic_arrays`, `uses_x14_cf`, `uses_threaded_comments`, `uses_mip_labels`, `uses_pivot_cache`, `uses_named_ranges`, `uses_slicers`, `uses_timelines`.
+- New `request_log` columns: `feature_flags TEXT[]`, `formula_count INTEGER`, `defined_names_count INTEGER`, `max_sheet_rows INTEGER`, `max_sheet_cols INTEGER`, `error_subclass TEXT`.
+- Migration: `src/db/migrations/2026-05-07-fingerprints.sql` (safe `ADD COLUMN IF NOT EXISTS`).
+- Admin stats (`GET /api/v1/admin/stats`) now includes `fingerprints` section with `feature_flag_counts_last_7d`, `error_subclass_counts_last_7d`, `formula_count_distribution_last_7d`, `max_sheet_rows_distribution_last_7d`.
+
+**Layer 2 — Error-triggered raw-bytes capture** (code ships, gated behind `CAPTURE_R2_ENABLED=false` default):
+
+- On error (5xx, hardening trip, engine exception), workbook bytes are auto-redacted via the same `xlsx_redact` transform (cell values stripped, structure preserved), then written to R2 at `captures/<YYYY-MM-DD>/<request_id>.xlsx`.
+- New config keys: `CAPTURE_R2_ENABLED`, `CAPTURE_R2_BUCKET`, `CAPTURE_R2_ACCESS_KEY_ID`, `CAPTURE_R2_SECRET_ACCESS_KEY`, `CAPTURE_R2_ENDPOINT`, `CAPTURE_TTL_DAYS`.
+- Opt-out header: `X-XFA-Privacy: strict` skips capture entirely (checked before any capture work).
+- `GET /api/v1/admin/captures` endpoint: lists recent capture metadata (no bytes, no signed URLs).
+- R2 bucket lifecycle rule (30-day expiration) documented in DEPLOY.md.
+
+**Layer 3 — Replay pipeline** (script ready, idle until Layer 2 accumulates data):
+
+- `scripts/replay-corpus.ts`: fetches captures from R2, replays them against a local server, compares against stored snapshots, reports a regression matrix.
+- `npm run replay-corpus` added to package.json.
+
+### Privacy commitment update
+
+- PRIVACY.md updated to honestly describe Layer 2 behavior (auto-redact-before-persist, 30-day TTL, opt-out header, not currently enabled).
+
+### Client
+
+- **`--privacy=strict` CLI flag**: sets `XFA_PRIVACY=strict` for the session, adding `X-XFA-Privacy: strict` to all API requests.
+- **`XFA_PRIVACY=strict` env var**: `lib/client.js` reads this and adds the header on every request.
+
+---
+
+## [2.0.0-beta.2] - 2026-05-06
+
+See git log for beta.2 changes.
+
+---
+
 ## [2.0.0-beta.1] - 2026-05-05
 
 ### Architecture

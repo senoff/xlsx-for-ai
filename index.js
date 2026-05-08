@@ -31,7 +31,8 @@ const {
 
 function parseArgs(argv) {
   const opts = { file: null, format: 'text', sheet: null, evaluate: false,
-    telemetryStatus: false, enableTelemetry: false, disableTelemetry: false };
+    telemetryStatus: false, enableTelemetry: false, disableTelemetry: false,
+    privacyStrict: false };
   let i = 0;
   while (i < argv.length) {
     const a = argv[i];
@@ -42,6 +43,7 @@ function parseArgs(argv) {
     else if (a === '--telemetry-status')   opts.telemetryStatus = true;
     else if (a === '--enable-telemetry')   opts.enableTelemetry = true;
     else if (a === '--disable-telemetry')  opts.disableTelemetry = true;
+    else if (a === '--privacy=strict')     opts.privacyStrict = true;
     else if (!a.startsWith('--'))          opts.file = a;
     i++;
   }
@@ -71,6 +73,12 @@ async function main() {
   }
 
   await ensureRegistered();
+
+  // Privacy strict: --privacy=strict flag sets the env var for this process
+  // so callTool() (which reads XFA_PRIVACY) adds the header automatically.
+  if (opts.privacyStrict) {
+    process.env.XFA_PRIVACY = 'strict';
+  }
 
   const fileB64 = fs.readFileSync(absPath).toString('base64');
   // Server format enum is 'md' | 'json' | 'sql'. The legacy CLI default 'text'

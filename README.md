@@ -251,6 +251,19 @@ xlsx-for-ai --disable-telemetry
 xlsx-for-ai --telemetry-status
 ```
 
+**Privacy strict mode** — prevents error-triggered capture of your workbook bytes (see [PRIVACY.md](PRIVACY.md)):
+
+```bash
+# Per-session flag (applies to all tool calls in the CLI invocation)
+xlsx-for-ai --privacy=strict myfile.xlsx
+
+# Environment variable (applies globally to all requests in the process)
+XFA_PRIVACY=strict xlsx-for-ai myfile.xlsx
+
+# In MCP server config (applies to all tool calls from the MCP server):
+# Set XFA_PRIVACY=strict in your MCP server's env block
+```
+
 Delete the config to reset your client ID and API key:
 
 ```bash
