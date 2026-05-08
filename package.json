@@ -49,7 +49,7 @@
   },
   "dependencies": {
     "@formulajs/formulajs": "^4.6.0",
-    "@protobi/exceljs": "^4.4.0-protobi.9",
+    "@protobi/exceljs": "^4.4.0-protobi.10",
     "gpt-tokenizer": "^3.4.0",
     "jszip": "^3.10.1",
     "papaparse": "^5.5.3"
