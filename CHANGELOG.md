@@ -7,6 +7,29 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 
 ---
 
+## [2.0.0] - 2026-05-08
+
+First stable 2.x release. Promotes `2.0.0-beta.3` to `latest` on npm with no
+code changes — every line below is identical to beta.3, which has been
+exercised end-to-end against the live hosted API at `api.xlsx-for-ai.dev`.
+
+**Breaking change vs 1.5.x:** the local heavy-engine path is gone from this
+package. `xlsx-for-ai-mcp` now relays to the hosted API. The
+`cursor-reads-xlsx` bin alias is preserved. Users who need the old
+local-engine behavior should pin `xlsx-for-ai@1.5.4`.
+
+**What's gated off in this release** (server-side, awaiting Phase 5):
+
+- Raw-bytes capture (`CAPTURE_R2_ENABLED`) — default `false`
+- Success-sampling capture (`CAPTURE_SUCCESS_RATE`) — default `0.0`
+- `full_bytes` capture-consent level — returns `402 tier_upgrade_required`
+  until paid tiers exist
+- All paid tiers (Pro / Ultra) — not yet active
+
+The free tier is the entire active surface for 2.0.0.
+
+---
+
 ## [2.0.0-beta.3] - 2026-05-07
 
 ### Data flywheel infrastructure (server-side, Layers 1–3)
