@@ -27,14 +27,47 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 - `GET /api/v1/admin/captures` endpoint: lists recent capture metadata (no bytes, no signed URLs).
 - R2 bucket lifecycle rule (30-day expiration) documented in DEPLOY.md.
 
+**Layer 2.5 — Success-sampling capture** (code ships, gated behind `CAPTURE_SUCCESS_RATE=0.0` default):
+
+- On successful calls, a configurable sampling rate (`CAPTURE_SUCCESS_RATE` float 0.0–1.0) triggers capture.
+- Rare-feature boost: `CAPTURE_RARE_FEATURE_BOOST` (default 5.0) multiplies the base rate for workbooks with `uses_LAMBDA`, `uses_dynamic_arrays`, `uses_x14_cf`, `uses_threaded_comments`, or `uses_mip_labels`. Ensures corpus coverage of uncommon features even at low base rates.
+- Capture reason tagged in R2 object metadata: `error` | `success_sample` | `hardening`.
+
 **Layer 3 — Replay pipeline** (script ready, idle until Layer 2 accumulates data):
 
 - `scripts/replay-corpus.ts`: fetches captures from R2, replays them against a local server, compares against stored snapshots, reports a regression matrix.
 - `npm run replay-corpus` added to package.json.
 
+**Output snapshots:**
+
+- Every capture now also writes a snapshot JSON to R2 at `snapshots/<date>/<request_id>.json` with the rendered output text, output hash, engine version, and input hash. This is the baseline for engine-swap regression testing.
+
+**Engine-version tagging:**
+
+- `engine_version TEXT` column added to `request_log`. Populated on every audit write from a cached startup read of `@protobi/exceljs/package.json`. Migration: `src/db/migrations/2026-05-07-engine-version.sql`.
+
+**Cross-engine validation:**
+
+- `scripts/cross-engine-replay.ts`: replays captured workbooks through both `@protobi/exceljs` and `@cj-tech-master/excelts` and reports diffs.
+- `npm run cross-engine` added.
+- `@cj-tech-master/excelts` added as a devDependency (not a runtime dep).
+- Reports written to `cross-engine-reports/<date>.md`.
+
+**Capture consent levels:**
+
+- New `clients.capture_consent_level TEXT` column (default `redacted_only`, values: `redacted_only` | `full_bytes` | `none`). Migration: `src/db/migrations/2026-05-07-consent-level.sql`.
+- New endpoint `PATCH /api/v1/clients/me/consent`. Free tier can set `redacted_only` or `none`. `full_bytes` is tier-gated (requires Pro/Ultra, not yet active — Phase 5).
+- `captureWorkbook()` respects the consent level: `none` skips capture, `full_bytes` persists raw bytes.
+
+**Coverage audit:**
+
+- `scripts/coverage-audit.ts`: counts captures per feature flag and compares against minimum targets in `config/coverage-targets.json`. Reports gaps.
+- `npm run coverage-audit` added.
+
 ### Privacy commitment update
 
-- PRIVACY.md updated to honestly describe Layer 2 behavior (auto-redact-before-persist, 30-day TTL, opt-out header, not currently enabled).
+- PRIVACY.md updated to describe Layer 2 behavior, Layer 2.5 success-sampling, and the three consent levels (`redacted_only`, `full_bytes`, `none`) including the `PATCH /api/v1/clients/me/consent` endpoint.
+- All changes are server-side; npm client surface unchanged — version stays at `2.0.0-beta.3`.
 
 ### Client
 

@@ -92,6 +92,40 @@ Server-side audit logs (request metadata, not workbook content) are retained for
 
 ---
 
+## Capture consent levels
+
+By default, captured workbook bytes are auto-redacted before persistence (cell values stripped, structure preserved — same transform as `xlsx_redact`). This is the `redacted_only` consent level.
+
+Authenticated clients can change their consent level via `PATCH /api/v1/clients/me/consent`:
+
+| Level | Description | Who can set it |
+|---|---|---|
+| `redacted_only` | Default. Auto-redact before any capture. | Everyone |
+| `none` | Opt out of all captures entirely. Equivalent to always sending `X-XFA-Privacy: strict`. | Everyone |
+| `full_bytes` | Capture raw (non-redacted) bytes. Richer test fixtures; real cell values included. | Pro/Ultra tier (Phase 5) |
+
+**`full_bytes` is not yet activatable** — the Pro tier is not available until Phase 5. The endpoint wiring exists now so that when tiers ship, consent activates immediately. Any request to set `full_bytes` before Phase 5 returns HTTP 402 with `tier_upgrade_required`.
+
+Full-bytes captures carry the same privacy guarantees as redacted captures: 30-day TTL, no training use, no third-party sharing.
+
+To change your consent level:
+
+```bash
+# Opt out of all captures
+curl -X PATCH https://api.xlsx-for-ai.dev/api/v1/clients/me/consent \
+  -H "Authorization: Bearer $YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"capture_consent_level": "none"}'
+
+# Restore default (redacted captures only)
+curl -X PATCH https://api.xlsx-for-ai.dev/api/v1/clients/me/consent \
+  -H "Authorization: Bearer $YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"capture_consent_level": "redacted_only"}'
+```
+
+---
+
 ## Compliance posture
 
 **SOC 2:** not yet certified. We operate with SOC 2-aligned controls (access logging, least-privilege service accounts, encrypted storage at rest, TLS in transit) and are working toward formal certification.
