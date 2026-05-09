@@ -32,7 +32,7 @@ const {
 function parseArgs(argv) {
   const opts = { file: null, format: 'text', sheet: null, evaluate: false,
     telemetryStatus: false, enableTelemetry: false, disableTelemetry: false,
-    privacyStrict: false };
+    privacyStrict: false, showVersion: false };
   let i = 0;
   while (i < argv.length) {
     const a = argv[i];
@@ -44,6 +44,7 @@ function parseArgs(argv) {
     else if (a === '--enable-telemetry')   opts.enableTelemetry = true;
     else if (a === '--disable-telemetry')  opts.disableTelemetry = true;
     else if (a === '--privacy=strict')     opts.privacyStrict = true;
+    else if (a === '--version' || a === '-v') opts.showVersion = true;
     else if (!a.startsWith('--'))          opts.file = a;
     i++;
   }
@@ -57,6 +58,7 @@ function parseArgs(argv) {
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
 
+  if (opts.showVersion) { console.log(require('./package.json').version); return; }
   if (opts.telemetryStatus) { console.log(telemetryStatus()); return; }
   if (opts.enableTelemetry)  { enableTelemetry();  console.log('Telemetry enabled.'); return; }
   if (opts.disableTelemetry) { disableTelemetry(); console.log('Telemetry disabled.'); return; }
