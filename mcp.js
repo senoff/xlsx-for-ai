@@ -4,7 +4,7 @@
 /**
  * xlsx-for-ai MCP stdio server (2.0)
  *
- * Registers 6 tools and relays each tools/call to the hosted API.
+ * Registers 16 tools and relays each tools/call to the hosted API.
  * xlsx_read falls back to local engine if API is unreachable (5xx / timeout).
  * All other tools fail with a clear "needs API connectivity" error.
  */
@@ -153,6 +153,263 @@ const TOOLS = [
       required: ['file_path', 'out_path'],
     },
   },
+
+  // -------------------------------------------------------------------------
+  // Pandas-shaped analysis tools — work where pandas can't:
+  //   - preserves merged cells, named ranges, conditional formatting
+  //   - reads workbooks with cross-engine validation (some tools)
+  //   - dtype inference reports confidence per column instead of guessing
+  // All free-tier; the 10k/month cap is the throttle, not tier-gating.
+  // -------------------------------------------------------------------------
+
+  {
+    name: 'xlsx_describe',
+    description:
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: pandas-style df.describe() per column — count, nulls, unique, min/max/mean/std for numerics, dtype with purity score.\n' +
+      'Unlike pandas.read_excel followed by df.describe(), this does not silently flatten merged cells or drop named ranges.\n\n' +
+      'USE WHEN: the user wants a quick summary of a LOCAL .xlsx file — "what\'s in this data?". ' +
+      'Returns a markdown table with one row per column. Faster + more structured than dumping full contents through xlsx_read.\n\n' +
+      'DO NOT USE WHEN: the user uploaded a file via paperclip/attach (built-in skill). Or for in-memory data the agent already holds.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path:  { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        sheet:      { type: 'string', description: 'Sheet name (default: first sheet).' },
+        header_row: { type: 'integer', description: 'Header row (1-based). 0 = treat row 1 as data, no header.' },
+        max_rows:   { type: 'integer', description: 'Max data rows to scan (default 10000).' },
+      },
+      required: ['file_path'],
+    },
+  },
+
+  {
+    name: 'xlsx_filter',
+    description:
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: pandas-style row filter on a LOCAL .xlsx file with predicates AND-combined: eq/ne/gt/gte/lt/lte/contains/in/is_null/not_null.\n' +
+      'Operates on real cell values — formulas evaluated server-side, not the cached results that pandas trusts blindly.\n\n' +
+      'USE WHEN: the user asks for "rows where X" / "show me only Y" against a LOCAL .xlsx file. ' +
+      'Returns matching rows as a markdown table, capped at 1000 rows by default with the actual match count.\n\n' +
+      'DO NOT USE WHEN: the user wants raw access to all rows (use xlsx_read). Or when the file came from an upload.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path:  { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        predicates: {
+          type: 'array',
+          minItems: 1,
+          description: 'AND-combined filter predicates. Each: { column, op, value } where op is eq/ne/gt/gte/lt/lte/contains/not_contains/in/not_in/is_null/not_null.',
+          items: {
+            type: 'object',
+            required: ['column', 'op'],
+            properties: {
+              column: { type: 'string' },
+              op:     { type: 'string', enum: ['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'contains', 'not_contains', 'in', 'not_in', 'is_null', 'not_null'] },
+              value:  {},
+            },
+          },
+        },
+        sheet:      { type: 'string' },
+        header_row: { type: 'integer' },
+        limit:      { type: 'integer' },
+      },
+      required: ['file_path', 'predicates'],
+    },
+  },
+
+  {
+    name: 'xlsx_aggregate',
+    description:
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: pandas-style df.groupby([cols]).agg({col: func}) on a LOCAL .xlsx file. funcs: sum / mean / min / max / count / count_distinct.\n' +
+      'Type-aware: numeric aggregations skip non-numeric values cleanly instead of pandas\' silent NaN promotion.\n\n' +
+      'USE WHEN: the user asks "what\'s the total / average / count of X by Y?" on a LOCAL .xlsx file. ' +
+      'Returns one row per group with the requested aggregations as a markdown table.\n\n' +
+      'DO NOT USE WHEN: the user wants to see individual rows (use xlsx_filter). Or for a 2D pivot (use xlsx_pivot).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        group_by:  { type: 'array', items: { type: 'string' }, minItems: 1, description: 'Columns to group by.' },
+        aggs:      {
+          type: 'array',
+          minItems: 1,
+          description: 'Aggregations: { column, func, as? }.',
+          items: {
+            type: 'object',
+            required: ['column', 'func'],
+            properties: {
+              column: { type: 'string' },
+              func:   { type: 'string', enum: ['sum', 'mean', 'min', 'max', 'count', 'count_distinct'] },
+              as:     { type: 'string' },
+            },
+          },
+        },
+        sheet:      { type: 'string' },
+        header_row: { type: 'integer' },
+        sort:       { type: 'string', enum: ['asc', 'desc', 'none'] },
+        limit:      { type: 'integer' },
+      },
+      required: ['file_path', 'group_by', 'aggs'],
+    },
+  },
+
+  {
+    name: 'xlsx_named_ranges',
+    description:
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: list all defined names (named ranges) in a LOCAL .xlsx workbook — name, scope (workbook or sheet), kind (cell / range / formula), reference.\n' +
+      'pandas.read_excel collapses named ranges into anonymous ranges; this tool surfaces them so the agent can reason about formulas like =NPV(DiscountRate, Cashflows) before reading data.\n\n' +
+      'USE WHEN: the agent is reasoning about a financial / engineering model and needs to know what cells named-range references resolve to. ' +
+      'Call before xlsx_read to orient.\n\n' +
+      'DO NOT USE WHEN: the workbook has no formulas (named ranges are mostly relevant for formula contexts). Or for upload/attached files.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+      },
+      required: ['file_path'],
+    },
+  },
+
+  {
+    name: 'xlsx_sort',
+    description:
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: pandas-style df.sort_values() on a LOCAL .xlsx file with multi-column sort and per-column direction (asc/desc, default asc).\n' +
+      'Stable across all sort keys; type-aware comparison; nulls always sort last.\n\n' +
+      'USE WHEN: the user wants rows ordered by one or more columns. Returns the sorted rows as a markdown table.\n\n' +
+      'DO NOT USE WHEN: the data is already sorted as desired (use xlsx_read). Or for upload/attached files.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        by:        {
+          type: 'array',
+          minItems: 1,
+          description: 'Sort keys: [{ column, direction? }]. direction defaults to asc.',
+          items: {
+            type: 'object',
+            required: ['column'],
+            properties: {
+              column:    { type: 'string' },
+              direction: { type: 'string', enum: ['asc', 'desc'] },
+            },
+          },
+        },
+        sheet:      { type: 'string' },
+        header_row: { type: 'integer' },
+        limit:      { type: 'integer' },
+      },
+      required: ['file_path', 'by'],
+    },
+  },
+
+  {
+    name: 'xlsx_value_counts',
+    description:
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: pandas-style Series.value_counts() on one column of a LOCAL .xlsx file — count each unique value, sorted by frequency desc, with percentage.\n' +
+      'Excludes nulls by default; pass include_nulls=true to count them.\n\n' +
+      'USE WHEN: the user asks "what\'s the distribution of X?" / "how often does each value appear?". Returns a markdown table.\n\n' +
+      'DO NOT USE WHEN: the user wants groupby + multi-column aggregations (use xlsx_aggregate). Or for upload/attached files.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        column:    { type: 'string', description: 'Column to count values in.' },
+        sheet:     { type: 'string' },
+        header_row:    { type: 'integer' },
+        top_n:         { type: 'integer', description: 'Show top N most-frequent values (default 50).' },
+        include_nulls: { type: 'boolean', description: 'Count null cells as a distinct value (default false).' },
+      },
+      required: ['file_path', 'column'],
+    },
+  },
+
+  {
+    name: 'xlsx_formulas',
+    description:
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: extract every formula in a LOCAL .xlsx workbook — cell coord (A1), formula text, cached result. openpyxl-style read-only metadata.\n' +
+      'Distinct from xlsx_read which returns evaluated values; this returns the formulas themselves so an agent can audit, transform, or rewrite them.\n\n' +
+      'USE WHEN: the user wants to see what formulas a workbook uses — spot-checking a model, auditing references, debugging unexpected results. ' +
+      'pandas cannot extract formulas; this is the only way for an agent to see them.\n\n' +
+      'DO NOT USE WHEN: the user wants computed values (use xlsx_read). Or for upload/attached files.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        sheet:     { type: 'string', description: 'Filter to one sheet (default: all sheets).' },
+        include_results: { type: 'boolean', description: 'Include cached results column (default true).' },
+        limit:     { type: 'integer', description: 'Max formulas to return (default 1000, max 5000).' },
+      },
+      required: ['file_path'],
+    },
+  },
+
+  {
+    name: 'xlsx_tables',
+    description:
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: list every Excel ListObject ("Format as Table" structures) in a LOCAL .xlsx workbook — name, sheet, range, header/totals flags, columns.\n' +
+      'pandas cannot see ListObjects; if a workbook uses Excel Tables, this is the only way to enumerate them.\n\n' +
+      'USE WHEN: the user references a "table" in a workbook by name, or you need to know what structured tables exist before reading. ' +
+      'Useful for workbooks with multiple tables on one sheet.\n\n' +
+      'DO NOT USE WHEN: the workbook has no Excel-Tables (just data ranges). Or for upload/attached files.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        sheet:     { type: 'string', description: 'Filter to one sheet (default: all sheets).' },
+        include_columns: { type: 'boolean', description: 'Include column names per table (default true).' },
+      },
+      required: ['file_path'],
+    },
+  },
+
+  {
+    name: 'xlsx_pivot',
+    description:
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: pandas-style pivot_table() on a LOCAL .xlsx file — reshape a flat table into a 2D matrix where rows are unique values of `index`, columns are unique values of `columns`, and cells are an aggregation of `values`.\n' +
+      'agg modes: sum / mean / min / max / count / count_distinct. Optional fill_value for missing index×column combinations.\n\n' +
+      'USE WHEN: the user wants a cross-tab — "X by Y", "rows by columns" — that needs more than groupby. Returns a markdown table.\n\n' +
+      'DO NOT USE WHEN: there\'s only one grouping dimension (use xlsx_aggregate). Or for upload/attached files.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        index:     { type: 'array', items: { type: 'string' }, minItems: 1, description: 'Row-axis grouping columns.' },
+        columns:   { type: 'array', items: { type: 'string' }, description: 'Column-axis grouping columns (optional).' },
+        values:    { type: 'array', items: { type: 'string' }, minItems: 1, description: 'Columns to aggregate.' },
+        agg:       { type: 'string', enum: ['sum', 'mean', 'min', 'max', 'count', 'count_distinct'], description: 'Aggregation function (default sum).' },
+        sheet:      { type: 'string' },
+        header_row: { type: 'integer' },
+        fill_value: { description: 'Value (number or string) to use for missing index×column cells. Default empty string.' },
+      },
+      required: ['file_path', 'index', 'values'],
+    },
+  },
+
+  {
+    name: 'xlsx_validate',
+    description:
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: cross-engine consistency check on a LOCAL .xlsx file — runs the workbook through TWO independent renderers (@protobi/exceljs and @cj-tech-master/excelts) and reports cell-level divergences.\n' +
+      'No other tool can do this: pandas trusts cached values, openpyxl is single-engine, and Excel-itself disagrees with everything else on edge cases like LAMBDA, dynamic arrays, and timezone handling. xlsx_validate is the only way to know whether two engines agree on what your workbook says.\n\n' +
+      'USE WHEN: the user is about to send the workbook downstream for analysis or as an authoritative source — pre-flight check. Or for audit / regression testing across engine versions. ' +
+      'PAID — Bronze / Silver / Gold tier required.\n\n' +
+      'DO NOT USE WHEN: a casual read suffices (use xlsx_read). Or for upload/attached files.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+      },
+      required: ['file_path'],
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -253,6 +510,95 @@ async function dispatchTool(name, args) {
     };
     const result = await callTool('xlsx_redact', body);
     return applyFileB64(result, args.out_path);
+  }
+
+  // -------------------------------------------------------------------------
+  // Pandas-shaped tools — each builds its own server payload because the
+  // server expects different top-level fields per tool (predicates, group_by,
+  // by, column, index, etc.).
+  // -------------------------------------------------------------------------
+
+  if (name === 'xlsx_describe') {
+    return callTool('xlsx_describe', {
+      file_b64: fileToB64(args.file_path),
+      options: { sheet: args.sheet, header_row: args.header_row, max_rows: args.max_rows },
+    });
+  }
+
+  if (name === 'xlsx_filter') {
+    return callTool('xlsx_filter', {
+      file_b64: fileToB64(args.file_path),
+      predicates: args.predicates,
+      options: { sheet: args.sheet, header_row: args.header_row, limit: args.limit },
+    });
+  }
+
+  if (name === 'xlsx_aggregate') {
+    return callTool('xlsx_aggregate', {
+      file_b64: fileToB64(args.file_path),
+      group_by: args.group_by,
+      aggs: args.aggs,
+      options: { sheet: args.sheet, header_row: args.header_row, sort: args.sort, limit: args.limit },
+    });
+  }
+
+  if (name === 'xlsx_named_ranges') {
+    return callTool('xlsx_named_ranges', {
+      file_b64: fileToB64(args.file_path),
+    });
+  }
+
+  if (name === 'xlsx_sort') {
+    return callTool('xlsx_sort', {
+      file_b64: fileToB64(args.file_path),
+      by: args.by,
+      options: { sheet: args.sheet, header_row: args.header_row, limit: args.limit },
+    });
+  }
+
+  if (name === 'xlsx_value_counts') {
+    return callTool('xlsx_value_counts', {
+      file_b64: fileToB64(args.file_path),
+      column: args.column,
+      options: {
+        sheet: args.sheet,
+        header_row: args.header_row,
+        top_n: args.top_n,
+        include_nulls: args.include_nulls,
+      },
+    });
+  }
+
+  if (name === 'xlsx_formulas') {
+    return callTool('xlsx_formulas', {
+      file_b64: fileToB64(args.file_path),
+      options: { sheet: args.sheet, include_results: args.include_results, limit: args.limit },
+    });
+  }
+
+  if (name === 'xlsx_tables') {
+    return callTool('xlsx_tables', {
+      file_b64: fileToB64(args.file_path),
+      options: { sheet: args.sheet, include_columns: args.include_columns },
+    });
+  }
+
+  if (name === 'xlsx_pivot') {
+    const body = {
+      file_b64: fileToB64(args.file_path),
+      index: args.index,
+      values: args.values,
+      options: { sheet: args.sheet, header_row: args.header_row, fill_value: args.fill_value },
+    };
+    if (args.columns) body.columns = args.columns;
+    if (args.agg) body.agg = args.agg;
+    return callTool('xlsx_pivot', body);
+  }
+
+  if (name === 'xlsx_validate') {
+    return callTool('xlsx_validate', {
+      file_b64: fileToB64(args.file_path),
+    });
   }
 
   // All other tools (list_sheets, schema) — single-file relay
