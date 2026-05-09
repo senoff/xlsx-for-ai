@@ -565,6 +565,25 @@ const TOOLS = [
   },
 
   {
+    name: 'xlsx_charts',
+    description:
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: list every chart in a workbook with type (bar / line / pie / scatter / area / doughnut / radar / stock / surface / bubble), title, axis titles, and per-series formula refs (the cell ranges the chart pulls from). Sheet attribution via the OOXML drawing rel chain.\n' +
+      'No other tool can do this: ExcelJS doesn\'t expose charts at all (read or write); pandas drops them entirely; openpyxl reads charts but in a deeply-nested object form unsuitable for LLM consumption. xlsx_charts gives you the chart contract — "Sheet2 has a bar chart titled Q4 Revenue plotting Sheet1!B2:B10 against Sheet1!A2:A10" — without rendering anything.\n\n' +
+      'USE WHEN: documenting a financial model / dashboard for an LLM that needs to know "what does this workbook visualize, and from which cells?". Or auditing a workbook for chart-data drift after a refactor (chart still points at old range?). ' +
+      'Free tier — counts against the 10k/mo cap.\n\n' +
+      'DO NOT USE WHEN: you want to RENDER the chart as an image (this tool returns the chart spec, not pixels). Or you only need cell values (use xlsx_read).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        sheet: { type: 'string', description: 'Optional: restrict to a specific sheet.' },
+      },
+      required: ['file_path'],
+    },
+  },
+
+  {
     name: 'xlsx_protection',
     description:
       'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
