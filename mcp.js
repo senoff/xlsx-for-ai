@@ -4,7 +4,7 @@
 /**
  * xlsx-for-ai MCP stdio server (2.0)
  *
- * Registers 16 tools and relays each tools/call to the hosted API.
+ * Registers 18 tools and relays each tools/call to the hosted API.
  * xlsx_read falls back to local engine if API is unreachable (5xx / timeout).
  * All other tools fail with a clear "needs API connectivity" error.
  */
@@ -394,6 +394,65 @@ const TOOLS = [
   },
 
   {
+    name: 'xlsx_eval',
+    description:
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: evaluate Excel formulas against a LOCAL .xlsx file via HyperFormula. xlwings-style.\n' +
+      'Two modes: pass `formulas` (array of "=SUM(A1:A10)" expressions to compute against the workbook) or `cells` (array of "Sheet1!A1" cell refs to fresh-evaluate). Replaces pandas\' "trust the cached value" behavior with a real eval — if the cache is stale or missing, this still produces the right answer.\n\n' +
+      'USE WHEN: the user wants the live computed value of a formula, not the cached one. Or when a workbook has formulas that depend on external data the cache might be stale on. ' +
+      'Engine omits INDIRECT/HYPERLINK/WEBSERVICE/RTD/DDE by design — no I/O risk.\n\n' +
+      'DO NOT USE WHEN: the workbook has no formulas (use xlsx_read). Or for upload/attached files.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        formulas: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Freeform formula expressions to evaluate against the workbook. Each ~"=A1+B1" or "=SUM(Sheet1!A:A)".',
+        },
+        cells: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Cell refs to fresh-evaluate, e.g. ["Sheet1!A1", "Calc!B5"].',
+        },
+        sheet: { type: 'string', description: 'Default sheet for unqualified cell refs.' },
+      },
+      required: ['file_path'],
+    },
+  },
+
+  {
+    name: 'xlsx_convert',
+    description:
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: universal spreadsheet format converter. Reads ANY of 25+ input formats (xlsx, xlsb, xlsm, xls, ods, fods, numbers, csv, tsv, dbf, lotus 1-2-3, quattro pro, sylk, dif, html, rtf, etc.) and emits ANY supported output format (xlsx, csv, json, md, html, etc.).\n' +
+      'No other tool in the MCP space ingests legacy formats — pandas.read_excel only reads xlsx/xls; openpyxl is xlsx-only. xlsx_convert is the only "any-spreadsheet → LLM-readable" hosted endpoint.\n\n' +
+      'USE WHEN: the user has a .xls / .xlsb / .ods / Numbers / .csv / Lotus / Quattro / dBASE file they want to read or convert. ' +
+      'Output to text formats (csv/json/md/html) renders into the response body for the agent to read directly. Output to binary formats (xlsx/xlsb/etc.) returns bytes in `_meta.file_b64` for the npm client to save.\n\n' +
+      'DO NOT USE WHEN: the input is already xlsx and you want to read it (use xlsx_read). Or for upload/attached files.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Absolute path to the source spreadsheet file (any supported format).' },
+        to: {
+          type: 'string',
+          enum: [
+            'xlsx', 'xlsb', 'xlsm', 'xls', 'ods', 'fods', 'dbf',
+            'csv', 'tsv', 'txt', 'html', 'md', 'json',
+            'dif', 'sylk', 'eth', 'prn', 'rtf',
+          ],
+          description: 'Target format. Binary formats land bytes in _meta.file_b64; text formats render in body.',
+        },
+        sheet:    { type: 'string', description: 'Render only this sheet (text outputs).' },
+        sheets:   { type: 'string', enum: ['all', 'first'], description: 'For text outputs: render every sheet (default) or only the first.' },
+        out_path: { type: 'string', description: 'Optional save path for binary outputs (xlsx/xlsb/etc.).' },
+      },
+      required: ['file_path', 'to'],
+    },
+  },
+
+  {
     name: 'xlsx_validate',
     description:
       'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
@@ -593,6 +652,28 @@ async function dispatchTool(name, args) {
     if (args.columns) body.columns = args.columns;
     if (args.agg) body.agg = args.agg;
     return callTool('xlsx_pivot', body);
+  }
+
+  if (name === 'xlsx_eval') {
+    const body = {
+      file_b64: fileToB64(args.file_path),
+      options: { sheet: args.sheet },
+    };
+    if (args.formulas) body.formulas = args.formulas;
+    if (args.cells) body.cells = args.cells;
+    return callTool('xlsx_eval', body);
+  }
+
+  if (name === 'xlsx_convert') {
+    const body = {
+      file_b64: fileToB64(args.file_path),
+      to: args.to,
+      options: { sheet: args.sheet, sheets: args.sheets },
+    };
+    const result = await callTool('xlsx_convert', body);
+    // Binary outputs land bytes in _meta.file_b64 — apply the save helper
+    // if the user passed out_path.
+    return applyFileB64(result, args.out_path);
   }
 
   if (name === 'xlsx_validate') {
