@@ -565,6 +565,25 @@ const TOOLS = [
   },
 
   {
+    name: 'xlsx_print_settings',
+    description:
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: surface "what would Excel print right now" per worksheet — print area, orientation, paper size (A4 / Letter / Legal / Tabloid / etc.), scale or fitToPage, margins, headers/footers split into Excel\'s L/C/R zones, print titles (rows / columns repeated on every page), manual page breaks, plus B&W / draft / centered flags.\n' +
+      'No other tool can do this rolled-up: pandas drops every bit of print configuration; openpyxl exposes it but in nested object form. xlsx_print_settings is the "if a human hits Cmd+P, what comes out?" answer.\n\n' +
+      'USE WHEN: about to PDF / print a workbook and want to know what it\'ll look like before doing it. Or auditing a financial / regulatory report\'s print configuration (legal sometimes cares about page-1 headers). Or extracting the print-titles row a complex workbook uses for repeating headers. ' +
+      'Free tier — counts against the 10k/mo cap.\n\n' +
+      'DO NOT USE WHEN: just reading values (use xlsx_read).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        sheet: { type: 'string', description: 'Optional: restrict to a specific sheet.' },
+      },
+      required: ['file_path'],
+    },
+  },
+
+  {
     name: 'xlsx_properties',
     description:
       'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
