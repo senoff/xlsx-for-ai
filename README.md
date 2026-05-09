@@ -18,7 +18,13 @@ Add `xlsx-for-ai` as a tool server in your agent runtime. First invocation auto-
 
 ### Claude Desktop
 
-Config file: `~/Library/Application Support/Claude/claude_desktop_config.json`
+**Easiest: one-click install via the `.mcpb` bundle.** Download and drag into Claude Desktop (Settings → Extensions):
+
+**[xlsx-for-ai-2.0.0.mcpb](https://github.com/senoff/xlsx-for-ai/releases/latest/download/xlsx-for-ai-2.0.0.mcpb)** *(latest release)*
+
+The bundle includes the full npm package and registers all MCP tools automatically. No manual config edits needed.
+
+**Or: hand-edit the config file** at `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
 {
@@ -30,7 +36,7 @@ Config file: `~/Library/Application Support/Claude/claude_desktop_config.json`
 }
 ```
 
-Verify: restart Claude Desktop, open a new conversation, and ask "what MCP tools do you have?" — `xlsx_read`, `xlsx_list_sheets`, `xlsx_schema`, `xlsx_diff`, `xlsx_write`, and `xlsx_redact` should appear.
+Verify either path: restart Claude Desktop, open a new conversation, and ask "what MCP tools do you have?" — `xlsx_read`, `xlsx_list_sheets`, `xlsx_schema`, `xlsx_diff`, `xlsx_write`, and `xlsx_redact` should appear.
 
 ### Cursor
 

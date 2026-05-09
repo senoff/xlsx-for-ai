@@ -1,0 +1,61 @@
+{
+  "manifest_version": "0.3",
+  "name": "xlsx-for-ai",
+  "display_name": "xlsx-for-ai",
+  "version": "2.0.0",
+  "description": "Reliable Excel/.xlsx access for AI agents. Read, write, diff, redact, validate, describe, filter, aggregate — backed by a hosted API. Free tier auto-registers anonymously on first use.",
+  "long_description": "xlsx-for-ai is an MCP server that gives LLM agents reliable, hardened access to Excel files. Unlike pandas-style sandboxes, it preserves merged cells, named ranges, formulas, and conditional formatting. Cross-engine validation catches the corruption pandas silently masks. Free tier (10,000 calls/month) auto-registers an anonymous client_id on first use — no email, no signup form. Paid tiers (Bronze / Silver / Gold) for commercial use.",
+  "author": {
+    "name": "Bob Senoff",
+    "email": "support@xlsx-for-ai.dev",
+    "url": "https://xlsx-for-ai.dev"
+  },
+  "homepage": "https://xlsx-for-ai.dev",
+  "documentation": "https://github.com/senoff/xlsx-for-ai#readme",
+  "support": "mailto:support@xlsx-for-ai.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/senoff/xlsx-for-ai"
+  },
+  "license": "MIT",
+  "keywords": [
+    "xlsx",
+    "excel",
+    "spreadsheet",
+    "mcp",
+    "ai",
+    "llm",
+    "agent",
+    "claude",
+    "data",
+    "csv"
+  ],
+  "server": {
+    "type": "node",
+    "entry_point": "node_modules/xlsx-for-ai/mcp.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/node_modules/xlsx-for-ai/mcp.js"]
+    }
+  },
+  "tools": [
+    { "name": "xlsx_read", "description": "Read an .xlsx file and return its contents as text/JSON/markdown." },
+    { "name": "xlsx_list_sheets", "description": "List sheets in an .xlsx workbook with row/column counts." },
+    { "name": "xlsx_schema", "description": "Infer column types from the first N rows with confidence scoring." },
+    { "name": "xlsx_diff", "description": "Compare two .xlsx workbooks and report cell-level differences." },
+    { "name": "xlsx_write", "description": "Generate an .xlsx file from a JSON spec." },
+    { "name": "xlsx_redact", "description": "Strip cell values while preserving structure (formulas, named ranges, formatting)." },
+    { "name": "xlsx_describe", "description": "Pandas-style per-column summary stats (count, nulls, unique, min/max/mean/std)." },
+    { "name": "xlsx_filter", "description": "Predicate-based row filter with eq/ne/gt/gte/lt/lte/contains/in/is_null operators." },
+    { "name": "xlsx_aggregate", "description": "GroupBy + aggregate (sum/mean/min/max/count/count_distinct)." },
+    { "name": "xlsx_named_ranges", "description": "List defined names in the workbook with scope and reference." },
+    { "name": "xlsx_validate", "description": "Cross-engine consistency check — compares output across two independent xlsx renderers. Pro+." }
+  ],
+  "compatibility": {
+    "platforms": ["darwin", "linux", "win32"],
+    "runtimes": {
+      "node": ">=18"
+    }
+  },
+  "user_config": {}
+}
