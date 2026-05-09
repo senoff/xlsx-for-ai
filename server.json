@@ -6,12 +6,12 @@
     "url": "https://github.com/senoff/xlsx-for-ai",
     "source": "github"
   },
-  "version": "2.0.0-beta.3",
+  "version": "2.0.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "xlsx-for-ai",
-      "version": "2.0.0-beta.3",
+      "version": "2.0.0",
       "transport": {
         "type": "stdio"
       }
