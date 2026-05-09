@@ -565,6 +565,25 @@ const TOOLS = [
   },
 
   {
+    name: 'xlsx_protection',
+    description:
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: surface every protection setting in a workbook so an agent knows what it can and cannot edit. Workbook-level (lockStructure, lockWindows), per-sheet (protected? password? hidden state?), per-action allow/block list (formatCells, sort, insertRows, pivotTables, etc.), and per-cell unlocked / hidden samples — these are the cells a human would actually be allowed to type into when the sheet is otherwise read-only.\n' +
+      'No other tool can do this: pandas drops protection metadata entirely; openpyxl exposes the bool but no normalization. xlsx_protection reads sheetProtection action attrs directly from the OOXML zip (workaround for ExcelJS stripping them on round-trip).\n\n' +
+      'USE WHEN: an agent is about to suggest edits to a workbook and you want to fail fast on cells / sheets the user can\'t change anyway. Or auditing a "submitted form" workbook to see which inputs the form-author intended to be fillable. ' +
+      'Free tier — counts against the 10k/mo cap.\n\n' +
+      'DO NOT USE WHEN: just reading values (use xlsx_read). Or trying to BREAK protection (this tool surfaces what\'s locked; it does not unlock).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        sheet: { type: 'string', description: 'Optional: restrict to a specific sheet.' },
+      },
+      required: ['file_path'],
+    },
+  },
+
+  {
     name: 'xlsx_styles',
     description:
       'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
