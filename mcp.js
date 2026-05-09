@@ -469,6 +469,62 @@ const TOOLS = [
       required: ['file_path'],
     },
   },
+
+  {
+    name: 'xlsx_data_validations',
+    description:
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: list every cell-level data validation rule (dropdowns, numeric/date bounds, text-length caps, custom formulas) defined in a workbook — the constraints that Excel enforces when a human types into the cell.\n' +
+      'No other tool can do this: pandas drops validations entirely on read; openpyxl exposes them but only on a per-cell loop; this surfaces them in one shot with target cells, formulae, error messages, and prompt text.\n\n' +
+      'USE WHEN: auditing a form / data-entry workbook to know what inputs are legal. Or extracting a dropdown list for use elsewhere. Or generating fixtures that match the validation contract. ' +
+      'Free tier — counts against the 10k/mo cap.\n\n' +
+      'DO NOT USE WHEN: just trying to read values (use xlsx_read). Or trying to enforce validations on write (xlsx_write does not write validations).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        sheet: { type: 'string', description: 'Optional: restrict to a specific sheet.' },
+      },
+      required: ['file_path'],
+    },
+  },
+
+  {
+    name: 'xlsx_hyperlinks',
+    description:
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: list every hyperlink in a workbook with its anchor cell, target URL/anchor, display text, tooltip, and a kind classifier (external / internal / mailto / unknown).\n' +
+      'No other tool can do this: pandas drops hyperlinks on read entirely; openpyxl gives raw access but does not classify or aggregate; this surfaces all links plus a per-kind tally for instant audit.\n\n' +
+      'USE WHEN: security-auditing a workbook before opening it (what URLs does it point at?). Or extracting a reference list of URLs from a financial model / dashboard. Or finding mailto links for a contact-list workbook. ' +
+      'Free tier — counts against the 10k/mo cap.\n\n' +
+      'DO NOT USE WHEN: trying to follow / fetch the targets (this tool does not fetch — by design, for safety). Or just reading cell text (use xlsx_read).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        sheet: { type: 'string', description: 'Optional: restrict to a specific sheet.' },
+      },
+      required: ['file_path'],
+    },
+  },
+
+  {
+    name: 'xlsx_topology',
+    description:
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: one-call workbook orientation. Returns sheets × dimensions × formulas × named ranges × tables × validations × hyperlinks × merges in one shot, plus feature flags (macros / external refs / pivots / LAMBDA / dynamic arrays).\n' +
+      'No other tool can do this: pandas gives you a frame per sheet but no structure; openpyxl makes you fan out across 6+ object trees to learn the same thing; this is the "what is in this workbook?" call you make first to decide which other tool to call next.\n\n' +
+      'USE WHEN: an agent has just been handed a workbook and needs to orient before drilling in. Or surveying many workbooks for triage / index. Or auditing whether a workbook is "interesting" (formulas? macros? external refs?). ' +
+      'Free tier — counts against the 10k/mo cap.\n\n' +
+      'DO NOT USE WHEN: you already know the sheet you want and just want its data (use xlsx_read or xlsx_describe).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+      },
+      required: ['file_path'],
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
