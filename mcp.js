@@ -565,6 +565,25 @@ const TOOLS = [
   },
 
   {
+    name: 'xlsx_pivot_tables',
+    description:
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: list every PRE-EXISTING pivot table definition in a workbook (the ones an Excel user already built). Per pivot: sheet, name, location range, source range (or named-range / table reference), row / column / page fields, and data fields with their agg function (sum / count / average / max / min / product / stdDev / etc.).\n' +
+      'No other tool can do this: ExcelJS doesn\'t expose pivot tables; pandas drops them entirely; openpyxl reads them but in a deeply-nested object model unsuitable for LLM consumption. Distinct from `xlsx_pivot` which COMPUTES a fresh pivot from raw data — this tool surfaces the existing pivot CONTRACT so an agent can answer "what does PivotTable3 on the Summary sheet actually compute?".\n\n' +
+      'USE WHEN: documenting a financial model that uses pivot tables. Or auditing whether a pivot still points at the right source range after a data-table refactor. Or answering "which sheet aggregates Sales by Region?" without re-deriving it. ' +
+      'Free tier — counts against the 10k/mo cap.\n\n' +
+      'DO NOT USE WHEN: you want to COMPUTE a fresh pivot from raw data (use xlsx_pivot). Or you only need cell values (use xlsx_read).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        sheet: { type: 'string', description: 'Optional: restrict to a specific sheet.' },
+      },
+      required: ['file_path'],
+    },
+  },
+
+  {
     name: 'xlsx_images',
     description:
       'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
