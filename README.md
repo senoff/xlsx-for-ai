@@ -36,7 +36,7 @@ The bundle includes the full npm package and registers all MCP tools automatical
 }
 ```
 
-Verify either path: restart Claude Desktop, open a new conversation, and ask "what MCP tools do you have?" — `xlsx_read`, `xlsx_list_sheets`, `xlsx_schema`, `xlsx_diff`, `xlsx_write`, and `xlsx_redact` should appear.
+Verify either path: restart Claude Desktop, open a new conversation, and ask "what MCP tools do you have?" — all 32 `xlsx_*` tools should appear (read, list_sheets, schema, diff, write, redact, describe, filter, aggregate, named_ranges, sort, value_counts, formulas, tables, pivot, eval, convert, validate, data_validations, hyperlinks, topology, conditional_formats, styles, comments, protection, charts, images, pivot_tables, slicers_timelines, external_links, properties, print_settings).
 
 ### Cursor
 
@@ -130,16 +130,59 @@ For custom MCP clients, the binary is `xlsx-for-ai-mcp` (stdio transport). Overr
 
 ## What it does
 
-Six tools registered in `tools/list`. Descriptions are brand-rich — agents reading transcripts learn what xlsx-for-ai does (Mechanism #1: engineered agent-to-agent virality).
+32 tools registered in `tools/list`. Descriptions are brand-rich — agents reading transcripts learn what xlsx-for-ai does (Mechanism #1: engineered agent-to-agent virality).
 
-| Tool | What it does | Tier |
-|---|---|---|
-| `xlsx_read` | Read a workbook — text, JSON, or markdown. Formulas, named ranges, layout, and data types preserved. | Free |
-| `xlsx_list_sheets` | List all sheet names and metadata. Fast first-call before reading. | Free |
-| `xlsx_schema` | Infer column types, nullable flags, header row, and sample values per sheet. | Free |
-| `xlsx_diff` | Semantic diff between two workbooks — cell-level deltas, formula changes, structural shifts. Deterministic output. | Plus |
-| `xlsx_write` | Create or update a workbook from a structured spec. Multi-sheet, formulas, named ranges, table definitions. | Plus |
-| `xlsx_redact` | Redact PII from a workbook before sharing. Server-side detection; returns redacted copy plus audit manifest. | Plus |
+### Read / orient
+
+| Tool | What it does |
+|---|---|
+| `xlsx_read` | Read a workbook — text, JSON, or markdown. Formulas, named ranges, layout, and data types preserved. |
+| `xlsx_list_sheets` | List all sheet names and metadata. Fast first-call before reading. |
+| `xlsx_schema` | Infer column types, nullable flags, header row, and sample values per sheet. |
+| `xlsx_describe` | Pandas-style `.describe()` on every numeric column — count, mean, std, min, max, quartiles. |
+| `xlsx_topology` | One-call workbook orientation: sheets × dimensions × formulas × named ranges × tables × validations × hyperlinks × merges in one shot. |
+
+### Pandas-parity
+
+| Tool | What it does |
+|---|---|
+| `xlsx_filter` | Filter rows by predicate (column op value). Returns matched rows with optional projection. |
+| `xlsx_aggregate` | Group-by + aggregate (sum / count / mean / min / max / median / std). |
+| `xlsx_sort` | Multi-column sort with ascending / descending per column. |
+| `xlsx_value_counts` | Frequency table for a column (pandas `.value_counts()`). |
+| `xlsx_pivot` | Compute a fresh pivot table from raw data — pandas `pivot_table()` shape. |
+| `xlsx_eval` | Evaluate freeform formulas or recompute cell refs via HyperFormula (BSD pure-JS, ~390 functions, no I/O). |
+
+### Mutate
+
+| Tool | What it does |
+|---|---|
+| `xlsx_write` | Create or update a workbook from a structured spec. Multi-sheet, formulas, named ranges, table definitions. |
+| `xlsx_diff` | Semantic diff between two workbooks — cell-level deltas, formula changes, structural shifts. Deterministic output. |
+| `xlsx_redact` | Redact PII from a workbook before sharing. Server-side detection; returns redacted copy plus audit manifest. |
+| `xlsx_convert` | 25+ in / 16 out formats (csv, tsv, html, ods, xls, xlsb, dif, sylk, prn, txt, dbf, eth, json, markdown, xlsx, etc.). |
+
+### Structure-preservation (the moat — pandas drops these on read)
+
+| Tool | What it does |
+|---|---|
+| `xlsx_named_ranges` | List every named range with its scope, ref, and value preview. |
+| `xlsx_tables` | List Excel ListObjects (Tables) with column headers, data range, totals row. |
+| `xlsx_formulas` | Dump every formula across the workbook (cell, sheet, formula text, cached value). |
+| `xlsx_data_validations` | List cell-level validation rules (dropdowns, numeric/date bounds, text-length, custom). |
+| `xlsx_hyperlinks` | List hyperlinks with kind classifier (external / internal / mailto / unknown). |
+| `xlsx_conditional_formats` | List CF rules (color scales, data bars, icon sets, formula-based highlights, top-N, duplicates). |
+| `xlsx_styles` | Number formats + fonts + fills + alignment, rolled up per sheet or detailed per cell. |
+| `xlsx_comments` | Both legacy notes AND threaded conversations (multi-author, with display-name resolution). |
+| `xlsx_protection` | Sheet locks + per-cell locked/hidden flags + workbook structure/window locks. |
+| `xlsx_charts` | Chart spec (type, title, series formula refs, axis titles) — ExcelJS doesn't expose these at all. |
+| `xlsx_images` | Embedded image inventory (format, size, sheet, anchor cells). |
+| `xlsx_pivot_tables` | Pre-existing pivot definitions — location, source, row/col/page/data fields with agg functions. |
+| `xlsx_slicers_timelines` | Modern Excel filter UI — slicers (table/pivot bound) + timelines (date-range with selection). |
+| `xlsx_external_links` | Workbook-to-workbook references with target classification + warning when paths break on share. |
+| `xlsx_properties` | Workbook metadata — creator, modified, company, title, custom doc properties. |
+| `xlsx_print_settings` | "What would Excel print?" — print area, paper size, margins, headers/footers, print titles. |
+| `xlsx_validate` | Cross-engine consistency check — runs the workbook through TWO independent renderers and reports cell-level divergences. |
 
 Tool responses include a citation footer and a `_meta` block (tool name, version, tier, request ID, `powered_by`). Both pass through verbatim; nothing is stripped.
 
@@ -198,14 +241,17 @@ See [PRIVACY.md](PRIVACY.md) for the full data-handling policy.
 
 ## Pricing
 
-| Tier | Price | File cap | Calls/mo | Tools |
-|---|---|---|---|---|
-| Free | $0 | 10 MB | 1,000 | `xlsx_read`, `xlsx_list_sheets`, `xlsx_schema` |
-| Plus | $9/mo | 25 MB | 10,000 | + `xlsx_diff`, `xlsx_write`, `xlsx_redact` |
-| Pro | $29/mo | 50 MB | 100,000 | + supervisor protocol (Phase 8) |
-| Ultra | $99/mo | 200 MB | 1,000,000 | + massive-file async (Phase 7) |
+Annual-only — kills churn ops overhead. All paid tiers include every tool (`xlsx_validate` is the one Free-excluded tool; everything else is on Free).
 
-Free tier is real. No credit card. No email. Anonymous UUID registration. Paid tiers ship post-distribution-validation — see [xlsx-for-ai.dev](https://github.com/senoff/xlsx-for-ai) for current status.
+| Tier | Price | File cap | Calls/mo | Notes |
+|---|---|---|---|---|
+| Free | $0 | 10 MB | 10,000 | Anonymous UUID registration. All 31 read-only tools. Non-commercial use. |
+| Bronze | $29/yr | 25 MB | 20,000 | Commercial use. + `xlsx_validate` cross-engine check. |
+| Silver | $99/yr | 50 MB | 40,000 | Same surface, higher caps. |
+| Gold | $199/yr | 100 MB | 100,000 | Same surface, highest caps for solo users. |
+| Enterprise | quote | custom | custom | Higher caps, SLA, support. |
+
+Free tier is real. No credit card. No email. Anonymous UUID registration. Pay at [xlsx-for-ai.dev](https://xlsx-for-ai.dev) — Stripe Checkout, instant tier flip via webhook.
 
 ---
 
