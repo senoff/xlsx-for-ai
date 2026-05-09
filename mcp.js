@@ -544,6 +544,26 @@ const TOOLS = [
       required: ['file_path'],
     },
   },
+
+  {
+    name: 'xlsx_styles',
+    description:
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: surface cell formatting (number formats, fonts, fills, alignment) so an agent knows what a cell LOOKS like, not just its raw value. Default mode: per-sheet rollup of top-N number formats / fonts / fills with counts. Detailed mode (opt-in, capped at 1000 cells): per-cell breakdown for narrow queries.\n' +
+      'No other tool can do this with this fidelity: pandas drops styles on read entirely. The single most valuable slice is number formats — pandas hands an LLM "45292" and the cell rendered as "2024-01-01" because format was "yyyy-mm-dd". xlsx_styles is what makes that recoverable.\n\n' +
+      'USE WHEN: an LLM is about to interpret raw numbers (date serials, currency, percents, scientific notation) and you want the format hint that tells it what those numbers MEAN to a human. Or auditing a dashboard\'s typography. Or fingerprinting a template. ' +
+      'Free tier — counts against the 10k/mo cap.\n\n' +
+      'DO NOT USE WHEN: you only need the data (use xlsx_read which already includes basic numFmt hints in the output).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        sheet: { type: 'string', description: 'Optional: restrict to a specific sheet.' },
+        detailed: { type: 'boolean', description: 'If true, return per-cell breakdown (capped at 1000 cells). Default false (per-sheet rollup).' },
+      },
+      required: ['file_path'],
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -757,10 +777,17 @@ async function dispatchTool(name, args) {
     });
   }
 
-  // All other tools (list_sheets, schema) — single-file relay
+  // All other tools (list_sheets, schema, hyperlinks, conditional_formats,
+  // styles, etc.) — single-file relay. Forward any common option keys the
+  // routes accept so we don't silently drop them. New keys added here as
+  // tools start accepting them; the server tolerates extras.
+  const opts = {};
+  if (args.sheet !== undefined) opts.sheet = args.sheet;
+  if (args.limit !== undefined) opts.limit = args.limit;
+  if (args.detailed !== undefined) opts.detailed = args.detailed;
   const body = {
     file_b64: fileToB64(args.file_path),
-    options: { sheet: args.sheet },
+    options: opts,
   };
   return callTool(name, body);
 }
