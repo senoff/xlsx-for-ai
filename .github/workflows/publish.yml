@@ -93,14 +93,19 @@ jobs:
       - name: Guard against republishing existing version
         run: |
           if npm view "${{ steps.pkg.outputs.name }}@${{ steps.pkg.outputs.version }}" version 2>/dev/null; then
-            echo "::error::Version ${{ steps.pkg.outputs.version }} is already published. Bump first."
-            exit 1
+            echo "::notice::Version ${{ steps.pkg.outputs.version }} is already published — skipping pack/install/publish steps."
+            echo "ALREADY_PUBLISHED=true" >> "$GITHUB_ENV"
+          else
+            echo "Version ${{ steps.pkg.outputs.version }} not yet published — proceeding."
+            echo "ALREADY_PUBLISHED=false" >> "$GITHUB_ENV"
           fi
 
       - name: Pack
+        if: env.ALREADY_PUBLISHED != 'true'
         run: npm pack
 
       - name: Clean-install verification (per feedback_pre_publish_clean_install.md)
+        if: env.ALREADY_PUBLISHED != 'true'
         run: |
           set -e
           TARBALL=$(ls ${{ steps.pkg.outputs.name }}-${{ steps.pkg.outputs.version }}.tgz)
@@ -112,7 +117,7 @@ jobs:
           echo "Clean install verified: tarball installs and CLI runs."
 
       - name: Publish to npm
-        if: github.event_name == 'push' || inputs.dry_run == false
+        if: env.ALREADY_PUBLISHED != 'true' && (github.event_name == 'push' || inputs.dry_run == false)
         run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.XLSX_NPM }}
