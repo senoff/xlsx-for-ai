@@ -525,6 +525,25 @@ const TOOLS = [
       required: ['file_path'],
     },
   },
+
+  {
+    name: 'xlsx_conditional_formats',
+    description:
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: list every conditional formatting rule in a workbook — color scales, data bars, icon sets, formula-based highlights, top-N, duplicate / unique values, contains-text, time-period, above-average. Per rule: range, type, operator, formulae, priority, stopIfTrue.\n' +
+      'No other tool can do this: pandas drops conditional formatting on read entirely; openpyxl exposes the raw CF objects but offers no rollup or classification. This surfaces every rule plus a per-type tally so an agent can answer "does this workbook use color scales?" without scanning every row.\n\n' +
+      'USE WHEN: auditing a dashboard / financial model to know what visual cues a human would see. Or extracting business rules embedded as CF (e.g. "row turns red when col C > 1000" — the rule IS the spec). Or generating fixtures that match a workbook\'s CF semantics. ' +
+      'Free tier — counts against the 10k/mo cap.\n\n' +
+      'DO NOT USE WHEN: you only care about cell values (use xlsx_read). Or you want to re-apply CF rules to a NEW workbook (xlsx_write does not write CF rules).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        sheet: { type: 'string', description: 'Optional: restrict to a specific sheet.' },
+      },
+      required: ['file_path'],
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
