@@ -565,6 +565,24 @@ const TOOLS = [
   },
 
   {
+    name: 'xlsx_properties',
+    description:
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: surface the workbook\'s identity card. Core: creator, last_modified_by, created/modified/lastPrinted timestamps, title, subject, company, manager, keywords, category, description. Application: app name, app version, doc security label, hyperlink base. Custom: every user-defined Info > Properties entry (Department, ReviewedBy, ApprovalRequired, etc.) with type tag and value.\n' +
+      'No other tool gives you this rolled up: pandas drops document properties entirely; openpyxl exposes core props but in nested object form unsuitable for LLM consumption. Reads docProps/core.xml, docProps/app.xml, and docProps/custom.xml directly.\n\n' +
+      'USE WHEN: auditing a workbook for attribution ("who built this and when?"). Or stripping sensitive metadata before sharing externally (creator names, internal company names, manager email). Or extracting custom finance/legal flags ("ReviewedBy", "ApprovalRequired") that workflows pin to the file. ' +
+      'Free tier — counts against the 10k/mo cap.\n\n' +
+      'DO NOT USE WHEN: just reading values (use xlsx_read). Or trying to MODIFY metadata (use xlsx_redact for sensitive-field stripping; xlsx_write does not write doc props).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+      },
+      required: ['file_path'],
+    },
+  },
+
+  {
     name: 'xlsx_external_links',
     description:
       'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
