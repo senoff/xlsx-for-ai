@@ -565,6 +565,24 @@ const TOOLS = [
   },
 
   {
+    name: 'xlsx_slicers_timelines',
+    description:
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: list every slicer (interactive filter button) and timeline (date-range filter visual) in a workbook with their captions, source bindings (table column or pivot table), and timeline granularity (years / quarters / months / days) plus the currently-selected date range.\n' +
+      'No other tool can do this: ExcelJS has NO API for slicers or timelines and silently drops both on every round-trip; pandas drops them entirely; openpyxl support is partial. xlsx_slicers_timelines reads the OOXML zip (xl/slicers/*, xl/slicerCaches/*, xl/timelines/*, xl/timelineCaches/*) directly.\n\n' +
+      'USE WHEN: documenting a dashboard so an LLM knows what filter UI a human sees. Or auditing whether a slicer\'s table-column binding still matches the underlying data after a refactor. Or extracting the date range a timeline currently filters on without screenshotting Excel. ' +
+      'Free tier — counts against the 10k/mo cap.\n\n' +
+      'DO NOT USE WHEN: just reading values (use xlsx_read). Or trying to APPLY a filter (use xlsx_filter — slicers/timelines are UI metadata, not data filters).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+      },
+      required: ['file_path'],
+    },
+  },
+
+  {
     name: 'xlsx_pivot_tables',
     description:
       'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
