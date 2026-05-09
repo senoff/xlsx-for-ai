@@ -45,6 +45,14 @@ Or run directly with npx (no install needed):
 npx xlsx-for-ai budget.xlsx
 ```
 
+### Claude Desktop — one-click install
+
+Download the `.mcpb` extension bundle and drag it into Claude Desktop (Settings → Extensions):
+
+**[xlsx-for-ai-2.0.0.mcpb](https://github.com/senoff/xlsx-for-ai/releases/latest/download/xlsx-for-ai-2.0.0.mcpb)** *(latest release)*
+
+The bundle includes the full npm package and registers all 11 MCP tools automatically. No manual config edits needed.
+
 ## Usage
 
 ```bash
