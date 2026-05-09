@@ -565,6 +565,25 @@ const TOOLS = [
   },
 
   {
+    name: 'xlsx_images',
+    description:
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: list every embedded image in a workbook with format (png / jpg / gif / svg / bmp / tiff / emf / wmf), size in bytes, sheet attribution, and anchor cell range (the cells the image floats over). Reads xl/media/* + xl/drawings/* directly.\n' +
+      'No other tool can do this in one call: pandas drops images entirely; openpyxl reads images but doesn\'t roll them up by sheet/format/size or surface anchor cell refs in human-readable form. xlsx_images surfaces "Sheet1 has a 4 KB PNG anchored at B2:D6" — the exact thing an LLM needs to know whether the workbook ships with branding / charts-as-images / signatures.\n\n' +
+      'USE WHEN: cataloging the visual assets in a financial / operational workbook. Or auditing a workbook for embedded images that need to be replaced (logos changed, signatures rotated). Or fingerprinting a template by its image inventory. ' +
+      'Free tier — counts against the 10k/mo cap.\n\n' +
+      'DO NOT USE WHEN: you want the image PIXELS (this surfaces metadata, not bytes — fetching the bytes would inflate the response well beyond LLM context budgets). Or you only need cell values (use xlsx_read).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        sheet: { type: 'string', description: 'Optional: restrict to a specific sheet.' },
+      },
+      required: ['file_path'],
+    },
+  },
+
+  {
     name: 'xlsx_charts',
     description:
       'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
