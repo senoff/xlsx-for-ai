@@ -1,0 +1,55 @@
+name: Publish to MCP Registry
+
+# Submits server.json to the MCP Registry. Two trigger modes:
+#   1. push of a v* tag (e.g. v2.0.0) — automatic on every release
+#   2. workflow_dispatch — manual trigger from CLI or GitHub UI for the
+#      one-off case where a tag was already pushed before the workflow existed
+#
+# Auth: GitHub OIDC (no PAT, no device flow). The MCP Registry verifies that
+# the OIDC token's repo claim matches the `name` field in server.json
+# (must start with "io.github.senoff/" — see d08a2e1 commit message).
+#
+# The npm package itself is published by .github/workflows/publish.yml.
+# This workflow ONLY publishes the server.json metadata.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write   # required for GitHub OIDC
+  contents: read
+
+jobs:
+  publish:
+    name: mcp-publisher publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install mcp-publisher
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" \
+            | tar xz mcp-publisher
+          ./mcp-publisher --help | head -5
+
+      - name: Sync server.json version to tag
+        if: github.event_name == 'push'
+        run: |
+          # On tag push, ensure server.json's version field matches the tag.
+          # Strips the leading "v": v2.0.0 → 2.0.0
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "Tag version: ${VERSION}"
+          # Both top-level version and packages[0].version
+          jq --arg v "$VERSION" '.version = $v | .packages[0].version = $v' \
+            server.json > server.tmp && mv server.tmp server.json
+          cat server.json
+
+      - name: Authenticate via GitHub OIDC
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish to MCP Registry
+        run: ./mcp-publisher publish
