@@ -2,9 +2,9 @@
   "manifest_version": "0.3",
   "name": "xlsx-for-ai",
   "display_name": "xlsx-for-ai",
-  "version": "2.0.0",
+  "version": "2.19.1",
   "description": "Reliable Excel/.xlsx access for AI agents. Read, write, diff, redact, validate, describe, filter, aggregate — backed by a hosted API. Free tier auto-registers anonymously on first use.",
-  "long_description": "xlsx-for-ai is an MCP server that gives LLM agents reliable, hardened access to Excel files. Unlike pandas-style sandboxes, it preserves merged cells, named ranges, formulas, and conditional formatting. Cross-engine validation catches the corruption pandas silently masks. Free tier (10,000 calls/month) auto-registers an anonymous client_id on first use — no email, no signup form. Paid tiers (Bronze / Silver / Gold) for commercial use.",
+  "long_description": "**xlsx-for-ai** is the missing reliability layer that makes spreadsheet reasoning production-grade for LLM agents.\n\nUnlike pandas-style sandboxes, it preserves merged cells, named ranges, formulas, conditional formatting, charts, pivots, and slicers. Cross-engine validation catches the corruption pandas silently masks.\n\n- **Free tier (10,000 calls/month)** — auto-registers an anonymous client_id on first use. No email, no signup form.\n- **Paid tiers** (Bronze / Silver / Gold) for commercial use.\n- **Server-mediated** — engine runs on api.xlsx-for-ai.dev, not your machine. The thin client only reads local file paths and relays bytes.\n- **Dynamic tool catalog** — the tool surface is discovered from the server at startup. New tools appear without re-installing the extension.",
   "author": {
     "name": "Bob Senoff",
     "email": "support@xlsx-for-ai.dev",
@@ -38,23 +38,50 @@
       "args": ["${__dirname}/node_modules/xlsx-for-ai/mcp.js"]
     }
   },
+  "tools_generated": true,
   "tools": [
     { "name": "xlsx_read", "description": "Read an .xlsx file and return its contents as text/JSON/markdown." },
     { "name": "xlsx_list_sheets", "description": "List sheets in an .xlsx workbook with row/column counts." },
     { "name": "xlsx_schema", "description": "Infer column types from the first N rows with confidence scoring." },
-    { "name": "xlsx_diff", "description": "Compare two .xlsx workbooks and report cell-level differences." },
-    { "name": "xlsx_write", "description": "Generate an .xlsx file from a JSON spec." },
+    { "name": "xlsx_diff", "description": "Compare two .xlsx workbooks and report cell-level differences (deterministic, hashable)." },
+    { "name": "xlsx_write", "description": "Generate or edit an .xlsx file from a JSON spec." },
     { "name": "xlsx_redact", "description": "Strip cell values while preserving structure (formulas, named ranges, formatting)." },
     { "name": "xlsx_describe", "description": "Pandas-style per-column summary stats (count, nulls, unique, min/max/mean/std)." },
     { "name": "xlsx_filter", "description": "Predicate-based row filter with eq/ne/gt/gte/lt/lte/contains/in/is_null operators." },
     { "name": "xlsx_aggregate", "description": "GroupBy + aggregate (sum/mean/min/max/count/count_distinct)." },
+    { "name": "xlsx_sort", "description": "Multi-column sort with per-column direction and stable ordering." },
+    { "name": "xlsx_value_counts", "description": "Frequency counts for a column, with optional top_n and null handling." },
+    { "name": "xlsx_pivot", "description": "Pivot table with index/columns/values + configurable aggregation." },
     { "name": "xlsx_named_ranges", "description": "List defined names in the workbook with scope and reference." },
-    { "name": "xlsx_validate", "description": "Cross-engine consistency check — compares output across two independent xlsx renderers. Pro+." }
+    { "name": "xlsx_formulas", "description": "Inventory and inspect formulas across sheets, optionally with results." },
+    { "name": "xlsx_eval", "description": "Evaluate ad-hoc formulas against the workbook context." },
+    { "name": "xlsx_tables", "description": "List Excel Tables with column metadata." },
+    { "name": "xlsx_convert", "description": "Convert .xlsx to other formats (CSV, JSON, etc)." },
+    { "name": "xlsx_validate", "description": "Cross-engine consistency check across two independent xlsx renderers." },
+    { "name": "xlsx_data_validations", "description": "Inspect cell data validation rules (dropdowns, ranges, custom rules)." },
+    { "name": "xlsx_hyperlinks", "description": "Inventory hyperlinks across the workbook." },
+    { "name": "xlsx_topology", "description": "Map cross-sheet references and dependency structure." },
+    { "name": "xlsx_conditional_formats", "description": "Inspect conditional formatting rules per range." },
+    { "name": "xlsx_comments", "description": "Read cell comments and threaded discussions." },
+    { "name": "xlsx_doctor", "description": "Audit workbook health — surface issues, brittle formulas, broken references." },
+    { "name": "xlsx_form_controls", "description": "Inspect form controls (buttons, checkboxes, dropdowns) and their bindings." },
+    { "name": "xlsx_macros", "description": "Detect and inspect VBA macros and their entry points." },
+    { "name": "xlsx_merged_cells", "description": "Inventory merged cell regions per sheet." },
+    { "name": "xlsx_workbook_views", "description": "Inspect saved views, frozen panes, zoom levels." },
+    { "name": "xlsx_print_settings", "description": "Inspect print areas, page breaks, headers/footers." },
+    { "name": "xlsx_properties", "description": "Read workbook document properties (author, created, custom properties)." },
+    { "name": "xlsx_external_links", "description": "List references to external workbooks and their resolution status." },
+    { "name": "xlsx_slicers_timelines", "description": "Inspect slicers and timelines linked to pivot tables." },
+    { "name": "xlsx_pivot_tables", "description": "Inspect pivot table structure, fields, and source data." },
+    { "name": "xlsx_images", "description": "List embedded images with anchor and dimensions." },
+    { "name": "xlsx_charts", "description": "Inspect charts — types, data ranges, series." },
+    { "name": "xlsx_protection", "description": "Inspect sheet/workbook protection settings." },
+    { "name": "xlsx_styles", "description": "Inspect cell styles, fonts, fills, and formatting metadata." }
   ],
   "compatibility": {
     "platforms": ["darwin", "linux", "win32"],
     "runtimes": {
-      "node": ">=18"
+      "node": ">=22"
     }
   },
   "user_config": {}

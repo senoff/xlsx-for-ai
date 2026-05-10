@@ -16,6 +16,7 @@
     "lib/config.js",
     "lib/register.js",
     "lib/fallback-read.js",
+    "lib/discover.js",
     "README.md",
     "SECURITY.md",
     "LICENSE"

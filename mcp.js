@@ -16,6 +16,7 @@ const { CallToolRequestSchema, ListToolsRequestSchema } = require('@modelcontext
 const { ensureRegistered } = require('./lib/register');
 const { callTool }         = require('./lib/client');
 const { fallbackRead }     = require('./lib/fallback-read');
+const { resolveCatalog }   = require('./lib/discover');
 const fs                   = require('fs');
 const fsPromises           = require('fs/promises');
 const path                 = require('path');
@@ -1061,16 +1062,33 @@ async function dispatchTool(name, args) {
 async function main() {
   await ensureRegistered();
 
+  // Dynamic tool catalog: query the hosted API once at startup so new
+  // server-side tools appear without re-publishing this npm package.
+  // resolveCatalog returns the baked-in TOOLS as last-resort fallback so
+  // we never fail-open on a transient network blip. See lib/discover.js.
+  let catalog;
+  try {
+    catalog = await resolveCatalog(TOOLS);
+  } catch (_) {
+    catalog = { tools: TOOLS, source: 'static-fallback' };
+  }
+  const liveTools = catalog.tools;
+
   const server = new Server(
     { name: 'xlsx-for-ai', version: require('./package.json').version },
     { capabilities: { tools: {} } }
   );
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: liveTools }));
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
-    const tool = TOOLS.find((t) => t.name === name);
+    // Accept any tool the live catalog advertises. dispatchTool has a
+    // generic single-file relay path (see end of dispatchTool) that handles
+    // any unknown tool name by forwarding {file_b64, options} to the server,
+    // so dynamically-discovered tools "just work" as long as their server
+    // contract matches that shape.
+    const tool = liveTools.find((t) => t.name === name);
     if (!tool) {
       return {
         content: [{ type: 'text', text: `Unknown tool: ${name}` }],
