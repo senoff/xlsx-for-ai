@@ -36,14 +36,17 @@ jobs:
             | tar xz mcp-publisher
           ./mcp-publisher --help | head -5
 
-      - name: Sync server.json version to tag
-        if: github.event_name == 'push'
+      - name: Sync server.json version to package.json
         run: |
-          # On tag push, ensure server.json's version field matches the tag.
-          # Strips the leading "v": v2.0.0 → 2.0.0
-          VERSION=${GITHUB_REF#refs/tags/v}
-          echo "Tag version: ${VERSION}"
-          # Both top-level version and packages[0].version
+          # Authoritative version source: package.json (which publish.yml bumps
+          # and pushes). On tag-push events GITHUB_REF is the tag (we could
+          # parse it instead), but using package.json works uniformly for both
+          # push events AND workflow_dispatch reruns from any ref. This is
+          # what unblocked the 'cannot publish duplicate version' bug we hit
+          # when re-running on a tag where the repo's server.json was still
+          # at the old version.
+          VERSION=$(jq -r '.version' package.json)
+          echo "Sync version: ${VERSION}"
           jq --arg v "$VERSION" '.version = $v | .packages[0].version = $v' \
             server.json > server.tmp && mv server.tmp server.json
           cat server.json
