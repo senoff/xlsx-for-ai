@@ -116,11 +116,22 @@ function startMockServer() {
 
 let tmpDir;
 
+// Stash the original CI env values so we can restore them in after().
+// We unset CI / GITHUB_ACTIONS while the test suite runs because the
+// register.js CI gate would otherwise short-circuit ensureRegistered()
+// and these tests specifically exercise the registration path.
+const originalCi = process.env.CI;
+const originalGha = process.env.GITHUB_ACTIONS;
+const originalXfaCi = process.env.XLSX_FOR_AI_CI;
+
 before(async () => {
   await startMockServer();
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'xfa-test-'));
   process.env.XLSX_FOR_AI_API   = `http://127.0.0.1:${serverPort}`;
   process.env.XFA_CONFIG_DIR    = tmpDir;
+  delete process.env.CI;
+  delete process.env.GITHUB_ACTIONS;
+  delete process.env.XLSX_FOR_AI_CI;
 });
 
 after(async () => {
@@ -128,6 +139,9 @@ after(async () => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
   delete process.env.XLSX_FOR_AI_API;
   delete process.env.XFA_CONFIG_DIR;
+  if (originalCi !== undefined) process.env.CI = originalCi;
+  if (originalGha !== undefined) process.env.GITHUB_ACTIONS = originalGha;
+  if (originalXfaCi !== undefined) process.env.XLSX_FOR_AI_CI = originalXfaCi;
 });
 
 // Helpers — fresh require after env is set
