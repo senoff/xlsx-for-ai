@@ -4,10 +4,12 @@
  * Tests for lib/discover.js — dynamic tool catalog resolution.
  *
  * Covers:
- *   - mergeTools: server wins on collision; baked-in fills gaps
- *   - resolveCatalog: remote success path writes cache + returns merged set
- *   - resolveCatalog: remote failure + fresh cache => uses cache
- *   - resolveCatalog: remote failure + no cache => uses static fallback
+ *   - mergeTools: server wins on collision; baked-in fills gaps; dedupes both
+ *     sides; tolerates malformed entries
+ *   - resolveCatalog happy path: remote success writes cache + returns merged set
+ *   - resolveCatalog negative: remote unreachable falls back to fresh cache,
+ *     stale cache, then static (in that order)
+ *   - isCacheFresh: rejects future timestamps (clock-skew defense)
  */
 
 const test    = require('node:test');
@@ -18,9 +20,22 @@ const path    = require('node:path');
 
 // Hermetic config dir so tests don't touch the developer's real cache.
 const TMP_CFG = fs.mkdtempSync(path.join(os.tmpdir(), 'xfa-discover-test-'));
+const PRIOR_ENV = {
+  XFA_CONFIG_DIR: process.env.XFA_CONFIG_DIR,
+  XLSX_FOR_AI_API: process.env.XLSX_FOR_AI_API,
+};
 process.env.XFA_CONFIG_DIR = TMP_CFG;
 // Point the API at a definitely-unreachable host for the negative tests.
 process.env.XLSX_FOR_AI_API = 'http://127.0.0.1:1';  // port 1 = guaranteed no listener
+
+test.after(() => {
+  // Restore env so other test files in the same runner aren't tainted.
+  if (PRIOR_ENV.XFA_CONFIG_DIR === undefined) delete process.env.XFA_CONFIG_DIR;
+  else process.env.XFA_CONFIG_DIR = PRIOR_ENV.XFA_CONFIG_DIR;
+  if (PRIOR_ENV.XLSX_FOR_AI_API === undefined) delete process.env.XLSX_FOR_AI_API;
+  else process.env.XLSX_FOR_AI_API = PRIOR_ENV.XLSX_FOR_AI_API;
+  fs.rmSync(TMP_CFG, { recursive: true, force: true });
+});
 
 const { resolveCatalog, _internal } = require('../../lib/discover');
 
@@ -46,6 +61,35 @@ test('mergeTools: server wins on name collision; baked-in fills gaps', () => {
   assert.equal(merged[2].name, 'xlsx_list_sheets', 'baked-only tool preserved');
 });
 
+test('mergeTools: dedupes within remote; first occurrence wins', () => {
+  const remote = [
+    { name: 'xlsx_dup', description: 'first wins' },
+    { name: 'xlsx_dup', description: 'second loses' },
+    { name: 'xlsx_only', description: 'kept' },
+  ];
+  const merged = _internal.mergeTools(remote, []);
+  assert.equal(merged.length, 2);
+  assert.equal(merged[0].description, 'first wins');
+});
+
+test('mergeTools: tolerates malformed entries on both sides', () => {
+  const remote = [
+    null,
+    { description: 'no name field' },
+    { name: 'xlsx_read', description: 'remote' },
+  ];
+  const baked = [
+    null,
+    { name: 'xlsx_dup', description: 'b1' },
+    { name: 'xlsx_dup', description: 'b2' },
+    { description: 'no name' },
+    'a string',
+    { name: 'xlsx_keep', description: 'keep' },
+  ];
+  const merged = _internal.mergeTools(remote, baked);
+  assert.deepEqual(merged.map(t => t.name), ['xlsx_read', 'xlsx_dup', 'xlsx_keep']);
+});
+
 test('resolveCatalog: remote unreachable + no cache => static fallback', async () => {
   // Make sure no cache file exists for this run.
   try { fs.unlinkSync(_internal.cachePath()); } catch (_) {}
@@ -68,12 +112,11 @@ test('resolveCatalog: remote unreachable + fresh cache => uses cache', async () 
 });
 
 test('resolveCatalog: stale cache still wins over baked-only fallback', async () => {
-  // Write a cache, then artificially backdate it past TTL.
   _internal.writeCache([{ name: 'xlsx_only_in_stale_cache', description: 'old but real' }]);
-  const cachePath = _internal.cachePath();
-  const obj = JSON.parse(require('node:fs').readFileSync(cachePath, 'utf8'));
+  const cp = _internal.cachePath();
+  const obj = JSON.parse(fs.readFileSync(cp, 'utf8'));
   obj.fetched_at = Date.now() - (48 * 60 * 60 * 1000);  // 48h old; TTL is 24h
-  require('node:fs').writeFileSync(cachePath, JSON.stringify(obj));
+  fs.writeFileSync(cp, JSON.stringify(obj));
   const out = await resolveCatalog(STATIC_FALLBACK);
   assert.equal(out.source, 'cache-stale', 'stale cache must beat static fallback');
   const names = out.tools.map(t => t.name);
@@ -81,17 +124,47 @@ test('resolveCatalog: stale cache still wins over baked-only fallback', async ()
   assert.ok(names.includes('xlsx_read'), 'baked floor still surfaces');
 });
 
-test('mergeTools: tolerates malformed baked entries without crashing', () => {
-  const remote = [{ name: 'xlsx_read', description: 'remote' }];
-  const baked = [
-    null,
-    { name: 'xlsx_dup', description: 'd1' },
-    { name: 'xlsx_dup', description: 'd2' },  // duplicate name in baked
-    { description: 'no name field' },
-    'a string',
-    { name: 'xlsx_keep', description: 'keep' },
-  ];
-  const merged = _internal.mergeTools(remote, baked);
-  const names = merged.map(t => t.name);
-  assert.deepEqual(names, ['xlsx_read', 'xlsx_dup', 'xlsx_keep']);
+test('resolveCatalog: future-timestamped cache is not treated as fresh', async () => {
+  // Defense against clock skew or cache-file tampering. A future fetched_at
+  // would otherwise produce a negative age, which is always less than TTL,
+  // pinning the cache forever.
+  const cp = _internal.cachePath();
+  fs.writeFileSync(cp, JSON.stringify({
+    fetched_at: Date.now() + (10 * 60 * 60 * 1000),  // 10h in the future
+    tools: [{ name: 'xlsx_future_cached', description: 'tampered' }],
+  }));
+  const out = await resolveCatalog(STATIC_FALLBACK);
+  assert.equal(out.source, 'cache-stale',
+               `future cache must not be treated as fresh; got ${out.source}`);
+});
+
+test('resolveCatalog: remote success writes cache and returns source=remote', async () => {
+  // Stash and stub global fetch so we can simulate a successful catalog
+  // without standing up an HTTP server.
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (_url) => ({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      tools: [
+        { name: 'xlsx_dynamic_only', description: 'lives only on the server' },
+        { name: 'xlsx_read',         description: 'remote-fresh description' },
+      ],
+    }),
+  });
+  // Clear any prior cache so we can verify the write path.
+  try { fs.unlinkSync(_internal.cachePath()); } catch (_) {}
+  try {
+    const out = await resolveCatalog(STATIC_FALLBACK);
+    assert.equal(out.source, 'remote');
+    const names = out.tools.map(t => t.name);
+    assert.ok(names.includes('xlsx_dynamic_only'), 'remote-only tool surfaces');
+    assert.ok(names.includes('xlsx_list_sheets'),  'baked floor still merged in');
+    // Verify cache was written so a subsequent failed run can fall back to it.
+    const cached = JSON.parse(fs.readFileSync(_internal.cachePath(), 'utf8'));
+    assert.equal(cached.tools[0].name, 'xlsx_dynamic_only');
+    assert.equal(typeof cached.fetched_at, 'number');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });
