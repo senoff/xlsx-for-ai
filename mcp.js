@@ -565,6 +565,25 @@ const TOOLS = [
   },
 
   {
+    name: 'xlsx_form_controls',
+    description:
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: list every form control (Check Box, Button, Drop-down, List Box, Option Button, Scroll Bar, Spinner, Label, Group Box) in a workbook with the linked cell, current value, dropdown source range, and min/max/step bounds where applicable.\n' +
+      'No other tool gives this in a single call: ExcelJS doesn\'t expose form controls; pandas drops them entirely; openpyxl support is partial. xlsx_form_controls reads xl/ctrlProps/ctrlProp*.xml directly + maps to sheets via the rel chain.\n\n' +
+      'USE WHEN: documenting a survey workbook, scoring rubric, dashboard, or forms-as-spreadsheets template where the interactive UI carries semantic meaning. Or auditing a workbook to find which cells human users can change via a control vs. by direct typing. ' +
+      'Free tier — counts against the 10k/mo cap.\n\n' +
+      'DO NOT USE WHEN: just reading values (use xlsx_read).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        sheet: { type: 'string', description: 'Optional: restrict to a specific sheet.' },
+      },
+      required: ['file_path'],
+    },
+  },
+
+  {
     name: 'xlsx_macros',
     description:
       'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
