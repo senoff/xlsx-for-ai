@@ -81,8 +81,12 @@ fi
 # Drop staging metadata; not part of the bundle.
 rm -f package.json package-lock.json
 
-# manifest.json — copied from the source repo so any edits flow through.
+# manifest.json — copied from the source repo, with version synced from
+# package.json so the manifest version always matches the artifact version.
+# Prevents the "manifest says 2.19.1 but artifact is 2.20.0" skew that
+# directory submission tools reject.
 cp "${SRC_DIR}/manifest.json" ./manifest.json
+node -e "const fs=require('fs'); const m=JSON.parse(fs.readFileSync('./manifest.json','utf8')); m.version='${VERSION}'; fs.writeFileSync('./manifest.json', JSON.stringify(m, null, 2) + '\n');"
 
 # Sanity-check entry point exists.
 ENTRY="node_modules/xlsx-for-ai/mcp.js"
