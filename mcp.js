@@ -565,6 +565,25 @@ const TOOLS = [
   },
 
   {
+    name: 'xlsx_macros',
+    description:
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: inspect xlsm / xlsb workbooks for VBA macro presence, vbaProject.bin size, and likely module names (ThisWorkbook / Sheet<N> / Module<N> / Class<N> / UserForm<N> via heuristic UTF-16LE scan). Returns short safety advice for the LLM to relay to the user.\n' +
+      'No other tool gives this in a single call: pandas drops macros entirely; openpyxl exposes the raw vbaProject.bin bytes but no usable inspection. xlsx_macros gives the security-audit metadata an agent (or human) needs to decide "should I trust this file?" before opening.\n\n' +
+      'By DELIBERATE POLICY this tool does NOT extract or execute macro source code. Surfaces presence + module name candidates only.\n\n' +
+      'USE WHEN: receiving a macro-enabled workbook from an unknown sender and you want to know what to expect before opening. Or auditing a workbook population for "do any of these contain macros?" without sampling each. ' +
+      'Free tier — counts against the 10k/mo cap.\n\n' +
+      'DO NOT USE WHEN: you need to actually inspect / debug VBA source — open the file in Excel (Alt+F11) on a trusted machine.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx / .xlsm / .xlsb file.' },
+      },
+      required: ['file_path'],
+    },
+  },
+
+  {
     name: 'xlsx_merged_cells',
     description:
       'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
