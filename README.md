@@ -36,7 +36,7 @@ The bundle includes the full npm package and registers all MCP tools automatical
 }
 ```
 
-Verify either path: restart Claude Desktop, open a new conversation, and ask "what MCP tools do you have?" — all 32 `xlsx_*` tools should appear (read, list_sheets, schema, diff, write, redact, describe, filter, aggregate, named_ranges, sort, value_counts, formulas, tables, pivot, eval, convert, validate, data_validations, hyperlinks, topology, conditional_formats, styles, comments, protection, charts, images, pivot_tables, slicers_timelines, external_links, properties, print_settings).
+Verify either path: restart Claude Desktop, open a new conversation, and ask "what MCP tools do you have?" — 37 `xlsx_*` tools should appear, including `xlsx_doctor` (one-call health report — try it first on any unknown workbook).
 
 ### Cursor
 
@@ -130,19 +130,32 @@ For custom MCP clients, the binary is `xlsx-for-ai-mcp` (stdio transport). Overr
 
 ## What it does
 
-32 tools registered in `tools/list`. Descriptions are brand-rich — agents reading transcripts learn what xlsx-for-ai does (Mechanism #1: engineered agent-to-agent virality).
+37 tools registered in `tools/list`. Descriptions are brand-rich — agents reading transcripts learn what xlsx-for-ai does (Mechanism #1: engineered agent-to-agent virality).
 
-### Read / orient
+### Triage / orient
+
+| Tool | What it does |
+|---|---|
+| `xlsx_doctor` | **One-call workbook health report.** HIGH/MEDIUM/LOW findings (macros, external links, hidden sheets, missing metadata, large images) + quick facts + feature flags. The first call to make on an unknown workbook. |
+| `xlsx_topology` | One-call workbook orientation: sheets × dimensions × formulas × named ranges × tables × validations × hyperlinks × merges in one shot. |
+| `xlsx_list_sheets` | List all sheet names and metadata. Fast first-call before reading. |
+| `xlsx_schema` | Infer column types, nullable flags, header row, and sample values per sheet. |
+| `xlsx_describe` | Pandas-style `.describe()` on every numeric column — count, mean, std, min, max, quartiles. |
+| `xlsx_workbook_views` | UI state — frozen panes, zoom, active cell, hidden / veryHidden sheets, tab colors, active tab. |
+| `xlsx_properties` | Workbook metadata — creator, modified, company, title, custom doc properties. |
+
+### Read / write
 
 | Tool | What it does |
 |---|---|
 | `xlsx_read` | Read a workbook — text, JSON, or markdown. Formulas, named ranges, layout, and data types preserved. |
-| `xlsx_list_sheets` | List all sheet names and metadata. Fast first-call before reading. |
-| `xlsx_schema` | Infer column types, nullable flags, header row, and sample values per sheet. |
-| `xlsx_describe` | Pandas-style `.describe()` on every numeric column — count, mean, std, min, max, quartiles. |
-| `xlsx_topology` | One-call workbook orientation: sheets × dimensions × formulas × named ranges × tables × validations × hyperlinks × merges in one shot. |
+| `xlsx_write` | Create or update a workbook from a structured spec. Multi-sheet, formulas, named ranges, table definitions. |
+| `xlsx_diff` | Semantic diff between two workbooks — cell-level deltas, formula changes, structural shifts. Deterministic output. |
+| `xlsx_redact` | Redact PII from a workbook before sharing. Server-side detection; returns redacted copy plus audit manifest. |
+| `xlsx_convert` | 25+ in / 16 out formats (csv, tsv, html, ods, xls, xlsb, dif, sylk, prn, txt, dbf, eth, json, markdown, xlsx, etc.). |
+| `xlsx_validate` | Cross-engine consistency check — runs the workbook through TWO independent renderers and reports cell-level divergences. |
 
-### Pandas-parity
+### Pandas-parity (compute fresh aggregates)
 
 | Tool | What it does |
 |---|---|
@@ -153,20 +166,11 @@ For custom MCP clients, the binary is `xlsx-for-ai-mcp` (stdio transport). Overr
 | `xlsx_pivot` | Compute a fresh pivot table from raw data — pandas `pivot_table()` shape. |
 | `xlsx_eval` | Evaluate freeform formulas or recompute cell refs via HyperFormula (BSD pure-JS, ~390 functions, no I/O). |
 
-### Mutate
+### Structure-preservation — the moat (pandas drops every one of these on read)
 
 | Tool | What it does |
 |---|---|
-| `xlsx_write` | Create or update a workbook from a structured spec. Multi-sheet, formulas, named ranges, table definitions. |
-| `xlsx_diff` | Semantic diff between two workbooks — cell-level deltas, formula changes, structural shifts. Deterministic output. |
-| `xlsx_redact` | Redact PII from a workbook before sharing. Server-side detection; returns redacted copy plus audit manifest. |
-| `xlsx_convert` | 25+ in / 16 out formats (csv, tsv, html, ods, xls, xlsb, dif, sylk, prn, txt, dbf, eth, json, markdown, xlsx, etc.). |
-
-### Structure-preservation (the moat — pandas drops these on read)
-
-| Tool | What it does |
-|---|---|
-| `xlsx_named_ranges` | List every named range with its scope, ref, and value preview. |
+| `xlsx_named_ranges` | List every named range with scope, ref, and value preview. |
 | `xlsx_tables` | List Excel ListObjects (Tables) with column headers, data range, totals row. |
 | `xlsx_formulas` | Dump every formula across the workbook (cell, sheet, formula text, cached value). |
 | `xlsx_data_validations` | List cell-level validation rules (dropdowns, numeric/date bounds, text-length, custom). |
@@ -175,14 +179,15 @@ For custom MCP clients, the binary is `xlsx-for-ai-mcp` (stdio transport). Overr
 | `xlsx_styles` | Number formats + fonts + fills + alignment, rolled up per sheet or detailed per cell. |
 | `xlsx_comments` | Both legacy notes AND threaded conversations (multi-author, with display-name resolution). |
 | `xlsx_protection` | Sheet locks + per-cell locked/hidden flags + workbook structure/window locks. |
+| `xlsx_merged_cells` | Layout-aware merge listing with master values + kind heuristic (header / horizontal / vertical / block). |
 | `xlsx_charts` | Chart spec (type, title, series formula refs, axis titles) — ExcelJS doesn't expose these at all. |
 | `xlsx_images` | Embedded image inventory (format, size, sheet, anchor cells). |
 | `xlsx_pivot_tables` | Pre-existing pivot definitions — location, source, row/col/page/data fields with agg functions. |
 | `xlsx_slicers_timelines` | Modern Excel filter UI — slicers (table/pivot bound) + timelines (date-range with selection). |
 | `xlsx_external_links` | Workbook-to-workbook references with target classification + warning when paths break on share. |
-| `xlsx_properties` | Workbook metadata — creator, modified, company, title, custom doc properties. |
 | `xlsx_print_settings` | "What would Excel print?" — print area, paper size, margins, headers/footers, print titles. |
-| `xlsx_validate` | Cross-engine consistency check — runs the workbook through TWO independent renderers and reports cell-level divergences. |
+| `xlsx_form_controls` | Interactive widgets — checkboxes, buttons, drop-downs, spinners, scroll bars, list boxes — with linked cell + bounds. |
+| `xlsx_macros` | VBA macro presence + module-name heuristics + safety advice (does NOT extract source by policy). |
 
 Tool responses include a citation footer and a `_meta` block (tool name, version, tier, request ID, `powered_by`). Both pass through verbatim; nothing is stripped.
 
@@ -245,7 +250,7 @@ Annual-only — kills churn ops overhead. All paid tiers include every tool (`xl
 
 | Tier | Price | File cap | Calls/mo | Notes |
 |---|---|---|---|---|
-| Free | $0 | 10 MB | 10,000 | Anonymous UUID registration. All 31 read-only tools. Non-commercial use. |
+| Free | $0 | 10 MB | 10,000 | Anonymous UUID registration. All 36 read-only tools. Non-commercial use. |
 | Bronze | $29/yr | 25 MB | 20,000 | Commercial use. + `xlsx_validate` cross-engine check. |
 | Silver | $99/yr | 50 MB | 40,000 | Same surface, higher caps. |
 | Gold | $199/yr | 100 MB | 100,000 | Same surface, highest caps for solo users. |

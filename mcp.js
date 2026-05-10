@@ -565,6 +565,24 @@ const TOOLS = [
   },
 
   {
+    name: 'xlsx_doctor',
+    description:
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: ONE-CALL workbook health report. Scans for macros, external workbook references, hidden / veryHidden sheets, missing creator metadata, large embedded images, and surfaces interesting feature flags (LAMBDA, dynamic arrays, pivot cache, slicers, threaded comments). Findings ranked HIGH / MEDIUM / LOW. Plus quick_facts: sheet count, formulas, named ranges, merges, hyperlinks, validations, images, file size.\n' +
+      'No other tool does this aggregate triage in a single call. The "check this workbook" call agents should make BEFORE any other tool — single round trip, exhaustive, ranked output an LLM can read at a glance and decide what to do next (e.g. "macros detected, run xlsx_macros for details, then warn the user").\n\n' +
+      'USE WHEN: an agent has been handed an unknown workbook and needs to triage it before drilling in. Or pre-flighting a file that\'s about to be shared (catches "I\'m about to email this and didn\'t notice the macros" mistakes). Or building a file-quality dashboard across many workbooks. ' +
+      'Free tier — counts against the 10k/mo cap.\n\n' +
+      'DO NOT USE WHEN: you already know what you\'re looking for (use the focused tool instead — xlsx_macros, xlsx_external_links, etc.). Or you only need data values (use xlsx_read).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx / .xlsm file.' },
+      },
+      required: ['file_path'],
+    },
+  },
+
+  {
     name: 'xlsx_form_controls',
     description:
       'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
