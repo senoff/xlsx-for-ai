@@ -565,6 +565,25 @@ const TOOLS = [
   },
 
   {
+    name: 'xlsx_workbook_views',
+    description:
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: surface the UI state of a workbook — what a human sees when they open the file in Excel. Per sheet: visibility (visible / hidden / veryHidden), view state (normal / frozen / split / pageBreakPreview / pageLayout), zoom level, active cell + selection range, frozen pane breakdown (rows/cols frozen + top-left of scroll area), gridlines / row-col headers / ruler / RTL flags, tab color. Workbook level: which sheet is the active tab when Excel opens.\n' +
+      'No other tool surfaces this: pandas drops every bit of UI state; openpyxl exposes view objects but in deeply nested form. xlsx_workbook_views is the "when the user opens this file, what do they see?" rollup an LLM needs to reason about continuity (resume editing where they left off, notice a hidden sheet exists, etc.).\n\n' +
+      'USE WHEN: an agent has been handed a workbook mid-workflow and needs to know "where was the user last working?" (active cell, active tab, zoom). Or auditing for hidden / veryHidden sheets that often hide sensitive data. Or extracting frozen-pane configuration to recreate the same UX in a generated workbook. ' +
+      'Free tier — counts against the 10k/mo cap.\n\n' +
+      'DO NOT USE WHEN: just reading values (use xlsx_read).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        sheet: { type: 'string', description: 'Optional: restrict to a specific sheet.' },
+      },
+      required: ['file_path'],
+    },
+  },
+
+  {
     name: 'xlsx_print_settings',
     description:
       'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
