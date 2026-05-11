@@ -827,6 +827,28 @@ const TOOLS = [
       required: ['file_path'],
     },
   },
+
+  {
+    name: 'xlsx_post_slack',
+    description:
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: upload a local .xlsx file to a Slack channel as a file attachment, with an optional accompanying message. BYOA — the agent must pass the user\'s Slack bot token (xoxb-…). The token is forwarded to Slack and never stored server-side.\n' +
+      'Posts via Slack\'s 3-step external upload flow (files.getUploadURLExternal → upload → files.completeUploadExternal), which is the only sanctioned path as of 2024+.\n\n' +
+      'USE WHEN: the user asks "post this workbook to #channel," "share this with the team in Slack," or any other outbound-file-to-Slack request. The agent has just produced or modified a workbook and wants to deliver it. ' +
+      'Free tier — counts against the 10k/mo cap.\n\n' +
+      'DO NOT USE WHEN: the file lives in a Slack channel and you want to READ it (that\'s the inbound Manual-Mode-Detector pattern, not this). Or when there is no Slack bot token available — the user must have installed a Slack app with files:write scope.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file to post.' },
+        channel: { type: 'string', description: 'Slack channel ID (C…/G…) the file should land in. Channel names like #general are NOT accepted — resolve to a channel ID first.' },
+        slack_token: { type: 'string', description: 'Slack bot token (xoxb-…). Forwarded to Slack; never persisted by us.' },
+        message: { type: 'string', description: 'Optional: message to post alongside the file (Slack\'s initial_comment).' },
+        filename: { type: 'string', description: 'Optional: filename Slack will display. Defaults to the basename of file_path.' },
+      },
+      required: ['file_path', 'channel', 'slack_token'],
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -1038,6 +1060,20 @@ async function dispatchTool(name, args) {
     return callTool('xlsx_validate', {
       file_b64: fileToB64(args.file_path),
     });
+  }
+
+  // xlsx_post_slack: outbound file-to-Slack. Top-level fields, not the
+  // standard {file_b64, options} shape — channel + slack_token + message
+  // + filename live alongside file_b64 in the server route's body schema.
+  if (name === 'xlsx_post_slack') {
+    const body = {
+      file_b64: fileToB64(args.file_path),
+      channel: args.channel,
+      slack_token: args.slack_token,
+    };
+    if (args.message !== undefined) body.message = args.message;
+    body.filename = args.filename || path.basename(args.file_path);
+    return callTool('xlsx_post_slack', body);
   }
 
   // All other tools (list_sheets, schema, hyperlinks, conditional_formats,

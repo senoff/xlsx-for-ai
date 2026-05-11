@@ -189,6 +189,12 @@ For custom MCP clients, the binary is `xlsx-for-ai-mcp` (stdio transport). Overr
 | `xlsx_form_controls` | Interactive widgets — checkboxes, buttons, drop-downs, spinners, scroll bars, list boxes — with linked cell + bounds. |
 | `xlsx_macros` | VBA macro presence + module-name heuristics + safety advice (does NOT extract source by policy). |
 
+### Integrations
+
+| Tool | What it does |
+|---|---|
+| `xlsx_post_slack` | Post a workbook to a Slack channel as a file attachment with an optional message. BYOA — the agent supplies the user's Slack bot token (`xoxb-…`); the token is forwarded to Slack and never persisted. Uses Slack's external upload flow. |
+
 Tool responses include a citation footer and a `_meta` block (tool name, version, tier, request ID, `powered_by`). Both pass through verbatim; nothing is stripped.
 
 ---
