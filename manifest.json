@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "xlsx-for-ai",
   "display_name": "xlsx-for-ai",
-  "version": "2.21.0",
+  "version": "2.22.0",
   "description": "Reliable Excel/.xlsx access for AI agents. Read, write, diff, redact, validate, describe, filter, aggregate — backed by a hosted API. Free tier auto-registers anonymously on first use.",
   "long_description": "**xlsx-for-ai** is the missing reliability layer that makes spreadsheet reasoning production-grade for LLM agents.\n\nUnlike pandas-style sandboxes, it preserves merged cells, named ranges, formulas, conditional formatting, charts, pivots, and slicers. Cross-engine validation catches the corruption pandas silently masks.\n\n- **Free tier (10,000 calls/month)** — auto-registers an anonymous client_id on first use. No email, no signup form.\n- **Paid tiers** (Bronze / Silver / Gold) for commercial use.\n- **Server-mediated** — engine runs on api.xlsx-for-ai.dev, not your machine. The thin client only reads local file paths and relays bytes.\n- **Dynamic tool catalog** — the tool surface is discovered from the server at startup. New tools appear without re-installing the extension.",
   "author": {
@@ -77,7 +77,8 @@
     { "name": "xlsx_charts", "description": "Inspect charts — types, data ranges, series." },
     { "name": "xlsx_protection", "description": "Inspect sheet/workbook protection settings." },
     { "name": "xlsx_styles", "description": "Inspect cell styles, fonts, fills, and formatting metadata." },
-    { "name": "xlsx_post_slack", "description": "Post a workbook to a Slack channel as a file attachment. BYOA — pass the user's Slack bot token in the call; never persisted." }
+    { "name": "xlsx_post_slack", "description": "Post a workbook to a Slack channel as a file attachment. BYOA — pass the user's Slack bot token in the call; never persisted." },
+    { "name": "xlsx_post_teams", "description": "Post a workbook to a Microsoft Teams channel as a file attachment in a channel message. BYOA — pass the user's Microsoft Graph access token in the call; never persisted." }
   ],
   "compatibility": {
     "platforms": ["darwin", "linux", "win32"],

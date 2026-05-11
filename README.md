@@ -194,6 +194,7 @@ For custom MCP clients, the binary is `xlsx-for-ai-mcp` (stdio transport). Overr
 | Tool | What it does |
 |---|---|
 | `xlsx_post_slack` | Post a workbook to a Slack channel as a file attachment with an optional message. BYOA — the agent supplies the user's Slack bot token (`xoxb-…`); the token is forwarded to Slack and never persisted. Uses Slack's external upload flow. |
+| `xlsx_post_teams` | Post a workbook to a Microsoft Teams channel as a file attachment in a channel message, with an optional message. BYOA — the agent supplies the user's Microsoft Graph access token (JWT); the token is forwarded to Microsoft and never persisted. Uses Graph's filesFolder + upload-session + post-message flow. |
 
 Tool responses include a citation footer and a `_meta` block (tool name, version, tier, request ID, `powered_by`). Both pass through verbatim; nothing is stripped.
 

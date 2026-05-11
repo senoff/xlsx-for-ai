@@ -849,6 +849,29 @@ const TOOLS = [
       required: ['file_path', 'channel', 'slack_token'],
     },
   },
+
+  {
+    name: 'xlsx_post_teams',
+    description:
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: upload a local .xlsx file to a Microsoft Teams channel as a file attachment in a channel message, with an optional accompanying message. BYOA — the agent must pass the user\'s Microsoft Graph access token (a JWT starting with "eyJ"). The token is forwarded to Microsoft Graph and never stored server-side.\n' +
+      'Uses Microsoft Graph\'s 4-step flow: locate the channel\'s filesFolder driveItem, create an upload session, upload the bytes, then post a chatMessage with the file as an inline attachment.\n\n' +
+      'USE WHEN: the user asks "post this workbook to my Teams channel," "share this with the team in Teams," or any other outbound-file-to-Teams request. The agent has just produced or modified a workbook and wants to deliver it to a Microsoft Teams channel. ' +
+      'Free tier — counts against the 10k/mo cap.\n\n' +
+      'DO NOT USE WHEN: posting to Slack (use xlsx_post_slack). Or when there is no Microsoft Graph token available — the user must have an Entra ID app registration with Group.ReadWrite.All or Files.ReadWrite.All + ChannelMessage.Send scopes, AND a valid access token for that app.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file to post.' },
+        team_id: { type: 'string', description: 'Microsoft Teams team ID (GUID). Find via Graph: GET /me/joinedTeams.' },
+        channel_id: { type: 'string', description: 'Microsoft Teams channel ID. Find via Graph: GET /teams/{team-id}/channels.' },
+        graph_token: { type: 'string', description: 'Microsoft Graph access token (JWT). Forwarded to Microsoft; never persisted by us. Must have file-upload + channel-message-send scopes.' },
+        message: { type: 'string', description: 'Optional: message to post alongside the file. Plain text; will be HTML-escaped server-side.' },
+        filename: { type: 'string', description: 'Optional: filename Teams will display. Defaults to the basename of file_path.' },
+      },
+      required: ['file_path', 'team_id', 'channel_id', 'graph_token'],
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -1074,6 +1097,20 @@ async function dispatchTool(name, args) {
     if (args.message !== undefined) body.message = args.message;
     body.filename = args.filename || path.basename(args.file_path);
     return callTool('xlsx_post_slack', body);
+  }
+
+  // xlsx_post_teams: outbound file-to-Teams. Same shape as Slack but with
+  // Microsoft Graph fields (team_id + channel_id + graph_token).
+  if (name === 'xlsx_post_teams') {
+    const body = {
+      file_b64: fileToB64(args.file_path),
+      team_id: args.team_id,
+      channel_id: args.channel_id,
+      graph_token: args.graph_token,
+    };
+    if (args.message !== undefined) body.message = args.message;
+    body.filename = args.filename || path.basename(args.file_path);
+    return callTool('xlsx_post_teams', body);
   }
 
   // All other tools (list_sheets, schema, hyperlinks, conditional_formats,
