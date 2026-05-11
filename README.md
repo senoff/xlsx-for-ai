@@ -196,6 +196,13 @@ For custom MCP clients, the binary is `xlsx-for-ai-mcp` (stdio transport). Overr
 | `xlsx_post_slack` | Post a workbook to a Slack channel as a file attachment with an optional message. BYOA — the agent supplies the user's Slack bot token (`xoxb-…`); the token is forwarded to Slack and never persisted. Uses Slack's external upload flow. |
 | `xlsx_post_teams` | Post a workbook to a Microsoft Teams channel as a file attachment in a channel message, with an optional message. BYOA — the agent supplies the user's Microsoft Graph access token (JWT); the token is forwarded to Microsoft and never persisted. Uses Graph's filesFolder + upload-session + post-message flow. |
 
+### Integrity verification
+
+| Tool | What it does |
+|---|---|
+| `xlsx_stamp` | Sign a workbook with a cryptographic "integrity verification" stamp — Ed25519-signed claims (named factual checks + their pass/fail/skip status + a content hash) embedded in `docProps/custom.xml`. The stamp travels with the file across saves; a recipient can verify it later to confirm the file hasn't been tampered with since signing. Factual attestations only — never an opinion-shaped seal of approval. |
+| `xlsx_verify_stamp` | Verify a workbook's embedded stamp. Returns (a) whether the Ed25519 signature is valid against the registered public key, (b) whether the workbook bytes match the hash IN the signed claims, and (c) the full check-result content of the stamp. Three distinct trust signals — signature integrity, content integrity, and what was originally attested. |
+
 Tool responses include a citation footer and a `_meta` block (tool name, version, tier, request ID, `powered_by`). Both pass through verbatim; nothing is stripped.
 
 ---
