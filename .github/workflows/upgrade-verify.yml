@@ -85,6 +85,13 @@ jobs:
             return parts[0].startsWith('@') ? `${parts[0]}/${parts[1]}` : parts[0];
           }
 
+          // npm aliases ("string-width-cjs": "npm:string-width@4.2.3") put
+          // the upstream package name in meta.name; the path-derived name is
+          // the alias, which the registry doesn't know. Prefer meta.name.
+          function resolveName(path, meta) {
+            return typeof meta.name === 'string' && meta.name ? meta.name : nameFromPath(path);
+          }
+
           // Skip non-registry sources (git, file:, http tarballs) — there is
           // no canonical registry record to compare against.
           function isRegistry(meta) {
@@ -112,7 +119,7 @@ jobs:
             const skipped = entries.length - checkable.length;
             let bad = 0;
             await pool(checkable, 10, async ([path, meta]) => {
-              const name = nameFromPath(path);
+              const name = resolveName(path, meta);
               const version = meta.version;
               const url = `https://registry.npmjs.org/${encodeURIComponent(name).replace('%40', '@')}/${version}`;
               await new Promise((resolve) => {
