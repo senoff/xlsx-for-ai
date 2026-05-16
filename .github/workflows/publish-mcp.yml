@@ -31,9 +31,39 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install mcp-publisher
+        # Pinned to a specific upstream release + sha256. Without the pin a
+        # maintainer takeover or release-artifact substitution upstream could
+        # ship a trojaned binary into this runner, which holds an `id-token:
+        # write` OIDC token scoped to the `io.github.senoff/xlsx-for-ai` MCP
+        # Registry name. To bump: pick the new upstream release tag and copy
+        # the `mcp-publisher_linux_amd64.tar.gz` checksum from that release's
+        # `registry_<ver>_checksums.txt`. The version + sha256 pair below
+        # assumes the linux_amd64 asset; if you change runs-on to a different
+        # OS or arch, swap in the matching asset and its checksum.
+        env:
+          MCP_PUBLISHER_VERSION: v1.7.9
+          MCP_PUBLISHER_SHA256: ab128162b0616090b47cf245afe0a23f3ef08936fdce19074f5ba0a4469281ac
         run: |
-          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" \
-            | tar xz mcp-publisher
+          set -euo pipefail
+          if [ "$(uname -s)" != "Linux" ] || [ "$(uname -m)" != "x86_64" ]; then
+            echo "This step is pinned to linux_amd64; current runner is $(uname -s)/$(uname -m)." >&2
+            echo "Update MCP_PUBLISHER_SHA256 to the matching asset checksum before changing runs-on." >&2
+            exit 1
+          fi
+          TMP="$(mktemp -d)"
+          trap 'rm -rf "$TMP"' EXIT
+          curl -fL --retry 3 --retry-delay 2 --max-time 120 \
+            -o "$TMP/mcp-publisher.tar.gz" \
+            "https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz"
+          printf '%s  %s\n' "$MCP_PUBLISHER_SHA256" "$TMP/mcp-publisher.tar.gz" | sha256sum -c -
+          tar xz -f "$TMP/mcp-publisher.tar.gz" -C "$TMP"
+          BIN="$(find "$TMP" -type f -name mcp-publisher -print -quit)"
+          if [ -z "$BIN" ]; then
+            echo "mcp-publisher binary not found in tarball" >&2
+            exit 1
+          fi
+          mv "$BIN" ./mcp-publisher
+          chmod +x ./mcp-publisher
           ./mcp-publisher --help | head -5
 
       - name: Sync server.json version to package.json
