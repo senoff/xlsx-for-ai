@@ -18,12 +18,14 @@ concurrency:
   group: grace-review-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
-# Skip the workflow entirely for draft PRs (defense in depth — opened-on-draft
-# would otherwise fire, but the conditional below also handles that case).
-
 jobs:
   review:
     name: Multi-LLM diff defect review
+    # Skip draft PRs (the "opened" trigger fires on draft creation; ready_for_review
+    # is the one we actually want for draft→ready transitions). Also skip forks
+    # since secrets (GRACE_DEPLOY_TOKEN, ANTHROPIC/OPENAI/GEMINI_API_KEY) aren't
+    # exposed to fork-based PRs and the job would fail noisily.
+    if: github.event.pull_request.draft == false && github.event.pull_request.head.repo.fork == false
     runs-on: ubuntu-latest
     permissions:
       contents: read
