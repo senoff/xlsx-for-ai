@@ -41,10 +41,18 @@ jobs:
       - name: Clone senoff/grace + senoff/max + multi-review tool
         env:
           GRACE_DEPLOY_TOKEN: ${{ secrets.GRACE_DEPLOY_TOKEN }}
+          # Pinned to specific SHAs (not branch HEAD) so a force-push or
+          # malicious commit to senoff/grace or senoff/max can't immediately
+          # execute in CI with our secrets. Bump these intentionally when
+          # upstream changes warrant.
+          GRACE_SHA: 4892e932ceea59f364836100d0c00e83751a17f7
+          MAX_SHA:   9c42b002557b8e5755a29e588a73979b3857ccb5
         run: |
           set -e
           git clone "https://x-access-token:${GRACE_DEPLOY_TOKEN}@github.com/senoff/grace.git" "$HOME/grace"
+          git -C "$HOME/grace" checkout "$GRACE_SHA"
           git clone "https://x-access-token:${GRACE_DEPLOY_TOKEN}@github.com/senoff/max.git" "$HOME/max"
+          git -C "$HOME/max" checkout "$MAX_SHA"
           # multi-review + llm-review live in Bob's ~/bin and grace-review
           # hardcodes "$HOME/bin/llm-review" (doesn't go through PATH). Vendor
           # both into $HOME/bin so the script's hardcoded paths work.
@@ -72,7 +80,10 @@ jobs:
           # If grace-review or multi-review uses anything else, add here.
           sudo apt-get update -qq
           sudo apt-get install -y -qq jq
-          pip install --quiet anthropic openai google-generativeai 2>/dev/null || true
+          # Fail-fast on pip install errors — silent suppression masked failures
+          # and produced opaque downstream errors. If a provider is genuinely
+          # unavailable, the workflow should fail visibly so it's fixed.
+          pip install --quiet anthropic openai google-generativeai
 
       - name: Compute diff (PR base...head)
         id: diff
@@ -80,8 +91,11 @@ jobs:
           set -e
           BASE_SHA="${{ github.event.pull_request.base.sha }}"
           HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          # Fetch the exact base SHA — depth=1 of the base branch tip can miss
+          # BASE_SHA if the base branch advanced between event creation and the
+          # fetch, producing "fatal: bad object" diff errors.
+          git fetch --no-tags origin "$BASE_SHA"
           # Three-dot diff = "changes on PR branch since divergence" (the GitHub PR view)
-          git fetch --no-tags --depth=1 origin "${{ github.event.pull_request.base.ref }}"
           git diff "${BASE_SHA}...${HEAD_SHA}" > /tmp/pr.diff
           echo "diff_lines=$(wc -l < /tmp/pr.diff | tr -d ' ')" >> "$GITHUB_OUTPUT"
           echo "Diff is $(wc -l < /tmp/pr.diff) lines"
@@ -136,6 +150,12 @@ jobs:
           gh pr comment "$PR_NUM" --repo "$REPO" --body-file /tmp/comment-with-header.md
 
       - name: Fail the check if HIGH or CRITICAL findings
+        env:
+          # gh pr view (below) needs an authenticated token to read the PR
+          # description for the grace-override: escape hatch. Without this,
+          # gh is unauthenticated, DESC ends up empty, and the override path
+          # silently never fires.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
           COMMENT_FILE="$HOME/grace-out/comment.md"
