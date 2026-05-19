@@ -2,9 +2,18 @@ name: grace-review
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    # Fire only when the PR is at a reviewable boundary, NOT on every commit:
+    #  - opened (non-draft): PR is born ready
+    #  - ready_for_review: draft → ready transition (the feature-commits-inside
+    #    workflow we use opens drafts, shapes through many commits, then marks
+    #    ready when done; this fires once at that moment)
+    #  - reopened: re-fire if a closed PR comes back
+    # Synchronize (every push) intentionally OMITTED to avoid token burn on
+    # mid-feature commits. Bob 2026-05-19: feature-PR-with-many-commits-inside
+    # means we'd run Grace 5-15 times per PR otherwise.
+    types: [opened, ready_for_review, reopened]
 
-# Run only one instance per PR; cancel in-progress on new push.
+# Run only one instance per PR.
 concurrency:
   group: grace-review-${{ github.event.pull_request.number }}
   cancel-in-progress: true
@@ -12,6 +21,11 @@ concurrency:
 jobs:
   review:
     name: Multi-LLM diff defect review
+    # Skip draft PRs (the "opened" trigger fires on draft creation; ready_for_review
+    # is the one we actually want for draft→ready transitions). Also skip forks
+    # since secrets (GRACE_DEPLOY_TOKEN, ANTHROPIC/OPENAI/GEMINI_API_KEY) aren't
+    # exposed to fork-based PRs and the job would fail noisily.
+    if: github.event.pull_request.draft == false && github.event.pull_request.head.repo.fork == false
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -27,19 +41,30 @@ jobs:
       - name: Clone senoff/grace + senoff/max + multi-review tool
         env:
           GRACE_DEPLOY_TOKEN: ${{ secrets.GRACE_DEPLOY_TOKEN }}
+          # Pinned to specific SHAs (not branch HEAD) so a force-push or
+          # malicious commit to senoff/grace or senoff/max can't immediately
+          # execute in CI with our secrets. Bump these intentionally when
+          # upstream changes warrant.
+          GRACE_SHA: 4892e932ceea59f364836100d0c00e83751a17f7
+          MAX_SHA:   9c42b002557b8e5755a29e588a73979b3857ccb5
         run: |
           set -e
           git clone "https://x-access-token:${GRACE_DEPLOY_TOKEN}@github.com/senoff/grace.git" "$HOME/grace"
+          git -C "$HOME/grace" checkout "$GRACE_SHA"
           git clone "https://x-access-token:${GRACE_DEPLOY_TOKEN}@github.com/senoff/max.git" "$HOME/max"
-          # multi-review lives in Bob's ~/bin but we keep a copy in grace's repo
-          # for CI portability. If missing, fall back to the grace-review built-in path.
+          git -C "$HOME/max" checkout "$MAX_SHA"
+          # multi-review + llm-review live in Bob's ~/bin and grace-review
+          # hardcodes "$HOME/bin/llm-review" (doesn't go through PATH). Vendor
+          # both into $HOME/bin so the script's hardcoded paths work.
           mkdir -p "$HOME/bin"
-          if [ -f "$HOME/grace/bin/multi-review" ]; then
-            cp "$HOME/grace/bin/multi-review" "$HOME/bin/multi-review"
-            chmod +x "$HOME/bin/multi-review"
-          else
-            echo "::warning::multi-review tool not vendored in senoff/grace yet — falling back may fail"
-          fi
+          for tool in multi-review llm-review; do
+            if [ -f "$HOME/grace/bin/$tool" ]; then
+              cp "$HOME/grace/bin/$tool" "$HOME/bin/$tool"
+              chmod +x "$HOME/bin/$tool"
+            else
+              echo "::warning::$tool not vendored in senoff/grace — review will likely fail"
+            fi
+          done
           echo "$HOME/bin" >> "$GITHUB_PATH"
           echo "$HOME/grace/bin" >> "$GITHUB_PATH"
 
@@ -55,17 +80,25 @@ jobs:
           # If grace-review or multi-review uses anything else, add here.
           sudo apt-get update -qq
           sudo apt-get install -y -qq jq
-          pip install --quiet anthropic openai google-generativeai 2>/dev/null || true
+          # Fail-fast on pip install errors — silent suppression masked failures
+          # and produced opaque downstream errors. If a provider is genuinely
+          # unavailable, the workflow should fail visibly so it's fixed.
+          pip install --quiet anthropic openai google-generativeai
 
       - name: Compute diff (PR base...head)
         id: diff
         run: |
           set -e
           BASE_SHA="${{ github.event.pull_request.base.sha }}"
-          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
-          # Three-dot diff = "changes on PR branch since divergence" (the GitHub PR view)
-          git fetch --no-tags --depth=1 origin "${{ github.event.pull_request.base.ref }}"
-          git diff "${BASE_SHA}...${HEAD_SHA}" > /tmp/pr.diff
+          # Fetch the exact base SHA — depth=1 of the base branch tip can miss
+          # BASE_SHA if the base branch advanced between event creation and the
+          # fetch, producing "fatal: bad object" diff errors.
+          git fetch --no-tags origin "$BASE_SHA"
+          # Three-dot diff = "changes on PR branch since divergence" (the GitHub PR view).
+          # We diff against HEAD (not the head.sha string) because the checkout
+          # step above already checked out head.sha with fetch-depth: 0, so HEAD
+          # is the PR tip and guaranteed to be locally available.
+          git diff "${BASE_SHA}...HEAD" > /tmp/pr.diff
           echo "diff_lines=$(wc -l < /tmp/pr.diff | tr -d ' ')" >> "$GITHUB_OUTPUT"
           echo "Diff is $(wc -l < /tmp/pr.diff) lines"
 
@@ -119,6 +152,12 @@ jobs:
           gh pr comment "$PR_NUM" --repo "$REPO" --body-file /tmp/comment-with-header.md
 
       - name: Fail the check if HIGH or CRITICAL findings
+        env:
+          # gh pr view (below) needs an authenticated token to read the PR
+          # description for the grace-override: escape hatch. Without this,
+          # gh is unauthenticated, DESC ends up empty, and the override path
+          # silently never fires.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
           COMMENT_FILE="$HOME/grace-out/comment.md"
