@@ -90,13 +90,15 @@ jobs:
         run: |
           set -e
           BASE_SHA="${{ github.event.pull_request.base.sha }}"
-          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
           # Fetch the exact base SHA — depth=1 of the base branch tip can miss
           # BASE_SHA if the base branch advanced between event creation and the
           # fetch, producing "fatal: bad object" diff errors.
           git fetch --no-tags origin "$BASE_SHA"
-          # Three-dot diff = "changes on PR branch since divergence" (the GitHub PR view)
-          git diff "${BASE_SHA}...${HEAD_SHA}" > /tmp/pr.diff
+          # Three-dot diff = "changes on PR branch since divergence" (the GitHub PR view).
+          # We diff against HEAD (not the head.sha string) because the checkout
+          # step above already checked out head.sha with fetch-depth: 0, so HEAD
+          # is the PR tip and guaranteed to be locally available.
+          git diff "${BASE_SHA}...HEAD" > /tmp/pr.diff
           echo "diff_lines=$(wc -l < /tmp/pr.diff | tr -d ' ')" >> "$GITHUB_OUTPUT"
           echo "Diff is $(wc -l < /tmp/pr.diff) lines"
 
