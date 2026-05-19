@@ -362,3 +362,5 @@ The config file at `~/.xlsx-for-ai/config.json` is extended in-place — existin
 ## Security
 
 See [SECURITY.md](SECURITY.md). All file content is transmitted to `xlsx-for-ai-server.fly.dev` over HTTPS. Files are not retained beyond the duration of a single request on the free tier.
+
+<!-- ci-smoke-test: 2026-05-19 grace-review workflow -->
