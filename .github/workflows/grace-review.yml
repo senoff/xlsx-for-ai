@@ -1,0 +1,143 @@
+name: grace-review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+# Run only one instance per PR; cancel in-progress on new push.
+concurrency:
+  group: grace-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: Multi-LLM diff defect review
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write   # to post the comment
+    timeout-minutes: 15
+    steps:
+      - name: Checkout PR (with full history for diff)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Clone senoff/grace + senoff/max + multi-review tool
+        env:
+          GRACE_DEPLOY_TOKEN: ${{ secrets.GRACE_DEPLOY_TOKEN }}
+        run: |
+          set -e
+          git clone "https://x-access-token:${GRACE_DEPLOY_TOKEN}@github.com/senoff/grace.git" "$HOME/grace"
+          git clone "https://x-access-token:${GRACE_DEPLOY_TOKEN}@github.com/senoff/max.git" "$HOME/max"
+          # multi-review lives in Bob's ~/bin but we keep a copy in grace's repo
+          # for CI portability. If missing, fall back to the grace-review built-in path.
+          mkdir -p "$HOME/bin"
+          if [ -f "$HOME/grace/bin/multi-review" ]; then
+            cp "$HOME/grace/bin/multi-review" "$HOME/bin/multi-review"
+            chmod +x "$HOME/bin/multi-review"
+          else
+            echo "::warning::multi-review tool not vendored in senoff/grace yet — falling back may fail"
+          fi
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+          echo "$HOME/grace/bin" >> "$GITHUB_PATH"
+
+      - name: Set up Python (for grace-review's LLM calls)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install runtime dependencies
+        run: |
+          set -e
+          # multi-review uses curl + jq + python's json/urllib — all standard
+          # If grace-review or multi-review uses anything else, add here.
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq jq
+          pip install --quiet anthropic openai google-generativeai 2>/dev/null || true
+
+      - name: Compute diff (PR base...head)
+        id: diff
+        run: |
+          set -e
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          # Three-dot diff = "changes on PR branch since divergence" (the GitHub PR view)
+          git fetch --no-tags --depth=1 origin "${{ github.event.pull_request.base.ref }}"
+          git diff "${BASE_SHA}...${HEAD_SHA}" > /tmp/pr.diff
+          echo "diff_lines=$(wc -l < /tmp/pr.diff | tr -d ' ')" >> "$GITHUB_OUTPUT"
+          echo "Diff is $(wc -l < /tmp/pr.diff) lines"
+
+      - name: Run grace-review on the diff
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          set -e
+          PR_NUM="${{ github.event.pull_request.number }}"
+          REPO="${{ github.repository }}"
+          OUT_DIR="$HOME/grace-out"
+          mkdir -p "$OUT_DIR"
+          # Pipe the diff in via stdin; tag context with the PR number.
+          # Don't use --pr/--post here — we read comment.md and post via the
+          # next step using the action's GITHUB_TOKEN (so the comment author is
+          # github-actions[bot] rather than the deploy-token user).
+          cat /tmp/pr.diff | bash "$HOME/grace/bin/grace-review" \
+            -p diff-defect \
+            -c "PR #${PR_NUM}" \
+            -o "$OUT_DIR" \
+            || REVIEW_EXIT=$?
+          echo "grace-review exit: ${REVIEW_EXIT:-0}"
+          # Don't fail the job here; we want the comment posted even if grace
+          # found CRITICAL/HIGH (that's the whole point). Fail-check happens below.
+          ls -la "$OUT_DIR"
+
+      - name: Post comment.md to the PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          PR_NUM="${{ github.event.pull_request.number }}"
+          REPO="${{ github.repository }}"
+          COMMENT_FILE="$HOME/grace-out/comment.md"
+          if [ ! -s "$COMMENT_FILE" ]; then
+            echo "::warning::no comment.md from grace-review — skipping post"
+            exit 0
+          fi
+          # Prefix the comment with a clear "Grace review (auto)" header so
+          # human reviewers know it's a CI-posted multi-LLM review.
+          {
+            echo "## 🤖 Grace review (multi-LLM, auto)"
+            echo ""
+            cat "$COMMENT_FILE"
+            echo ""
+            echo "---"
+            echo "_Posted automatically by \`.github/workflows/grace-review.yml\`. See [senoff/grace](https://github.com/senoff/grace) for the doctrine._"
+          } > /tmp/comment-with-header.md
+          gh pr comment "$PR_NUM" --repo "$REPO" --body-file /tmp/comment-with-header.md
+
+      - name: Fail the check if HIGH or CRITICAL findings
+        run: |
+          set -e
+          COMMENT_FILE="$HOME/grace-out/comment.md"
+          if [ ! -s "$COMMENT_FILE" ]; then
+            echo "no comment.md — failing closed"
+            exit 1
+          fi
+          if grep -qE "^##\s+CRITICAL|^### CRITICAL|^- \[CRITICAL\]" "$COMMENT_FILE"; then
+            echo "::error::Grace found CRITICAL findings in the diff. See PR comment for details."
+            exit 1
+          fi
+          if grep -qE "^##\s+HIGH|^### HIGH|^- \[HIGH\]" "$COMMENT_FILE"; then
+            echo "::error::Grace found HIGH-severity findings in the diff. Address them, or override by editing the PR description with 'grace-override: <reason>'."
+            # Honor an override line in the PR description for borderline cases.
+            DESC=$(gh pr view "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --json body --jq '.body' 2>/dev/null || echo "")
+            if echo "$DESC" | grep -qE "grace-override:"; then
+              echo "::warning::HIGH findings present BUT 'grace-override:' line found in PR description — passing the check."
+              exit 0
+            fi
+            exit 1
+          fi
+          echo "Grace review clean (no HIGH/CRITICAL). Check passed."
