@@ -31,15 +31,18 @@ jobs:
           set -e
           git clone "https://x-access-token:${GRACE_DEPLOY_TOKEN}@github.com/senoff/grace.git" "$HOME/grace"
           git clone "https://x-access-token:${GRACE_DEPLOY_TOKEN}@github.com/senoff/max.git" "$HOME/max"
-          # multi-review lives in Bob's ~/bin but we keep a copy in grace's repo
-          # for CI portability. If missing, fall back to the grace-review built-in path.
+          # multi-review + llm-review live in Bob's ~/bin and grace-review
+          # hardcodes "$HOME/bin/llm-review" (doesn't go through PATH). Vendor
+          # both into $HOME/bin so the script's hardcoded paths work.
           mkdir -p "$HOME/bin"
-          if [ -f "$HOME/grace/bin/multi-review" ]; then
-            cp "$HOME/grace/bin/multi-review" "$HOME/bin/multi-review"
-            chmod +x "$HOME/bin/multi-review"
-          else
-            echo "::warning::multi-review tool not vendored in senoff/grace yet — falling back may fail"
-          fi
+          for tool in multi-review llm-review; do
+            if [ -f "$HOME/grace/bin/$tool" ]; then
+              cp "$HOME/grace/bin/$tool" "$HOME/bin/$tool"
+              chmod +x "$HOME/bin/$tool"
+            else
+              echo "::warning::$tool not vendored in senoff/grace — review will likely fail"
+            fi
+          done
           echo "$HOME/bin" >> "$GITHUB_PATH"
           echo "$HOME/grace/bin" >> "$GITHUB_PATH"
 
