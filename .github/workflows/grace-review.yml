@@ -2,12 +2,24 @@ name: grace-review
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    # Fire only when the PR is at a reviewable boundary, NOT on every commit:
+    #  - opened (non-draft): PR is born ready
+    #  - ready_for_review: draft → ready transition (the feature-commits-inside
+    #    workflow we use opens drafts, shapes through many commits, then marks
+    #    ready when done; this fires once at that moment)
+    #  - reopened: re-fire if a closed PR comes back
+    # Synchronize (every push) intentionally OMITTED to avoid token burn on
+    # mid-feature commits. Bob 2026-05-19: feature-PR-with-many-commits-inside
+    # means we'd run Grace 5-15 times per PR otherwise.
+    types: [opened, ready_for_review, reopened]
 
-# Run only one instance per PR; cancel in-progress on new push.
+# Run only one instance per PR.
 concurrency:
   group: grace-review-${{ github.event.pull_request.number }}
   cancel-in-progress: true
+
+# Skip the workflow entirely for draft PRs (defense in depth — opened-on-draft
+# would otherwise fire, but the conditional below also handles that case).
 
 jobs:
   review:
