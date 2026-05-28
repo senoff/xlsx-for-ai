@@ -54,11 +54,11 @@ function parseArgs(argv) {
       // `--detectors --json` would silently swallow `--json` as the
       // value. Caught by gpt-5 pre-push panel.
       const next = argv[++i];
-      // Reject ANY `-`-prefixed token (long or short flag), not just
-      // `--`. `--detectors -v` would otherwise consume `-v` as the
-      // value. Caught by gpt-5 pre-push run 2.
-      if (next === undefined || next.startsWith('-')) {
-        process.stderr.write('xlsx-for-ai: --detectors requires a value (comma-separated detector names)\n');
+      // Reject undefined, any `-`-prefixed token, or empty string —
+      // `--detectors ""` would otherwise silently disable detection.
+      // Caught by gpt-5 pre-push runs 2 + 3.
+      if (next === undefined || next.startsWith('-') || next.trim() === '') {
+        process.stderr.write('xlsx-for-ai: --detectors requires a non-empty value (comma-separated detector names)\n');
         process.exit(2);
       }
       opts.detectors = next;
