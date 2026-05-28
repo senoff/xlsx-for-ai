@@ -6,6 +6,7 @@
  *
  * Usage:
  *   xlsx-for-ai <file.xlsx> [--json] [--md] [--sheet <name>] [--evaluate]
+ *   xlsx-for-ai <file.xlsx> --clean [--execute] [--json] [--sheet <name>] [--detectors <list>]
  *   xlsx-for-ai --telemetry-status
  *   xlsx-for-ai --enable-telemetry
  *   xlsx-for-ai --disable-telemetry
@@ -32,7 +33,8 @@ const {
 function parseArgs(argv) {
   const opts = { file: null, format: 'text', sheet: null, evaluate: false,
     telemetryStatus: false, enableTelemetry: false, disableTelemetry: false,
-    privacyStrict: false, showVersion: false };
+    privacyStrict: false, showVersion: false,
+    clean: false, execute: false, detectors: null };
   let i = 0;
   while (i < argv.length) {
     const a = argv[i];
@@ -45,10 +47,58 @@ function parseArgs(argv) {
     else if (a === '--disable-telemetry')  opts.disableTelemetry = true;
     else if (a === '--privacy=strict')     opts.privacyStrict = true;
     else if (a === '--version' || a === '-v') opts.showVersion = true;
+    else if (a === '--clean')              opts.clean = true;
+    else if (a === '--execute')            opts.execute = true;
+    else if (a === '--detectors')          { opts.detectors = argv[++i]; }
     else if (!a.startsWith('--'))          opts.file = a;
     i++;
   }
   return opts;
+}
+
+// ---------------------------------------------------------------------------
+// --clean flag — data-cleaning pipeline (xlsx_data_clean tool)
+// ---------------------------------------------------------------------------
+
+async function runClean(opts, absPath) {
+  const fileB64 = fs.readFileSync(absPath).toString('base64');
+  const body = { file_b64: fileB64, mode: opts.execute ? 'execute' : 'diagnose' };
+  if (opts.sheet) body.sheets = [opts.sheet];
+  if (opts.detectors) body.detectors = opts.detectors.split(',').map((s) => s.trim()).filter(Boolean);
+
+  let result;
+  try {
+    result = await callTool('xlsx_data_clean', body);
+  } catch (err) {
+    process.stderr.write(`xlsx-for-ai --clean error: ${err.message}\n`);
+    process.exit(1);
+  }
+
+  const meta = (result && result._meta) || {};
+  if (opts.format === 'json') {
+    // Strip the cleaned-bytes blob from the JSON payload — it's
+    // re-emitted as a saved file below so stdout JSON stays small
+    // + human-readable.
+    const jsonOut = { ...meta };
+    delete jsonOut.file_b64;
+    process.stdout.write(JSON.stringify(jsonOut, null, 2) + '\n');
+  } else {
+    // Default: print the receipt markdown the server already
+    // synthesized.
+    const text = (result.content || []).map((c) => c.text).join('\n');
+    process.stdout.write(text + '\n');
+  }
+
+  // Execute mode + applied changes → save cleaned file next to the
+  // source as <stem>-cleaned.xlsx (overridable via XFA_CLEAN_OUT
+  // env var). Matches the convention xlsx_convert / xlsx_redact /
+  // xlsx_write use server-side.
+  if (opts.execute && meta.file_b64) {
+    const outPath = process.env.XFA_CLEAN_OUT
+      || absPath.replace(/(\.xlsx)$/i, '-cleaned.xlsx');
+    fs.writeFileSync(outPath, Buffer.from(meta.file_b64, 'base64'));
+    process.stderr.write(`Cleaned file written to: ${outPath}\n`);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -80,6 +130,13 @@ async function main() {
   // so callTool() (which reads XFA_PRIVACY) adds the header automatically.
   if (opts.privacyStrict) {
     process.env.XFA_PRIVACY = 'strict';
+  }
+
+  // --clean diverts to the data-cleaning pipeline before falling
+  // through to the default xlsx_read path.
+  if (opts.clean) {
+    await runClean(opts, absPath);
+    return;
   }
 
   const fileB64 = fs.readFileSync(absPath).toString('base64');

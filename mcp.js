@@ -454,6 +454,68 @@ const TOOLS = [
   },
 
   {
+    name: 'xlsx_data_clean',
+    description:
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: AI-native data cleaning. Scans a workbook for the seven most common data-grime issues — NA variants (N/A, NA, null, -), merged-cell residue, type-coercion mistakes (numeric-as-text / date-as-serial / leading-zero stripped), trailing-row noise (footers / totals), header-row-not-first (preamble before headers), encoding glitches (UTF-8-as-CP1252 mojibake like CafÃ©), and duplicate column headers — and either flags them (diagnose mode) or applies deterministic fixes (execute mode).\n' +
+      'No other tool gives this in a single call: pandas does ad-hoc fixes inline; openpyxl is structure-only; pre-existing Python "clean" libraries are domain-specific. xlsx_data_clean is the only single-call clean pipeline with an explicit informer-not-enforcer contract: every fix surfaces as a Finding the caller can accept / reject / scope-override before the file is mutated.\n\n' +
+      'USE WHEN: an upstream pipeline produced an xlsx that\'s about to feed an LLM or downstream analysis and you want a one-pass scrub. Or you just got a "messy" export (financial reports with merged title banners, CRM exports with stripped zip codes, survey data with NA-variant noise) and need it normalized before reading. ' +
+      'Free tier — counts against the 10k/mo cap.\n\n' +
+      'DO NOT USE WHEN: domain-specific transforms are needed (use a dedicated pipeline; this tool is general-purpose). Or for structural integrity checks (use xlsx_doctor). Or for upload/attached files.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        mode: {
+          type: 'string',
+          enum: ['diagnose', 'execute'],
+          description: 'diagnose (default): return findings only, file untouched. execute: apply deterministic fixes; cleaned bytes returned in _meta.file_b64.',
+        },
+        detectors: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Subset of detectors to run. Default: all 7 (na_variant, merged_cell_residue, type_coercion_mistake, trailing_row_noise, header_row_not_first, encoding_glitch, duplicate_header).',
+        },
+        sheets: { type: 'array', items: { type: 'string' }, description: 'Restrict to these sheet names. Default: all sheets.' },
+        options: {
+          type: 'object',
+          description: 'Detector tunables.',
+          properties: {
+            trailing_threshold: { type: 'integer', minimum: 1, maximum: 100, description: 'Min consecutive noise rows to flag (default 3).' },
+            header_scan_depth: { type: 'integer', minimum: 2, maximum: 50, description: 'Rows to scan for header inference (default 10).' },
+            na_canonical: { type: 'string', description: 'Replacement value for NA tokens. "" (default), "null", "(blank)", or any string.' },
+          },
+        },
+        overrides: {
+          type: 'array',
+          description: 'Per-detector / per-scope skip / flag_only / force overrides.',
+          items: {
+            type: 'object',
+            properties: {
+              detector: { type: 'string' },
+              scope: {
+                type: 'object',
+                properties: {
+                  sheet: { type: 'string' },
+                  column_letter: { type: 'string', description: 'A-Z column letter; alternative to region.' },
+                  region: { type: 'object', properties: { top_left: { type: 'string' }, bottom_right: { type: 'string' } } },
+                },
+                required: ['sheet'],
+              },
+              action: { type: 'string', enum: ['skip', 'flag_only', 'force'] },
+            },
+            required: ['detector', 'scope', 'action'],
+          },
+        },
+        accept_findings: { type: 'array', items: { type: 'string' }, description: 'Execute mode only — finding IDs to apply. Default: all.' },
+        reject_findings: { type: 'array', items: { type: 'string' }, description: 'Execute mode only — finding IDs to skip.' },
+        out_path: { type: 'string', description: 'Optional save path for cleaned output (execute mode).' },
+      },
+      required: ['file_path'],
+    },
+  },
+
+  {
     name: 'xlsx_validate',
     description:
       'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
@@ -1133,6 +1195,23 @@ async function dispatchTool(name, args) {
     return callTool('xlsx_validate', {
       file_b64: fileToB64(args.file_path),
     });
+  }
+
+  // xlsx_data_clean: scan + optional execute. Diagnose mode returns
+  // findings only (no file_b64 in _meta). Execute mode returns
+  // cleaned bytes in _meta.file_b64; applyFileB64 saves to out_path
+  // if provided. SPEC fields pass through verbatim — server validates.
+  if (name === 'xlsx_data_clean') {
+    const body = { file_b64: fileToB64(args.file_path) };
+    if (args.mode !== undefined) body.mode = args.mode;
+    if (args.detectors !== undefined) body.detectors = args.detectors;
+    if (args.sheets !== undefined) body.sheets = args.sheets;
+    if (args.options !== undefined) body.options = args.options;
+    if (args.overrides !== undefined) body.overrides = args.overrides;
+    if (args.accept_findings !== undefined) body.accept_findings = args.accept_findings;
+    if (args.reject_findings !== undefined) body.reject_findings = args.reject_findings;
+    const result = await callTool('xlsx_data_clean', body);
+    return applyFileB64(result, args.out_path);
   }
 
   // xlsx_post_slack: outbound file-to-Slack. Top-level fields, not the
