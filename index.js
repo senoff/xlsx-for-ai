@@ -54,7 +54,10 @@ function parseArgs(argv) {
       // `--detectors --json` would silently swallow `--json` as the
       // value. Caught by gpt-5 pre-push panel.
       const next = argv[++i];
-      if (next === undefined || next.startsWith('--')) {
+      // Reject ANY `-`-prefixed token (long or short flag), not just
+      // `--`. `--detectors -v` would otherwise consume `-v` as the
+      // value. Caught by gpt-5 pre-push run 2.
+      if (next === undefined || next.startsWith('-')) {
         process.stderr.write('xlsx-for-ai: --detectors requires a value (comma-separated detector names)\n');
         process.exit(2);
       }
@@ -100,30 +103,30 @@ async function runClean(opts, absPath) {
   }
 
   // Execute mode + applied changes → save cleaned file next to the
-  // source. Safe-fallback rule (caught by gpt-5 pre-push panel):
-  // the previous regex replace only renamed .xlsx-suffixed files;
-  // for non-.xlsx sources (.xlsm, .xlsb, mismatched casing pre-fix)
-  // the original path was returned and writeFileSync would overwrite
-  // the source. Now: insert "-cleaned" before the last `.` in the
-  // path, or append "-cleaned.xlsx" if there's no extension. Output
-  // is always distinct from source. Defense-in-depth check refuses
-  // to write if the derived path somehow equals the source.
+  // source. Cross-platform path derivation via Node's path.parse
+  // (caught by gpt-5 pre-push run 2): the earlier lastIndexOf('/')
+  // shortcut broke on Windows backslash paths + on directories with
+  // dots in the name. path.parse handles both.
   if (opts.execute && meta.file_b64) {
     let outPath = process.env.XFA_CLEAN_OUT;
     if (!outPath) {
-      const lastDot = absPath.lastIndexOf('.');
-      if (lastDot > absPath.lastIndexOf('/')) {
-        outPath = absPath.slice(0, lastDot) + '-cleaned' + absPath.slice(lastDot);
-      } else {
-        outPath = absPath + '-cleaned.xlsx';
-      }
+      const parsed = path.parse(absPath);
+      outPath = path.join(parsed.dir, `${parsed.name}-cleaned${parsed.ext || '.xlsx'}`);
     }
-    if (outPath === absPath) {
+    if (path.resolve(outPath) === path.resolve(absPath)) {
       process.stderr.write('xlsx-for-ai --clean: refusing to overwrite source; set XFA_CLEAN_OUT to an explicit output path\n');
       process.exit(1);
     }
-    fs.writeFileSync(outPath, Buffer.from(meta.file_b64, 'base64'));
-    process.stderr.write(`Cleaned file written to: ${outPath}\n`);
+    try {
+      fs.writeFileSync(outPath, Buffer.from(meta.file_b64, 'base64'));
+      process.stderr.write(`Cleaned file written to: ${outPath}\n`);
+    } catch (e) {
+      // Caught by gpt-5 pre-push run 2: writeFileSync throws on
+      // missing directory / permissions / disk-full. Wrap so the
+      // user sees a clear error + exit code, not a stack trace.
+      process.stderr.write(`xlsx-for-ai --clean: failed to write ${outPath}: ${e.message}\n`);
+      process.exit(1);
+    }
   }
 }
 
