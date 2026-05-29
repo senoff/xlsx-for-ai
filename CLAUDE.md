@@ -37,3 +37,25 @@ CRITICAL and HIGH findings must be resolved before the change lands. MEDIUM find
 - Public OSS package — README, error messages, and CLI output are user-facing copy. Aim for plain English, no jargon.
 - Audience is every Excel user, not enterprise/financial-pro niche. Don't anchor copy or architecture on enterprise compliance unless explicitly told.
 - Never position the product against Microsoft. MSFT is not a competitor.
+
+## Phase 1 harness (2026-05-27)
+
+Inherit the standing rule in `~/CLAUDE.md` — Phase 1 observability + validation layer applies here. Concretely on this product:
+
+- Spawn with `OTEL_SERVICE_NAME=<agent-name>` exported so traces land in Phoenix (http://127.0.0.1:6006) tagged by agent.
+- Use `handoff-notify-wrap` instead of `handoff-notify`. Validation rejects malformed front-matter before push.
+- Include `parent_handoff:` in every reply handoff. Form: basename of the parent (`from-X-to-Y-DATE-slug.md`).
+- Iteration cap is auto-applied — but blocks only on cap AND thrashing.** Per-role defaults via OTEL_SERVICE_NAME: Conductor=500, Dev Managers=300, Worker Bees/Scout=30. Count alone does not stop legitimate long sessions; block fires only when count>cap AND last 10 calls are thrashing (same tool, no Edit/Write, or identical input 5x). Manual override via `CLAUDE_ITERATION_CAP=N` on the spawn line. Revised 2026-05-27.
+- For pure exploration tasks (no writes needed), defer to Scout: `~/bin/spawn-scout-readonly.sh`. The principal types the question after the prompt opens.
+
+## Phase 1.5 discipline (2026-05-27)
+
+Builds on the Phase 1 harness rule. Three additional non-negotiables for every coding task:
+
+1. **Commit-by-commit, not batch.** Code lands as a series of focused commits (~150 lines each, one logical concept per commit). A 1-commit PR is a doctrine violation. Commit message form: `<scope>: <imperative verb> <what>` (e.g. `data-cleaning: add NA-detection heuristics`). The branch's commit graph IS the documentation a senior dev reads to recover from a failure — write it that way.
+2. **Per-commit diff-defect.** After each commit, run `~/bin/grace-autofix-loop` (Phase 2.1, deployed 2026-05-27). Wrapper invokes grace-review against HEAD vs HEAD~1, blocks on CRITICAL, escalates to wren after 3 attempts on the same SHA.
+3. **Dry-run before ship.** Every deploy.sh accepts `--dry-run` (see `~/conductor/scripts/deploy-template.sh`). Before declaring done, run `~/bin/dry-run-deploy <script>` and pass.
+
+**No-interrupt mode for 2026-05-27:** DO NOT ping Bob. For every decision you'd otherwise ping him on, call `~/bin/would-have-asked <agent> <kind> "<context>" "<question>" "<chosen default>"` and proceed with your smart default. Wren aggregates at end of day. If you are truly blocked (external API key, irreversible action), open a handoff to `wren` — Wren decides whether to escalate.
+
+**Observability doctrine:** see `~/conductor/mechanisms/observability.md` for the canonical LiteLLM + OTEL + Phoenix/Langfuse pattern, per-agent setup, query reference, and operational lessons. Deployed Phase 1.1 (2026-05-27).

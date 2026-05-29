@@ -22,7 +22,9 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test test/v2/*.test.js"
+    "test": "node --test test/v2/*.test.js",
+    "build-manifests": "node scripts/build-manifests.js",
+    "check-manifests": "node scripts/build-manifests.js --check"
   },
   "keywords": [
     "xlsx",

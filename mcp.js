@@ -1350,5 +1350,9 @@ if (require.main === module) {
   });
 }
 
-// Test-only exports — never import these in production code
-module.exports = { applyFileB64, dispatchTool };
+// Exports for build-time scripts and tests only. Do NOT import these from
+// runtime production code — they're only here to let the manifest-build
+// script use TOOLS as the single source of truth for downstream artifacts
+// (manifest.json, mcp-tools.json snapshot consumed by the MSFT plugin
+// manifest), and to expose helpers under test.
+module.exports = { applyFileB64, dispatchTool, TOOLS };
