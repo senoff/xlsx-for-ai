@@ -17,6 +17,7 @@ const { ensureRegistered } = require('./lib/register');
 const { callTool }         = require('./lib/client');
 const { fallbackRead }     = require('./lib/fallback-read');
 const { resolveCatalog }   = require('./lib/discover');
+const { applyAnnotations } = require('./lib/annotations');
 const fs                   = require('fs');
 const fsPromises           = require('fs/promises');
 const path                 = require('path');
@@ -1298,7 +1299,11 @@ async function main() {
   } catch (_) {
     catalog = { tools: TOOLS, source: 'static-fallback' };
   }
-  const liveTools = catalog.tools;
+  // Overlay MCP annotations (title / readOnlyHint / destructiveHint) so
+  // they flow through to clients regardless of catalog source. The remote
+  // /api/v1/tools/list returns minimal entries today; this is what
+  // restores the annotations the wire format would otherwise drop.
+  const liveTools = applyAnnotations(Array.isArray(catalog.tools) ? catalog.tools : []);
 
   const server = new Server(
     { name: 'xlsx-for-ai', version: require('./package.json').version },
