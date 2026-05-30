@@ -24,7 +24,8 @@
   "scripts": {
     "test": "node --test test/v2/*.test.js",
     "build-manifests": "node scripts/build-manifests.js",
-    "check-manifests": "node scripts/build-manifests.js --check"
+    "check-manifests": "node scripts/build-manifests.js --check",
+    "prepare": "husky"
   },
   "keywords": [
     "xlsx",
@@ -59,5 +60,8 @@
   },
   "optionalDependencies": {
     "@protobi/exceljs": "^4.4.0-protobi.9"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7"
   }
 }

@@ -104,18 +104,19 @@ function main() {
     console.log(`manifest.json already in sync (${newManifest.tools.length} tools)`);
   }
 
-  // mcp-tools.json: check-only is "does the snapshot at MCP_TOOLS_PATH match?"
-  // If the file doesn't exist yet, that counts as drift in --check.
+  // mcp-tools.json lives under dist/ (gitignored build artifact). --check is
+  // about catching forgotten regenerations of committed sources; a missing
+  // build artifact is the normal state on a fresh checkout (CI, new clone),
+  // not drift. Only flag drift when the file exists AND differs.
   let snapshotChanged = false;
-  if (fs.existsSync(MCP_TOOLS_PATH)) {
+  const snapshotExists = fs.existsSync(MCP_TOOLS_PATH);
+  if (snapshotExists) {
     const current = readJson(MCP_TOOLS_PATH);
     if (!jsonEqual(current, newSnapshot)) snapshotChanged = true;
-  } else {
-    snapshotChanged = true;
   }
 
-  if (snapshotChanged) {
-    drift = true;
+  if (snapshotChanged || (!snapshotExists && !checkOnly)) {
+    if (snapshotChanged) drift = true;
     if (!checkOnly) {
       writeJson(MCP_TOOLS_PATH, newSnapshot);
       console.log(`wrote ${path.relative(ROOT, MCP_TOOLS_PATH)} (${newSnapshot.tools.length} tools)`);
