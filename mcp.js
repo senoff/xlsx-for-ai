@@ -1074,7 +1074,19 @@ function fileToB64(filePath) {
       throw err;
     }
 
-    return fs.readFileSync(fd).toString('base64');
+    // Read exactly stat.size bytes from the fd into a pre-sized buffer. If
+    // the file grows between fstat and now, the extra bytes are NOT read —
+    // we never allocate more than the validated cap. If the file shrinks
+    // (short read), we encode what we got and stop. This closes the
+    // grow-after-stat bypass on the size cap.
+    const buf = Buffer.alloc(stat.size);
+    let bytesRead = 0;
+    while (bytesRead < stat.size) {
+      const chunk = fs.readSync(fd, buf, bytesRead, stat.size - bytesRead, null);
+      if (chunk === 0) break;
+      bytesRead += chunk;
+    }
+    return buf.subarray(0, bytesRead).toString('base64');
   } finally {
     try { fs.closeSync(fd); } catch (_) { /* best effort */ }
   }
