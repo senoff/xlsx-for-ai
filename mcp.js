@@ -1017,43 +1017,67 @@ function getMaxFileMB() {
 function fileToB64(filePath) {
   const resolved = path.resolve(filePath);
 
-  // Single stat call (no preceding existsSync) avoids a TOCTOU window between
-  // the existence check and the read, and lets us classify permission errors
-  // explicitly rather than letting ENOENT/EACCES escape as an unhandled stack.
-  let stat;
+  // Open the file once and operate on the fd from here on. fstatSync and the
+  // subsequent read both bind to the inode the fd points at, so even if the
+  // path is swapped after the size check the bytes we hash are the bytes we
+  // sized — the size-cap TOCTOU is closed.
+  // O_NOFOLLOW (where available) refuses symlinks at open time; it's undefined
+  // on Windows, where we fall back to 0 (symlink semantics differ there and
+  // the spreadsheet-extension allowlist is the load-bearing guard anyway).
+  const O_NOFOLLOW = fs.constants.O_NOFOLLOW || 0;
+  let fd;
   try {
-    stat = fs.statSync(resolved);
+    fd = fs.openSync(resolved, fs.constants.O_RDONLY | O_NOFOLLOW);
   } catch (e) {
     if (e && e.code === 'ENOENT') {
       const err = new Error(`File not found: ${resolved}`);
       err.code = 'FILE_NOT_FOUND';
       throw err;
     }
+    if (e && e.code === 'ELOOP') {
+      const err = new Error(`Refusing to read symlink: ${resolved}`);
+      err.code = 'SYMLINK_REJECTED';
+      throw err;
+    }
     throw e;
   }
 
-  const ext = path.extname(resolved).toLowerCase();
-  if (!ALLOWED_READ_EXTENSIONS.has(ext)) {
-    const err = new Error(
-      `Blocked: "${ext}" is not an allowed spreadsheet extension. ` +
-      `Allowed: ${[...ALLOWED_READ_EXTENSIONS].join(', ')}`
-    );
-    err.code = 'DISALLOWED_EXTENSION';
-    throw err;
+  try {
+    const stat = fs.fstatSync(fd);
+
+    if (!stat.isFile()) {
+      const err = new Error(`Not a regular file: ${resolved}`);
+      err.code = 'NOT_REGULAR_FILE';
+      throw err;
+    }
+
+    const ext = path.extname(resolved).toLowerCase();
+    if (!ALLOWED_READ_EXTENSIONS.has(ext)) {
+      const err = new Error(
+        `Blocked: "${ext}" is not an allowed spreadsheet extension. ` +
+        `Allowed: ${[...ALLOWED_READ_EXTENSIONS].join(', ')}`
+      );
+      err.code = 'DISALLOWED_EXTENSION';
+      throw err;
+    }
+
+    const maxMB = getMaxFileMB();
+    if (stat.size > maxMB * 1024 * 1024) {
+      const sizeMB = stat.size / (1024 * 1024);
+      const err = new Error(
+        `File too large: ${sizeMB.toFixed(1)} MB exceeds the ${maxMB} MB cap. ` +
+        `Set XFA_MAX_FILE_MB to a higher value to allow larger workbooks. ` +
+        `(The cap protects the MCP server from OOM on synchronous base64 load — ` +
+        `a 200 MB workbook would allocate ~267 MB of base64 before any API call.)`
+      );
+      err.code = 'FILE_TOO_LARGE';
+      throw err;
+    }
+
+    return fs.readFileSync(fd).toString('base64');
+  } finally {
+    try { fs.closeSync(fd); } catch (_) { /* best effort */ }
   }
-  const maxMB = getMaxFileMB();
-  if (stat.size > maxMB * 1024 * 1024) {
-    const sizeMB = stat.size / (1024 * 1024);
-    const err = new Error(
-      `File too large: ${sizeMB.toFixed(1)} MB exceeds the ${maxMB} MB cap. ` +
-      `Set XFA_MAX_FILE_MB to a higher value to allow larger workbooks. ` +
-      `(The cap protects the MCP server from OOM on synchronous base64 load — ` +
-      `a 200 MB workbook would allocate ~267 MB of base64 before any API call.)`
-    );
-    err.code = 'FILE_TOO_LARGE';
-    throw err;
-  }
-  return fs.readFileSync(resolved).toString('base64');
 }
 
 // ---------------------------------------------------------------------------
