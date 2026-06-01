@@ -1016,11 +1016,22 @@ function getMaxFileMB() {
 
 function fileToB64(filePath) {
   const resolved = path.resolve(filePath);
-  if (!fs.existsSync(resolved)) {
-    const err = new Error(`File not found: ${resolved}`);
-    err.code = 'FILE_NOT_FOUND';
-    throw err;
+
+  // Single stat call (no preceding existsSync) avoids a TOCTOU window between
+  // the existence check and the read, and lets us classify permission errors
+  // explicitly rather than letting ENOENT/EACCES escape as an unhandled stack.
+  let stat;
+  try {
+    stat = fs.statSync(resolved);
+  } catch (e) {
+    if (e && e.code === 'ENOENT') {
+      const err = new Error(`File not found: ${resolved}`);
+      err.code = 'FILE_NOT_FOUND';
+      throw err;
+    }
+    throw e;
   }
+
   const ext = path.extname(resolved).toLowerCase();
   if (!ALLOWED_READ_EXTENSIONS.has(ext)) {
     const err = new Error(
@@ -1031,7 +1042,6 @@ function fileToB64(filePath) {
     throw err;
   }
   const maxMB = getMaxFileMB();
-  const stat = fs.statSync(resolved);
   if (stat.size > maxMB * 1024 * 1024) {
     const sizeMB = stat.size / (1024 * 1024);
     const err = new Error(
