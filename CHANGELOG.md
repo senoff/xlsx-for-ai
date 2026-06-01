@@ -7,6 +7,33 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 
 ---
 
+## [Unreleased] — Security hardening (2026-06-01)
+
+### Security
+
+**H1 — MCP file-read containment (fileToB64 extension allowlist)**
+`fileToB64` now requires the resolved path to exist and have a spreadsheet
+extension (`.xlsx`, `.xls`, `.xlsm`, `.xlsb`, `.csv`, `.ods`, `.fods`,
+`.numbers`, `.tsv`). Any MCP tool call pointing at a non-spreadsheet path
+(e.g. `/etc/passwd`, SSH keys, config files) is rejected with a clear
+`DISALLOWED_EXTENSION` error before any I/O occurs.
+
+**H2 — `xlsx_write` spec_path containment**
+`spec_path` reads in `xlsx_write` now require the path to exist and have a
+`.json` extension. Non-JSON files are rejected even if JSON-shaped, preventing
+exfiltration of sensitive JSON-format files (AWS credentials, Claude config,
+etc.) via the write tool path.
+
+**H3 — Slack and Teams tokens via environment variables**
+`xlsx_post_slack` and `xlsx_post_teams` no longer require live tokens as MCP
+tool arguments (which appear in MCP client conversation logs). Token intake is
+now env-var first: `SLACK_BOT_TOKEN` for Slack, `TEAMS_GRAPH_TOKEN` for Teams.
+Passing tokens via tool arguments is still accepted for backward compatibility,
+but is now documented as the legacy path that exposes tokens in conversation
+history. A clear `MISSING_TOKEN` error fires if neither env var nor arg is set.
+
+---
+
 ## [2.0.0] - 2026-05-08
 
 First stable 2.x release. Promotes `2.0.0-beta.3` to `latest` on npm with no
