@@ -895,21 +895,23 @@ const TOOLS = [
     name: 'xlsx_post_slack',
     description:
       'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: upload a local .xlsx file to a Slack channel as a file attachment, with an optional accompanying message. BYOA — the agent must pass the user\'s Slack bot token (xoxb-…). The token is forwarded to Slack and never stored server-side.\n' +
+      'This tool: upload a local .xlsx file to a Slack channel as a file attachment, with an optional accompanying message.\n' +
+      'Token intake: set SLACK_BOT_TOKEN in the environment (recommended — keeps the token out of conversation logs). ' +
+      'Alternatively pass slack_token as a tool argument (legacy; token will appear in MCP conversation history).\n' +
       'Posts via Slack\'s 3-step external upload flow (files.getUploadURLExternal → upload → files.completeUploadExternal), which is the only sanctioned path as of 2024+.\n\n' +
       'USE WHEN: the user asks "post this workbook to #channel," "share this with the team in Slack," or any other outbound-file-to-Slack request. The agent has just produced or modified a workbook and wants to deliver it. ' +
       'Free tier — counts against the 10k/mo cap.\n\n' +
-      'DO NOT USE WHEN: the file lives in a Slack channel and you want to READ it (that\'s the inbound Manual-Mode-Detector pattern, not this). Or when there is no Slack bot token available — the user must have installed a Slack app with files:write scope.',
+      'DO NOT USE WHEN: the file lives in a Slack channel and you want to READ it (that\'s the inbound Manual-Mode-Detector pattern, not this). Or when no Slack bot token is available — the user must have installed a Slack app with files:write scope.',
     inputSchema: {
       type: 'object',
       properties: {
         file_path: { type: 'string', description: 'Absolute path to the .xlsx file to post.' },
         channel: { type: 'string', description: 'Slack channel ID (C…/G…) the file should land in. Channel names like #general are NOT accepted — resolve to a channel ID first.' },
-        slack_token: { type: 'string', description: 'Slack bot token (xoxb-…). Forwarded to Slack; never persisted by us.' },
+        slack_token: { type: 'string', description: 'Slack bot token (xoxb-…). Optional when SLACK_BOT_TOKEN env var is set. Passing the token here exposes it in MCP conversation logs — prefer the env var.' },
         message: { type: 'string', description: 'Optional: message to post alongside the file (Slack\'s initial_comment).' },
         filename: { type: 'string', description: 'Optional: filename Slack will display. Defaults to the basename of file_path.' },
       },
-      required: ['file_path', 'channel', 'slack_token'],
+      required: ['file_path', 'channel'],
     },
   },
 
@@ -917,22 +919,24 @@ const TOOLS = [
     name: 'xlsx_post_teams',
     description:
       'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: upload a local .xlsx file to a Microsoft Teams channel as a file attachment in a channel message, with an optional accompanying message. BYOA — the agent must pass the user\'s Microsoft Graph access token (a JWT starting with "eyJ"). The token is forwarded to Microsoft Graph and never stored server-side.\n' +
+      'This tool: upload a local .xlsx file to a Microsoft Teams channel as a file attachment in a channel message, with an optional accompanying message.\n' +
+      'Token intake: set TEAMS_GRAPH_TOKEN in the environment (recommended — keeps the token out of conversation logs). ' +
+      'Alternatively pass graph_token as a tool argument (legacy; token will appear in MCP conversation history).\n' +
       'Uses Microsoft Graph\'s 4-step flow: locate the channel\'s filesFolder driveItem, create an upload session, upload the bytes, then post a chatMessage with the file as an inline attachment.\n\n' +
       'USE WHEN: the user asks "post this workbook to my Teams channel," "share this with the team in Teams," or any other outbound-file-to-Teams request. The agent has just produced or modified a workbook and wants to deliver it to a Microsoft Teams channel. ' +
       'Free tier — counts against the 10k/mo cap.\n\n' +
-      'DO NOT USE WHEN: posting to Slack (use xlsx_post_slack). Or when there is no Microsoft Graph token available — the user must have an Entra ID app registration with Group.ReadWrite.All or Files.ReadWrite.All + ChannelMessage.Send scopes, AND a valid access token for that app.',
+      'DO NOT USE WHEN: posting to Slack (use xlsx_post_slack). Or when no Microsoft Graph token is available — the user must have an Entra ID app registration with Group.ReadWrite.All or Files.ReadWrite.All + ChannelMessage.Send scopes, AND a valid access token for that app.',
     inputSchema: {
       type: 'object',
       properties: {
         file_path: { type: 'string', description: 'Absolute path to the .xlsx file to post.' },
         team_id: { type: 'string', description: 'Microsoft Teams team ID (GUID). Find via Graph: GET /me/joinedTeams.' },
         channel_id: { type: 'string', description: 'Microsoft Teams channel ID. Find via Graph: GET /teams/{team-id}/channels.' },
-        graph_token: { type: 'string', description: 'Microsoft Graph access token (JWT). Forwarded to Microsoft; never persisted by us. Must have file-upload + channel-message-send scopes.' },
+        graph_token: { type: 'string', description: 'Microsoft Graph access token (JWT). Optional when TEAMS_GRAPH_TOKEN env var is set. Passing the token here exposes it in MCP conversation logs — prefer the env var. Must have file-upload + channel-message-send scopes.' },
         message: { type: 'string', description: 'Optional: message to post alongside the file. Plain text; will be HTML-escaped server-side.' },
         filename: { type: 'string', description: 'Optional: filename Teams will display. Defaults to the basename of file_path.' },
       },
-      required: ['file_path', 'team_id', 'channel_id', 'graph_token'],
+      required: ['file_path', 'team_id', 'channel_id'],
     },
   },
 
@@ -1255,11 +1259,25 @@ async function dispatchTool(name, args) {
   // xlsx_post_slack: outbound file-to-Slack. Top-level fields, not the
   // standard {file_b64, options} shape — channel + slack_token + message
   // + filename live alongside file_b64 in the server route's body schema.
+  //
+  // Token resolution order (H3 fix):
+  //   1. SLACK_BOT_TOKEN env var (recommended — never enters conversation logs)
+  //   2. slack_token tool arg (legacy; visible in MCP conversation history)
+  // Error if neither is present.
   if (name === 'xlsx_post_slack') {
+    const slackToken = process.env.SLACK_BOT_TOKEN || args.slack_token;
+    if (!slackToken) {
+      const err = new Error(
+        'Slack token required. Set the SLACK_BOT_TOKEN environment variable ' +
+        '(recommended) or pass slack_token as a tool argument.'
+      );
+      err.code = 'MISSING_TOKEN';
+      throw err;
+    }
     const body = {
       file_b64: fileToB64(args.file_path),
       channel: args.channel,
-      slack_token: args.slack_token,
+      slack_token: slackToken,
     };
     if (args.message !== undefined) body.message = args.message;
     body.filename = args.filename || path.basename(args.file_path);
@@ -1268,12 +1286,26 @@ async function dispatchTool(name, args) {
 
   // xlsx_post_teams: outbound file-to-Teams. Same shape as Slack but with
   // Microsoft Graph fields (team_id + channel_id + graph_token).
+  //
+  // Token resolution order (H3 fix):
+  //   1. TEAMS_GRAPH_TOKEN env var (recommended — never enters conversation logs)
+  //   2. graph_token tool arg (legacy; visible in MCP conversation history)
+  // Error if neither is present.
   if (name === 'xlsx_post_teams') {
+    const graphToken = process.env.TEAMS_GRAPH_TOKEN || args.graph_token;
+    if (!graphToken) {
+      const err = new Error(
+        'Microsoft Graph token required. Set the TEAMS_GRAPH_TOKEN environment variable ' +
+        '(recommended) or pass graph_token as a tool argument.'
+      );
+      err.code = 'MISSING_TOKEN';
+      throw err;
+    }
     const body = {
       file_b64: fileToB64(args.file_path),
       team_id: args.team_id,
       channel_id: args.channel_id,
-      graph_token: args.graph_token,
+      graph_token: graphToken,
     };
     if (args.message !== undefined) body.message = args.message;
     body.filename = args.filename || path.basename(args.file_path);
