@@ -989,10 +989,31 @@ const TOOLS = [
 
 // ---------------------------------------------------------------------------
 // File → base64 helper
+//
+// Security: only spreadsheet extensions are permitted. Any path that resolves
+// to a non-allowed extension (or does not exist) is rejected immediately so a
+// misbehaving agent cannot exfiltrate arbitrary local files via a tool call.
 // ---------------------------------------------------------------------------
 
+const ALLOWED_READ_EXTENSIONS = new Set(['.xlsx', '.xls', '.xlsm', '.xlsb', '.csv', '.ods', '.fods', '.numbers', '.tsv']);
+
 function fileToB64(filePath) {
-  return fs.readFileSync(filePath).toString('base64');
+  const resolved = path.resolve(filePath);
+  if (!fs.existsSync(resolved)) {
+    const err = new Error(`File not found: ${resolved}`);
+    err.code = 'FILE_NOT_FOUND';
+    throw err;
+  }
+  const ext = path.extname(resolved).toLowerCase();
+  if (!ALLOWED_READ_EXTENSIONS.has(ext)) {
+    const err = new Error(
+      `Blocked: "${ext}" is not an allowed spreadsheet extension. ` +
+      `Allowed: ${[...ALLOWED_READ_EXTENSIONS].join(', ')}`
+    );
+    err.code = 'DISALLOWED_EXTENSION';
+    throw err;
+  }
+  return fs.readFileSync(resolved).toString('base64');
 }
 
 // ---------------------------------------------------------------------------
@@ -1066,7 +1087,23 @@ async function dispatchTool(name, args) {
   if (name === 'xlsx_write') {
     let spec = args.spec;
     if (!spec && args.spec_path) {
-      spec = JSON.parse(fs.readFileSync(args.spec_path, 'utf8'));
+      // Security: spec_path must exist and must be a .json file.
+      const resolvedSpecPath = path.resolve(args.spec_path);
+      if (!fs.existsSync(resolvedSpecPath)) {
+        const err = new Error(`spec_path not found: ${resolvedSpecPath}`);
+        err.code = 'FILE_NOT_FOUND';
+        throw err;
+      }
+      const specExt = path.extname(resolvedSpecPath).toLowerCase();
+      if (specExt !== '.json') {
+        const err = new Error(
+          `spec_path must be a .json file; got "${specExt}". ` +
+          'Pass the workbook spec as inline JSON via the "spec" argument instead.'
+        );
+        err.code = 'DISALLOWED_EXTENSION';
+        throw err;
+      }
+      spec = JSON.parse(fs.readFileSync(resolvedSpecPath, 'utf8'));
     }
     const writeBody = { spec };
     if (args.base_file_b64) writeBody.base_file_b64 = args.base_file_b64;
