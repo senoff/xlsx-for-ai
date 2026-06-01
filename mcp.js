@@ -997,9 +997,22 @@ const TOOLS = [
 // Security: only spreadsheet extensions are permitted. Any path that resolves
 // to a non-allowed extension (or does not exist) is rejected immediately so a
 // misbehaving agent cannot exfiltrate arbitrary local files via a tool call.
+//
+// Stability: a size cap is enforced before the synchronous read so a giant
+// workbook can't OOM-kill the MCP server (which would disconnect every tool
+// for the user). Override via XFA_MAX_FILE_MB; default is 50 MB.
 // ---------------------------------------------------------------------------
 
 const ALLOWED_READ_EXTENSIONS = new Set(['.xlsx', '.xls', '.xlsm', '.xlsb', '.csv', '.ods', '.fods', '.numbers', '.tsv']);
+const DEFAULT_MAX_FILE_MB = 50;
+
+function getMaxFileMB() {
+  const raw = process.env.XFA_MAX_FILE_MB;
+  if (!raw) return DEFAULT_MAX_FILE_MB;
+  const parsed = parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_MAX_FILE_MB;
+  return parsed;
+}
 
 function fileToB64(filePath) {
   const resolved = path.resolve(filePath);
@@ -1015,6 +1028,19 @@ function fileToB64(filePath) {
       `Allowed: ${[...ALLOWED_READ_EXTENSIONS].join(', ')}`
     );
     err.code = 'DISALLOWED_EXTENSION';
+    throw err;
+  }
+  const maxMB = getMaxFileMB();
+  const stat = fs.statSync(resolved);
+  if (stat.size > maxMB * 1024 * 1024) {
+    const sizeMB = stat.size / (1024 * 1024);
+    const err = new Error(
+      `File too large: ${sizeMB.toFixed(1)} MB exceeds the ${maxMB} MB cap. ` +
+      `Set XFA_MAX_FILE_MB to a higher value to allow larger workbooks. ` +
+      `(The cap protects the MCP server from OOM on synchronous base64 load — ` +
+      `a 200 MB workbook would allocate ~267 MB of base64 before any API call.)`
+    );
+    err.code = 'FILE_TOO_LARGE';
     throw err;
   }
   return fs.readFileSync(resolved).toString('base64');
