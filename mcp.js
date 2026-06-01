@@ -1274,6 +1274,8 @@ async function dispatchTool(name, args) {
       err.code = 'MISSING_TOKEN';
       throw err;
     }
+    // fileToB64 enforces existence + extension allowlist (H1 fix) — only
+    // spreadsheet extensions (.xlsx, .xlsm, etc.) are permitted here.
     const body = {
       file_b64: fileToB64(args.file_path),
       channel: args.channel,
@@ -1301,6 +1303,8 @@ async function dispatchTool(name, args) {
       err.code = 'MISSING_TOKEN';
       throw err;
     }
+    // fileToB64 enforces existence + extension allowlist (H1 fix) — only
+    // spreadsheet extensions (.xlsx, .xlsm, etc.) are permitted here.
     const body = {
       file_b64: fileToB64(args.file_path),
       team_id: args.team_id,
