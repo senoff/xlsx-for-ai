@@ -227,6 +227,50 @@ test('xlsx_read falls back to local engine on 5xx', async () => {
   const result = await fallbackRead(fixturePath, {});
   assert.ok(result.content[0].text.includes('TestSheet'));
   assert.equal(result._meta.source, 'local-fallback');
+  // Visible warning so the agent knows it's looking at fallback output, not API output
+  assert.match(result.content[0].text, /local fallback active/i);
+  assert.deepEqual(result._meta.ignored_options, []);
+});
+
+// ---------------------------------------------------------------------------
+// Test: fallbackRead honors options.sheet + flags ignored options
+// ---------------------------------------------------------------------------
+
+test('fallbackRead filters to options.sheet and surfaces ignored options', async () => {
+  let ExcelJS;
+  try {
+    ExcelJS = require('@protobi/exceljs');
+  } catch (_) {
+    console.log('    (skipping sheet-filter test: @protobi/exceljs not installed)');
+    return;
+  }
+
+  const wb = new ExcelJS.Workbook();
+  wb.addWorksheet('Alpha').addRow(['alpha-only', 1]);
+  wb.addWorksheet('Beta').addRow(['beta-only', 2]);
+  wb.addWorksheet('Gamma').addRow(['gamma-only', 3]);
+  const fixturePath = path.join(tmpDir, 'multi-sheet.xlsx');
+  await wb.xlsx.writeFile(fixturePath);
+
+  const { fallbackRead } = freshRequire('../../lib/fallback-read');
+
+  // Sheet filter + ignored options (format, evaluate)
+  const filtered = await fallbackRead(fixturePath, {
+    sheet: 'Beta',
+    format: 'json',
+    evaluate: true,
+  });
+  assert.ok(filtered.content[0].text.includes('beta-only'), 'requested sheet rendered');
+  assert.ok(!filtered.content[0].text.includes('alpha-only'), 'other sheet excluded');
+  assert.ok(!filtered.content[0].text.includes('gamma-only'), 'other sheet excluded');
+  assert.equal(filtered._meta.sheet_filter, 'Beta');
+  assert.deepEqual(filtered._meta.ignored_options.sort(), ['evaluate', 'format']);
+  assert.match(filtered.content[0].text, /Options not honored.*format.*evaluate|Options not honored.*evaluate.*format/);
+
+  // Unknown sheet → no silent surprise; surface available sheets
+  const missing = await fallbackRead(fixturePath, { sheet: 'Delta' });
+  assert.match(missing.content[0].text, /no sheet named "Delta"/);
+  assert.match(missing.content[0].text, /Alpha.*Beta.*Gamma/);
 });
 
 // ---------------------------------------------------------------------------
