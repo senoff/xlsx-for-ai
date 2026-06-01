@@ -201,15 +201,13 @@ test('xlsx_read relays and response passes through unmodified', async () => {
 // Test: xlsx_read fallback on 5xx
 // ---------------------------------------------------------------------------
 
-test('xlsx_read falls back to local engine on 5xx', async () => {
+test('xlsx_read falls back to local engine on 5xx', async (t) => {
   // Create a minimal real .xlsx fixture using @protobi/exceljs
   let ExcelJS;
   try {
     ExcelJS = require('@protobi/exceljs');
   } catch (_) {
-    // Skip if optional dep not installed
-    console.log('    (skipping fallback test: @protobi/exceljs not installed)');
-    return;
+    return t.skip('@protobi/exceljs not installed');
   }
 
   const wb = new ExcelJS.Workbook();
@@ -236,13 +234,12 @@ test('xlsx_read falls back to local engine on 5xx', async () => {
 // Test: fallbackRead honors options.sheet + flags ignored options
 // ---------------------------------------------------------------------------
 
-test('fallbackRead filters to options.sheet and surfaces ignored options', async () => {
+test('fallbackRead filters to options.sheet and surfaces ignored options', async (t) => {
   let ExcelJS;
   try {
     ExcelJS = require('@protobi/exceljs');
   } catch (_) {
-    console.log('    (skipping sheet-filter test: @protobi/exceljs not installed)');
-    return;
+    return t.skip('@protobi/exceljs not installed');
   }
 
   const wb = new ExcelJS.Workbook();
