@@ -271,6 +271,37 @@ test('fallbackRead filters to options.sheet and surfaces ignored options', async
 });
 
 // ---------------------------------------------------------------------------
+// Test: fallbackRead survives merge cells with null master value
+// (Repro: SEC XBRL→xlsx converters leave merge regions with the master cell
+//  set to null. @protobi/exceljs's cell.text getter throws on the slave
+//  cells. Pre-fix: one such cell crashed the entire dump.)
+// ---------------------------------------------------------------------------
+
+test('fallbackRead survives merge cells with null master value', async (t) => {
+  let ExcelJS;
+  try {
+    ExcelJS = require('@protobi/exceljs');
+  } catch (_) {
+    return t.skip('@protobi/exceljs not installed');
+  }
+
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('NullMerge');
+  ws.mergeCells('A1:C1');           // merge a 3-cell region
+  ws.getCell('A1').value = null;    // master deliberately null (the SEC shape)
+  ws.addRow(['real', 'data', 'here']);
+  const fixturePath = path.join(tmpDir, 'null-merge.xlsx');
+  await wb.xlsx.writeFile(fixturePath);
+
+  const { fallbackRead } = freshRequire('../../lib/fallback-read');
+
+  // Pre-fix this throws "Cannot read properties of null (reading 'toString')"
+  const result = await fallbackRead(fixturePath, {});
+  assert.ok(result.content[0].text.includes('NullMerge'), 'sheet header rendered');
+  assert.ok(result.content[0].text.includes('real\tdata\there'), 'second row rendered');
+});
+
+// ---------------------------------------------------------------------------
 // Test: non-read tools fail clearly when API unreachable
 // ---------------------------------------------------------------------------
 
