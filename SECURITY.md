@@ -23,15 +23,16 @@ disclosure expectations in your first message.
 
 ## Supported versions
 
-The latest published `1.x` minor on npm receives security fixes. Older
-minors do not. Today that is `1.4.x`. If a fix requires a breaking change,
-it is shipped as a `2.x` and the prior minor is deprecated on npm.
+The latest published `2.x` minor on npm receives security fixes. Older
+minors do not. Today that is `2.23.x`. If a fix requires a breaking change,
+it is shipped as the next `2.x` minor and the prior minor is deprecated on npm.
 
-| Version | Status      | Security fixes |
-|---------|-------------|----------------|
-| 1.4.x   | current     | yes            |
-| 1.3.x   | superseded  | no             |
-| ≤ 1.2.x | superseded  | no             |
+| Version  | Status      | Security fixes |
+|----------|-------------|----------------|
+| 2.23.x   | current     | yes            |
+| 2.0–2.22 | superseded  | no             |
+| 1.5.x    | frozen      | no             |
+| ≤ 1.4.x  | superseded  | no             |
 
 ## What this project considers a security issue
 
