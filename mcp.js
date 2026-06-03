@@ -1444,6 +1444,11 @@ async function main() {
   } catch (_) {
     catalog = { tools: TOOLS, source: 'static-fallback' };
   }
+  // Surface catalog source so operators can tell server vs cache vs static
+  // when an MCP session looks "off" (e.g., a tool missing because the remote
+  // /api/v1/tools/list 404'd and we silently fell back to the stale baked-in
+  // set). Stderr only — stdout is the MCP transport.
+  process.stderr.write(`xlsx-for-ai-mcp: tool catalog source=${catalog.source} count=${Array.isArray(catalog.tools) ? catalog.tools.length : 0}\n`);
   // Overlay MCP annotations (title / readOnlyHint / destructiveHint) so
   // they flow through to clients regardless of catalog source. The remote
   // /api/v1/tools/list returns minimal entries today; this is what
