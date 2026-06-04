@@ -7,6 +7,57 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 
 ---
 
+## [Unreleased] — Healer-deep CLI subcommand (2026-06-03)
+
+### Added
+
+**`xlsx-for-ai heal` CLI subcommand** — exposes the healer-deep
+HTTP routes (`/api/v1/tools/xlsx_healer_diagnose` and
+`/api/v1/tools/xlsx_healer_cure`) as a first-class CLI surface.
+First-touch use is diagnose-only:
+
+```sh
+xlsx-for-ai heal workbook.xlsx                  # diagnose-only (default)
+xlsx-for-ai heal workbook.xlsx --diagnose-only  # explicit form
+xlsx-for-ai heal workbook.xlsx --format json    # structured output
+```
+
+Cure path:
+
+```sh
+xlsx-for-ai heal workbook.xlsx \
+  --operation rename_move \
+  --params '{"from_prefix":"file:///old/","to_prefix":"file:///new/"}' \
+  [--mode as_copy|in_place] \
+  [--out <path>] \
+  [--format text|json]
+```
+
+`--out` defaults to `<name>-healed.xlsx` next to the source.
+Refuses to overwrite the source unless `--mode in_place` is set.
+
+Diagnostic surface returns the full DiagnosticReport — external
+references (Class 1), defined-name external refs (Class 2),
+Power Query connections (Class 3), `#REF!` propagation map
+(Class 4), multi-hop chains (Class 5) — with per-reference
+plain-English diagnosis.
+
+Cure operations supported (10 of 11 in v1; `modernize_to_pq` is
+v1.1-only pending Excel-format SPEC):
+
+  - `rename_move`, `pattern_bulk`
+  - `source_deleted_freeze` (full-grid snapshot via CachedCell
+    type fidelity), `source_deleted_redirect`, `source_deleted_localize`
+  - `permission_denied`, `structure_changed` (full formula rewriter),
+    `format_change`, `make_standalone`
+  - `chain_collapse` (with partial_cache_collapse policy + verdict
+    signal when consumer cells are un-cached)
+
+`--intent`, `--from`, `--to` are reserved for v1.1 once the
+`/api/v1/tools/xlsx_healer_intent` route ships; the CLI rejects
+those flags today with a clean "v1.1" message rather than a
+server-side 404.
+
 ## [2.25.1] - 2026-06-03
 
 Pre-Friday-external Tier-1 error-handling hardening — patch on top of
