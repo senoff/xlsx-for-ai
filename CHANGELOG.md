@@ -7,7 +7,33 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 
 ---
 
-## [Unreleased] — Fallback-read crash class + MCP file-size + sheet honoring (2026-06-01 / 2026-06-03)
+## [2.24.0] - 2026-06-03
+
+Security hardening (H1/H2/H3), fallback-read crash-class fix for SEC XBRL→xlsx
+files, MCP file-size guard, options.sheet honoring, manifest generation tooling.
+
+### Security
+
+**H1 — MCP file-read containment (fileToB64 extension allowlist)**
+`fileToB64` now requires the resolved path to exist and have a spreadsheet
+extension (`.xlsx`, `.xls`, `.xlsm`, `.xlsb`, `.csv`, `.ods`, `.fods`,
+`.numbers`, `.tsv`). Any MCP tool call pointing at a non-spreadsheet path
+(e.g. `/etc/passwd`, SSH keys, config files) is rejected with a clear
+`DISALLOWED_EXTENSION` error before any I/O occurs.
+
+**H2 — `xlsx_write` spec_path containment**
+`spec_path` reads in `xlsx_write` now require the path to exist and have a
+`.json` extension. Non-JSON files are rejected even if JSON-shaped, preventing
+exfiltration of sensitive JSON-format files (AWS credentials, Claude config,
+etc.) via the write tool path.
+
+**H3 — Slack and Teams tokens via environment variables**
+`xlsx_post_slack` and `xlsx_post_teams` no longer require live tokens as MCP
+tool arguments (which appear in MCP client conversation logs). Token intake is
+now env-var first: `SLACK_BOT_TOKEN` for Slack, `TEAMS_GRAPH_TOKEN` for Teams.
+Passing tokens via tool arguments is still accepted for backward compatibility,
+but is now documented as the legacy path that exposes tokens in conversation
+history. A clear `MISSING_TOKEN` error fires if neither env var nor arg is set.
 
 ### Fixed
 
@@ -45,6 +71,18 @@ open fd as `statSync`. Commits `3f85cd9`, `138fce4`, `83e25f8`, `2cf23b5`.
 
 ### Changed
 
+**MCP: tool annotations on all surfaced tools**
+Every tool exposed via MCP now declares MCP annotation hints (`readOnlyHint`,
+`destructiveHint`, etc.) so MCP-aware clients can render appropriate UX +
+confirmation flows. Annotations live in a single-source registry; tool-list and
+manifest are derived. Commit `d919dae`.
+
+**Tooling: single-source manifest generation + `--check` drift gate**
+`scripts/build-manifests.js` is the canonical source for the MCP-bundled manifest;
+`--check` mode enforces no-drift between the generated artifact and what's
+committed. Wired into Husky pre-commit and CI; CHECK failures block. Commits
+`910020f`, `f0577d8`, `9242278`.
+
 **`SECURITY.md` + `STATUS.md` version-table refresh**
 Version-supported table updated to reflect 2.23.x current / older 2.x superseded /
 1.5.x frozen / ≤1.4.x superseded. Sub-product `STATUS.md` notes clarify that
@@ -55,33 +93,6 @@ not part of the npm package surface. Commit `d91ec56`.
 **MCP: log tool catalog source to stderr on startup (L4)**
 The MCP server now logs the catalog source URL on boot so operators can distinguish
 between live-server vs stale-cache catalog states without diffing. Commit `da917af`.
-
----
-
-## [Unreleased] — Security hardening (2026-06-01)
-
-### Security
-
-**H1 — MCP file-read containment (fileToB64 extension allowlist)**
-`fileToB64` now requires the resolved path to exist and have a spreadsheet
-extension (`.xlsx`, `.xls`, `.xlsm`, `.xlsb`, `.csv`, `.ods`, `.fods`,
-`.numbers`, `.tsv`). Any MCP tool call pointing at a non-spreadsheet path
-(e.g. `/etc/passwd`, SSH keys, config files) is rejected with a clear
-`DISALLOWED_EXTENSION` error before any I/O occurs.
-
-**H2 — `xlsx_write` spec_path containment**
-`spec_path` reads in `xlsx_write` now require the path to exist and have a
-`.json` extension. Non-JSON files are rejected even if JSON-shaped, preventing
-exfiltration of sensitive JSON-format files (AWS credentials, Claude config,
-etc.) via the write tool path.
-
-**H3 — Slack and Teams tokens via environment variables**
-`xlsx_post_slack` and `xlsx_post_teams` no longer require live tokens as MCP
-tool arguments (which appear in MCP client conversation logs). Token intake is
-now env-var first: `SLACK_BOT_TOKEN` for Slack, `TEAMS_GRAPH_TOKEN` for Teams.
-Passing tokens via tool arguments is still accepted for backward compatibility,
-but is now documented as the legacy path that exposes tokens in conversation
-history. A clear `MISSING_TOKEN` error fires if neither env var nor arg is set.
 
 ---
 
