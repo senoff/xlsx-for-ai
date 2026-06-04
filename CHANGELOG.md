@@ -7,10 +7,44 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 
 ---
 
-## [2.24.0] - 2026-06-03
+## [2.25.0] - 2026-06-03
 
-Security hardening (H1/H2/H3), fallback-read crash-class fix for SEC XBRL→xlsx
-files, MCP file-size guard, options.sheet honoring, manifest generation tooling.
+Receipt — AI-agent provenance attestation pair-product to Stamp. Plus
+the 2.24.0-staged security hardening (H1/H2/H3), fallback-read crash-class
+fix for SEC XBRL→xlsx files, MCP file-size guard, options.sheet honoring,
+manifest generation tooling. (2.24.0 was prepped but rolled into 2.25.0
+since Receipt landed before publish.)
+
+### Added
+
+**Receipt — `xlsx_receipt` + `xlsx_verify_receipt` MCP tools**
+Ed25519-signed claims embedded in `docProps/custom.xml` under the
+`xlsx-for-ai-receipt-v1` custom-property name. Stamp + Receipt coexist
+on the same workbook under different property names. The Receipt's
+claims describe caller-declared agent identity + generation context
+(source-file hashes, prompt hash, MCP tools called, optional description)
+— attesting to "what produced this file," distinct from Stamp's "what
+was checked." Honesty boundary (load-bearing per the spec/receipt.md
+§7.5 audit): the server signs the caller-declared `agent.name`; it
+does NOT verify the caller actually IS that agent. Cryptographic
+identity binding requires per-agent issued signing keys — v1.1+ scope.
+Both MCP tool descriptions AND the README call this out explicitly.
+
+**CLI subcommands — `stamp`, `verify-stamp`, `receipt`, `verify-receipt`**
+First-position subcommand dispatch in `xlsx-for-ai`:
+```
+xlsx-for-ai stamp <path> --checks <file.json> [--out <path>]
+xlsx-for-ai verify-stamp <path>
+xlsx-for-ai receipt <path> --agent <name> [--source <name>=<sha256>]...
+xlsx-for-ai verify-receipt <path>
+```
+Sidecar default (`<name>.stamped.xlsx` / `<name>.receipted.xlsx`); `--out`
+overrides. Exit codes match spec/stamp.md §4.9: 0 success / 1 verify
+returned valid=false / 2 usage / 3 server / 4 local file. stdout = the
+server's `_meta` object as pretty JSON; stderr = the "Wrote <path>"
+confirmation. Bare `xlsx-for-ai <file.xlsx>` keeps its existing
+flag-only semantics — subcommand dispatch only fires on the four new
+keywords.
 
 ### Security
 
