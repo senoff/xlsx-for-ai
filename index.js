@@ -295,6 +295,12 @@ async function runHealSubcommand(rest) {
     try {
       result = await callTool('xlsx_healer_diagnose', { file_b64: fileB64 });
     } catch (err) {
+      // friendlyCliError (defined above in this file) maps known
+      // API error codes to short canned messages — raw err.message
+      // is suppressed unless XFA_DEBUG=1 is set, so internal server
+      // detail / paths / stack traces never reach the user's
+      // terminal or CI logs by default. Same sanitization shape
+      // the other subcommands use for API failures.
       process.stderr.write(friendlyCliError('xlsx-for-ai heal --diagnose-only', err) + '\n');
       process.exit(err.code === 'API_UNREACHABLE' || err.code === 'API_SERVER_ERROR' ? 3 : 1);
     }
@@ -330,6 +336,9 @@ async function runHealSubcommand(rest) {
   try {
     result = await callTool('xlsx_healer_cure', body);
   } catch (err) {
+    // Same sanitization shape as the diagnose path — friendlyCliError
+    // (above) maps known codes to canned messages; raw err.message
+    // only surfaces with XFA_DEBUG=1 for incident triage.
     process.stderr.write(friendlyCliError(`xlsx-for-ai heal --operation ${operation}`, err) + '\n');
     process.exit(err.code === 'API_UNREACHABLE' || err.code === 'API_SERVER_ERROR' ? 3 : 1);
   }
