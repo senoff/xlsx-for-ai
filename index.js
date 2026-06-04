@@ -134,8 +134,177 @@ async function runClean(opts, absPath) {
 // Main
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Stamp / Receipt subcommands — thin wrappers around the MCP tool relays.
+//
+// CLI surface (per ana/specs/stamp.md §4.2 + ana/specs/receipt.md §4.4):
+//   xlsx-for-ai stamp <path> --checks <file.json> [--out <path>] [--exclude <s>...] [--supervisor <ver>]
+//   xlsx-for-ai verify-stamp <path>
+//   xlsx-for-ai receipt <path> --agent <name> [--display-name <s>] [--identity-url <u>]
+//       [--source <name>=<sha256>...] [--prompt-hash <sha256>] [--mcp-tool <name>...]
+//       [--description <s>] [--cover-sheet <s>...] [--out <path>]
+//   xlsx-for-ai verify-receipt <path>
+//
+// Exit codes (per spec/stamp.md §4.9):
+//   0 = success; 1 = verify returned valid=false; 2 = usage error;
+//   3 = server-side error; 4 = local file error.
+// ---------------------------------------------------------------------------
+
+const STAMP_SUBCOMMANDS = new Set(['stamp', 'verify-stamp', 'receipt', 'verify-receipt']);
+
+function nextRequiredArg(argv, i, flag) {
+  const v = argv[i + 1];
+  if (v === undefined || v.startsWith('-')) {
+    process.stderr.write(`xlsx-for-ai ${flag} requires a value\n`);
+    process.exit(2);
+  }
+  return v;
+}
+
+function loadChecksFile(checksPath) {
+  let raw;
+  try { raw = fs.readFileSync(path.resolve(checksPath), 'utf8'); }
+  catch (e) { process.stderr.write(`Cannot read --checks file: ${e.message}\n`); process.exit(4); }
+  let parsed;
+  try { parsed = JSON.parse(raw); }
+  catch (e) { process.stderr.write(`--checks file is not valid JSON: ${e.message}\n`); process.exit(2); }
+  if (!Array.isArray(parsed)) {
+    process.stderr.write('--checks file must contain a JSON array of {id, name, status, detail?}\n');
+    process.exit(2);
+  }
+  return parsed;
+}
+
+async function runStampSubcommand(subcmd, rest) {
+  if (rest.length === 0 || rest[0].startsWith('-')) {
+    process.stderr.write(`Usage: xlsx-for-ai ${subcmd} <path> [...]\n`);
+    process.exit(2);
+  }
+  const filePath = path.resolve(rest[0]);
+  if (!fs.existsSync(filePath)) {
+    process.stderr.write(`File not found: ${filePath}\n`);
+    process.exit(4);
+  }
+  await ensureRegistered();
+  const fileB64 = fs.readFileSync(filePath).toString('base64');
+
+  if (subcmd === 'stamp') {
+    let checksPath = null, outPath = null, supervisor = null;
+    const excludeSheets = [];
+    for (let i = 1; i < rest.length; i++) {
+      const a = rest[i];
+      if (a === '--checks')          checksPath = nextRequiredArg(rest, i++, '--checks');
+      else if (a === '--out')        outPath    = nextRequiredArg(rest, i++, '--out');
+      else if (a === '--supervisor') supervisor = nextRequiredArg(rest, i++, '--supervisor');
+      else if (a === '--exclude')    excludeSheets.push(nextRequiredArg(rest, i++, '--exclude'));
+      else { process.stderr.write(`Unknown flag: ${a}\n`); process.exit(2); }
+    }
+    if (!checksPath) { process.stderr.write('--checks <file.json> is required for stamp\n'); process.exit(2); }
+    const body = { file_b64: fileB64, checks: loadChecksFile(checksPath) };
+    if (excludeSheets.length) body.exclude_sheets = excludeSheets;
+    if (supervisor) body.generated_by = { npm: 'xlsx-for-ai@' + require('./package.json').version, supervisor };
+    const result = await callServerForStamp('xlsx_stamp', body, outPath, filePath, '.stamped.xlsx');
+    process.stdout.write(JSON.stringify(result._meta || {}, null, 2) + '\n');
+    return 0;
+  }
+
+  if (subcmd === 'verify-stamp') {
+    const body = { file_b64: fileB64 };
+    const result = await callTool('xlsx_verify_stamp', body);
+    const meta = result._meta || {};
+    process.stdout.write(JSON.stringify(meta, null, 2) + '\n');
+    return meta.valid === true ? 0 : 1;
+  }
+
+  if (subcmd === 'receipt') {
+    let agentName = null, displayName = null, identityUrl = null;
+    let promptHash = null, description = null, outPath = null;
+    const sourceFileHashes = [];
+    const mcpToolsCalled = [];
+    const coverSheets = [];
+    for (let i = 1; i < rest.length; i++) {
+      const a = rest[i];
+      if (a === '--agent')              agentName     = nextRequiredArg(rest, i++, '--agent');
+      else if (a === '--display-name')  displayName   = nextRequiredArg(rest, i++, '--display-name');
+      else if (a === '--identity-url')  identityUrl   = nextRequiredArg(rest, i++, '--identity-url');
+      else if (a === '--prompt-hash')   promptHash    = nextRequiredArg(rest, i++, '--prompt-hash');
+      else if (a === '--description')   description   = nextRequiredArg(rest, i++, '--description');
+      else if (a === '--out')           outPath       = nextRequiredArg(rest, i++, '--out');
+      else if (a === '--mcp-tool')      mcpToolsCalled.push(nextRequiredArg(rest, i++, '--mcp-tool'));
+      else if (a === '--cover-sheet')   coverSheets.push(nextRequiredArg(rest, i++, '--cover-sheet'));
+      else if (a === '--source') {
+        const pair = nextRequiredArg(rest, i++, '--source');
+        const eqIdx = pair.indexOf('=');
+        if (eqIdx < 0) {
+          process.stderr.write('--source requires <name>=<sha256> form\n');
+          process.exit(2);
+        }
+        sourceFileHashes.push({ name: pair.slice(0, eqIdx), sha256: pair.slice(eqIdx + 1) });
+      }
+      else { process.stderr.write(`Unknown flag: ${a}\n`); process.exit(2); }
+    }
+    if (!agentName) { process.stderr.write('--agent <name> is required for receipt\n'); process.exit(2); }
+    const body = { file_b64: fileB64, agent: { name: agentName } };
+    if (displayName)  body.agent.display_name  = displayName;
+    if (identityUrl)  body.agent.identity_url  = identityUrl;
+    const inputs = {};
+    if (sourceFileHashes.length) inputs.source_file_hashes = sourceFileHashes;
+    if (promptHash)              inputs.prompt_hash         = promptHash;
+    if (mcpToolsCalled.length)   inputs.mcp_tools_called    = mcpToolsCalled;
+    if (Object.keys(inputs).length) body.inputs = inputs;
+    if (description) body.description = description;
+    if (coverSheets.length) body.covers_sheets = coverSheets;
+    const result = await callServerForStamp('xlsx_receipt', body, outPath, filePath, '.receipted.xlsx');
+    process.stdout.write(JSON.stringify(result._meta || {}, null, 2) + '\n');
+    return 0;
+  }
+
+  if (subcmd === 'verify-receipt') {
+    const body = { file_b64: fileB64 };
+    const result = await callTool('xlsx_verify_receipt', body);
+    const meta = result._meta || {};
+    process.stdout.write(JSON.stringify(meta, null, 2) + '\n');
+    return meta.valid === true ? 0 : 1;
+  }
+  return 2;
+}
+
+async function callServerForStamp(tool, body, explicitOutPath, sourcePath, sidecarSuffix) {
+  let result;
+  try {
+    result = await callTool(tool, body);
+  } catch (err) {
+    process.stderr.write(`xlsx-for-ai ${tool}: ${err.message}\n`);
+    process.exit(err.code === 'API_UNREACHABLE' || err.code === 'API_SERVER_ERROR' ? 3 : 1);
+  }
+  const meta = result._meta || {};
+  if (!meta.file_b64) return result;
+  let outPath = explicitOutPath;
+  if (!outPath) {
+    const parsed = path.parse(sourcePath);
+    outPath = path.join(parsed.dir, `${parsed.name}${sidecarSuffix}`);
+  }
+  if (path.resolve(outPath) === path.resolve(sourcePath)) {
+    process.stderr.write(`xlsx-for-ai ${tool}: refusing to overwrite source — pass --out <other-path>\n`);
+    process.exit(2);
+  }
+  try { fs.writeFileSync(outPath, Buffer.from(meta.file_b64, 'base64')); }
+  catch (e) { process.stderr.write(`xlsx-for-ai ${tool}: failed to write ${outPath}: ${e.message}\n`); process.exit(4); }
+  process.stderr.write(`Wrote ${outPath}\n`);
+  return result;
+}
+
 async function main() {
-  const opts = parseArgs(process.argv.slice(2));
+  // Subcommand dispatch — stamp/verify-stamp/receipt/verify-receipt
+  // route through dedicated handlers; everything else uses the legacy
+  // flag-only CLI (xlsx-for-ai <file> [--json|--md|--clean|...]).
+  const argv = process.argv.slice(2);
+  if (argv.length > 0 && STAMP_SUBCOMMANDS.has(argv[0])) {
+    const code = await runStampSubcommand(argv[0], argv.slice(1));
+    process.exit(code);
+  }
+
+  const opts = parseArgs(argv);
 
   if (opts.showVersion) { console.log(require('./package.json').version); return; }
   if (opts.telemetryStatus) { console.log(telemetryStatus()); return; }
