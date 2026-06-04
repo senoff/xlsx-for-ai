@@ -7,6 +7,53 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 
 ---
 
+## [2.25.1] - 2026-06-03
+
+Pre-Friday-external Tier-1 error-handling hardening — patch on top of
+2.25.0 closing CRITICAL findings the per-commit diff-only grace gate
+never saw (those patterns predated the new doctrine).
+
+### Security
+
+**MCP boundary — `out_path` extension allowlist**
+`applyFileB64` now enforces `ALLOWED_WRITE_EXTENSIONS = {.xlsx, .xls,
+.xlsm, .xlsb, .csv, .json}` on `path.extname(absPath)` before writing.
+Tighter than the READ allowlist (no .ods/.fods/.numbers/.tsv) since
+the server only emits XLSX-family bytes. A confused or malicious agent
+can no longer point `out_path` at a shell-startup or executable file
+to write `.sh` / arbitrary content via the response's base64 payload.
+
+**MCP boundary — startup catalog fetch hard timeout (8s)**
+`resolveCatalog(TOOLS)` now races against an 8s `setTimeout`. Previously
+a network call that never resolved AND never rejected (DNS sinkhole,
+TCP black hole, slow-loris-stalled response) blocked MCP server startup
+indefinitely, taking every tool offline. On timeout the fallback path
+(baked-in `TOOLS` from this npm package) fires as before.
+
+**MCP boundary — error message sanitization**
+`friendlyErrorMessage(toolName, code)` translates known operational
+error codes (`FILE_NOT_FOUND`, `API_UNREACHABLE`, `RATE_LIMITED`, etc.)
+to short, client-safe text and collapses the default branch to a
+generic `<tool> failed`. Raw `err.message` from inside `dispatchTool`
+no longer flows to the MCP client — it could carry absolute file
+paths, upstream server stacks, or third-party HTTP response bodies,
+all of which can end up in MCP client conversation logs.
+
+**CLI — `_meta.file_b64` stripped before stdout**
+`metaForStdout` deletes `file_b64` from the `_meta` object before
+`JSON.stringify`-ing to stdout in the `stamp` / `verify-stamp` /
+`receipt` / `verify-receipt` subcommands. The stamped/receipted
+workbook is already saved to disk via the sidecar or `--out` path;
+dumping its base64 to a terminal or CI log clobbered scrollback AND
+leaked PII-bearing workbook contents to whatever consumes stdout.
+
+**CLI — error sanitization at every stderr echo site**
+`friendlyCliError(prefix, err)` replaces direct `${err.message}`
+interpolation at every CLI error sink. Same posture as the MCP
+boundary: known operational codes get short text; default is generic.
+Set `XFA_DEBUG=1` to see the raw underlying message for incident
+triage.
+
 ## [2.25.0] - 2026-06-03
 
 Receipt — AI-agent provenance attestation pair-product to Stamp. Plus

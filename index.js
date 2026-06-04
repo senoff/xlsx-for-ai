@@ -83,8 +83,8 @@ async function runClean(opts, absPath) {
   try {
     result = await callTool('xlsx_data_clean', body);
   } catch (err) {
-    process.stderr.write(`xlsx-for-ai --clean error: ${err.message}\n`);
-    process.exit(1);
+    process.stderr.write(friendlyCliError('xlsx-for-ai --clean', err) + '\n');
+    process.exit(err.code === 'API_UNREACHABLE' || err.code === 'API_SERVER_ERROR' ? 3 : 1);
   }
 
   const meta = (result && result._meta) || {};
@@ -152,6 +152,45 @@ async function runClean(opts, absPath) {
 
 const STAMP_SUBCOMMANDS = new Set(['stamp', 'verify-stamp', 'receipt', 'verify-receipt']);
 
+// Strip _meta.file_b64 before writing the meta block to stdout. The
+// stamped/receipted workbook can be megabytes; dumping it to a terminal
+// or CI log clobbers scrollback AND leaks PII-bearing workbook contents
+// to whatever consumes stdout. The file is already saved to disk via
+// the sidecar / --out path; the b64 in stdout serves no consumer.
+// Pre-Friday-external CRITICAL per the Tier-1 audit.
+function metaForStdout(meta) {
+  if (!meta || typeof meta !== 'object') return meta;
+  const out = { ...meta };
+  delete out.file_b64;
+  return out;
+}
+
+// CLI-side error formatter. Same posture as friendlyErrorMessage in
+// mcp.js: known operational codes get short, client-safe text; everything
+// else collapses to a generic message. err.message can carry absolute
+// file paths, upstream stack traces, and third-party HTTP response
+// bodies — none of those belong in user-facing CLI stderr or in CI logs.
+// Set XFA_DEBUG=1 to see the raw underlying message (for incident triage).
+function friendlyCliError(prefix, err) {
+  const code = err && err.code;
+  const showRaw = process.env.XFA_DEBUG === '1';
+  const base = (() => {
+    switch (code) {
+      case 'API_UNREACHABLE':       return `${prefix}: API is unreachable — check network connectivity.`;
+      case 'API_SERVER_ERROR':      return `${prefix}: API returned a server error — retry shortly.`;
+      case 'DISALLOWED_EXTENSION':  return `${prefix}: file must be a workbook (allowed: .xlsx/.xls/.xlsm/.xlsb/.csv/.ods/.fods/.numbers/.tsv).`;
+      case 'FILE_TOO_LARGE':        return `${prefix}: file exceeds the XFA_MAX_FILE_MB cap (default 50 MB).`;
+      case 'FILE_NOT_FOUND':        return `${prefix}: file not found.`;
+      case 'MISSING_TOKEN':         return `${prefix}: required token env var is not set.`;
+      case 'RATE_LIMITED':          return `${prefix}: free-tier monthly cap reached — see xlsx-for-ai.dev/pricing.`;
+      case 'TIER_UPGRADE_REQUIRED': return `${prefix}: this capability requires a paid tier.`;
+      case 'FALLBACK_ENGINE_MISSING': return `${prefix}: local fallback engine not installed (\`npm install @protobi/exceljs\`).`;
+      default:                      return `${prefix}: request failed${code ? ` (code=${code})` : ''}.`;
+    }
+  })();
+  return showRaw && err && err.message ? `${base}\nRaw: ${err.message}` : base;
+}
+
 function nextRequiredArg(argv, i, flag) {
   const v = argv[i + 1];
   if (v === undefined || v.startsWith('-')) {
@@ -204,7 +243,7 @@ async function runStampSubcommand(subcmd, rest) {
     if (excludeSheets.length) body.exclude_sheets = excludeSheets;
     if (supervisor) body.generated_by = { npm: 'xlsx-for-ai@' + require('./package.json').version, supervisor };
     const result = await callServerForStamp('xlsx_stamp', body, outPath, filePath, '.stamped.xlsx');
-    process.stdout.write(JSON.stringify(result._meta || {}, null, 2) + '\n');
+    process.stdout.write(JSON.stringify(metaForStdout(result._meta) || {}, null, 2) + '\n');
     return 0;
   }
 
@@ -212,7 +251,7 @@ async function runStampSubcommand(subcmd, rest) {
     const body = { file_b64: fileB64 };
     const result = await callTool('xlsx_verify_stamp', body);
     const meta = result._meta || {};
-    process.stdout.write(JSON.stringify(meta, null, 2) + '\n');
+    process.stdout.write(JSON.stringify(metaForStdout(meta), null, 2) + '\n');
     return meta.valid === true ? 0 : 1;
   }
 
@@ -255,7 +294,7 @@ async function runStampSubcommand(subcmd, rest) {
     if (description) body.description = description;
     if (coverSheets.length) body.covers_sheets = coverSheets;
     const result = await callServerForStamp('xlsx_receipt', body, outPath, filePath, '.receipted.xlsx');
-    process.stdout.write(JSON.stringify(result._meta || {}, null, 2) + '\n');
+    process.stdout.write(JSON.stringify(metaForStdout(result._meta) || {}, null, 2) + '\n');
     return 0;
   }
 
@@ -263,7 +302,7 @@ async function runStampSubcommand(subcmd, rest) {
     const body = { file_b64: fileB64 };
     const result = await callTool('xlsx_verify_receipt', body);
     const meta = result._meta || {};
-    process.stdout.write(JSON.stringify(meta, null, 2) + '\n');
+    process.stdout.write(JSON.stringify(metaForStdout(meta), null, 2) + '\n');
     return meta.valid === true ? 0 : 1;
   }
   return 2;
@@ -274,7 +313,7 @@ async function callServerForStamp(tool, body, explicitOutPath, sourcePath, sidec
   try {
     result = await callTool(tool, body);
   } catch (err) {
-    process.stderr.write(`xlsx-for-ai ${tool}: ${err.message}\n`);
+    process.stderr.write(friendlyCliError(`xlsx-for-ai ${tool}`, err) + '\n');
     process.exit(err.code === 'API_UNREACHABLE' || err.code === 'API_SERVER_ERROR' ? 3 : 1);
   }
   const meta = result._meta || {};
@@ -353,7 +392,7 @@ async function main() {
     if (err.code === 'API_UNREACHABLE' || err.code === 'API_SERVER_ERROR') {
       result = await fallbackRead(absPath, opts);
     } else {
-      process.stderr.write(`Error: ${err.message}\n`);
+      process.stderr.write(friendlyCliError('xlsx-for-ai', err) + '\n');
       process.exit(1);
     }
   }
@@ -363,6 +402,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  process.stderr.write(`xlsx-for-ai: ${err.message}\n`);
+  process.stderr.write(friendlyCliError('xlsx-for-ai', err) + '\n');
   process.exit(1);
 });
