@@ -7,6 +7,57 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 
 ---
 
+## [Unreleased] — Fallback-read crash class + MCP file-size + sheet honoring (2026-06-01 / 2026-06-03)
+
+### Fixed
+
+**Fallback-read: survive merge cells with null master value (SEC XBRL→xlsx class)**
+`@protobi/exceljs`'s `cell.text` getter throws `TypeError: Cannot read properties of
+null (reading 'toString')` on merge cells whose master value is null — produced by
+SEC EDGAR's XBRL→xlsx converter and similar tools. The default-mode dump (no flags)
+previously crashed on this class; per-sheet (`--sheet`) mode worked. New
+`safeCellText` guard swallows the exact null-deref `TypeError` shape (anchored regex
+matching modern V8's `Cannot read properties of null (reading 'x')` and legacy V8's
+`Cannot read property 'x' of null`), rethrowing anything else so real engine bugs
+still surface. Confirmed against the SEC 9-file corpus (Airbnb, Apple, Datadog,
+Dropbox, GitLab, Meta, NVIDIA, Snowflake, Tesla) and the ALAB 5-file portfolio
+(10-K + four 10-Q quarters); all 14 dump cleanly. Commits `2dee328`, `5e123e3`,
+`0f87bb5`, `e7ca71c`, `9f66415`.
+
+**Fallback-read: honor `options.sheet`; surface ignored options (M3)**
+`fallbackRead` now filters to the requested sheet when `options.sheet` is passed
+(previously ignored — agents calling `xlsx_read` with `sheet="Budget"` on a 20-sheet
+workbook got all 20 sheets during API outage, producing silent context overflow and
+output-shape divergence). A visible warning is prepended when fallback fires and
+when options are ignored (`options.format` / `options.evaluate` remain
+fallback-incompatible); `_meta.ignored_options` echoes the list. Callers can
+detect fallback unambiguously via `_meta.source === 'local-fallback'`. Commit
+`47d6727`.
+
+**MCP: file-size guard on `fileToB64` (M1)**
+`fileToB64` now `statSync`-checks the file before reading. Files exceeding
+`XFA_MAX_FILE_MB` (default 50) are rejected with a clear error before any base64
+allocation. Previously, a 200 MB workbook would allocate ~267 MB of base64 string
+in Node's heap before the API call started — the 30s API timeout doesn't help
+since OOM is pre-network, and in MCP-server context this kills the server process
+and disconnects every connected client. TOCTOU closed by reading from the same
+open fd as `statSync`. Commits `3f85cd9`, `138fce4`, `83e25f8`, `2cf23b5`.
+
+### Changed
+
+**`SECURITY.md` + `STATUS.md` version-table refresh**
+Version-supported table updated to reflect 2.23.x current / older 2.x superseded /
+1.5.x frozen / ≤1.4.x superseded. Sub-product `STATUS.md` notes clarify that
+`vault-build/`, `pii-frisk-build/`, `healer-build/`, and `platform-build/` are
+in-flight builds whose server-side implementations live in `xlsx-for-ai-server` —
+not part of the npm package surface. Commit `d91ec56`.
+
+**MCP: log tool catalog source to stderr on startup (L4)**
+The MCP server now logs the catalog source URL on boot so operators can distinguish
+between live-server vs stale-cache catalog states without diffing. Commit `da917af`.
+
+---
+
 ## [Unreleased] — Security hardening (2026-06-01)
 
 ### Security
