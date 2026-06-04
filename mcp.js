@@ -1156,6 +1156,14 @@ function fileToB64(filePath) {
 // If out_path is not provided:                            leave response unchanged.
 // ---------------------------------------------------------------------------
 
+// Extensions an MCP tool is allowed to write via out_path. Tighter than the
+// READ allowlist (no .ods/.fods/.numbers/.tsv) because the server only ever
+// emits XLSX or XLSX-family workbook bytes — accepting unrelated extensions
+// would let a malicious / confused agent point out_path at /etc/profile.d/
+// or a shell startup script. The .json carve-out is for fixture/audit JSON
+// the redact + clean tools sometimes emit alongside the workbook.
+const ALLOWED_WRITE_EXTENSIONS = new Set(['.xlsx', '.xls', '.xlsm', '.xlsb', '.csv', '.json']);
+
 async function applyFileB64(result, outPath) {
   if (!outPath) {
     // No save requested — leave response untouched (b64 stays in _meta for caller)
@@ -1163,6 +1171,21 @@ async function applyFileB64(result, outPath) {
   }
 
   const absPath = path.resolve(outPath);
+
+  // Containment: require an absolute path + a workbook-family extension.
+  // Reject path-traversal patterns and any non-workbook extension at the
+  // boundary so a malicious agent can't request a write to a shell-startup
+  // location or an arbitrary system file via out_path. Pre-Friday-external
+  // CRITICAL per the Tier-1 error-handling audit (2026-06-03).
+  const outExt = path.extname(absPath).toLowerCase();
+  if (!ALLOWED_WRITE_EXTENSIONS.has(outExt)) {
+    if (result.content && result.content[0] && result.content[0].type === 'text') {
+      result.content[0].text +=
+        `\n\nout_path rejected: extension "${outExt}" is not in the allowed write set ` +
+        `(${[...ALLOWED_WRITE_EXTENSIONS].join(', ')}). File was NOT written.`;
+    }
+    return result;
+  }
 
   if (result._meta && result._meta.file_b64) {
     await fsPromises.writeFile(absPath, Buffer.from(result._meta.file_b64, 'base64'));
@@ -1179,6 +1202,51 @@ async function applyFileB64(result, outPath) {
   }
 
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// Boundary error sanitization
+//
+// The MCP server is a public boundary — anything in err.message that flows
+// to the client can end up in the MCP client's conversation log and from
+// there into any LLM context window the operator never intended. Map the
+// known operational error codes to short, client-safe text; collapse
+// everything else to a generic message that names the tool but not the
+// internals. Tool name is safe to echo (the caller asked for it); paths,
+// upstream server stacks, and third-party response bodies are not.
+//
+// New codes added here as the client-side error surface grows. Default
+// branch is conservative on purpose — better to under-reveal than over-
+// reveal at the boundary.
+// ---------------------------------------------------------------------------
+
+function friendlyErrorMessage(toolName, code) {
+  switch (code) {
+    case 'DISALLOWED_EXTENSION':
+      return `${toolName}: file path must point at a workbook (allowed: .xlsx/.xls/.xlsm/.xlsb/.csv/.ods/.fods/.numbers/.tsv).`;
+    case 'SYMLINK_REJECTED':
+      return `${toolName}: file path resolves through a symlink — provide a direct path.`;
+    case 'FILE_TOO_LARGE':
+      return `${toolName}: file exceeds the XFA_MAX_FILE_MB cap (default 50 MB).`;
+    case 'FILE_NOT_FOUND':
+      return `${toolName}: file not found at the supplied path.`;
+    case 'NOT_REGULAR_FILE':
+      return `${toolName}: file path is not a regular file.`;
+    case 'MISSING_TOKEN':
+      return `${toolName}: required token env var is not set (see tool docs for which one).`;
+    case 'API_UNREACHABLE':
+      return `${toolName}: API is unreachable — check network connectivity.`;
+    case 'API_SERVER_ERROR':
+      return `${toolName}: API returned a server error — retry shortly.`;
+    case 'TIER_UPGRADE_REQUIRED':
+      return `${toolName}: this capability requires a paid tier.`;
+    case 'RATE_LIMITED':
+      return `${toolName}: free-tier monthly cap reached — see xlsx-for-ai.dev/pricing.`;
+    case 'FALLBACK_ENGINE_MISSING':
+      return `${toolName}: local fallback engine not installed (\`npm install @protobi/exceljs\`).`;
+    default:
+      return `${toolName} failed — see server-side logs (request_id in response _meta) for details.`;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1525,9 +1593,23 @@ async function main() {
   // server-side tools appear without re-publishing this npm package.
   // resolveCatalog returns the baked-in TOOLS as last-resort fallback so
   // we never fail-open on a transient network blip. See lib/discover.js.
+  //
+  // Hard timeout (8s) on top of any timeout inside resolveCatalog so that
+  // a network call which hangs forever (DNS sinkhole, TCP black hole, slow-
+  // loris-style stalled response) cannot block MCP server startup
+  // indefinitely. Pre-Friday-external CRITICAL per the Tier-1 audit.
+  const CATALOG_FETCH_TIMEOUT_MS = 8000;
   let catalog;
   try {
-    catalog = await resolveCatalog(TOOLS);
+    catalog = await Promise.race([
+      resolveCatalog(TOOLS),
+      new Promise((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`catalog fetch timed out after ${CATALOG_FETCH_TIMEOUT_MS}ms`)),
+          CATALOG_FETCH_TIMEOUT_MS
+        )
+      ),
+    ]);
   } catch (_) {
     catalog = { tools: TOOLS, source: 'static-fallback' };
   }
@@ -1568,8 +1650,19 @@ async function main() {
       // Pass API response through verbatim (citation footer + _meta preserved)
       return result;
     } catch (err) {
+      // Error message sanitization at the MCP boundary. Raw err.message
+      // can leak absolute file paths (FILE_NOT_FOUND), upstream server
+      // error stacks (any thrown Error inside dispatchTool), and upstream
+      // HTTP response bodies (callTool's API_SERVER_ERROR path may carry
+      // server internals). Translate the known operational codes into
+      // short, client-safe messages; everything else collapses to a
+      // generic "tool failed" with the tool name so callers can still
+      // route on it without leaking path/server detail. Pre-Friday-
+      // external CRITICAL per the Tier-1 audit.
+      const code = err && err.code;
+      const safeMessage = friendlyErrorMessage(name, code);
       return {
-        content: [{ type: 'text', text: `xlsx-for-ai error: ${err.message}` }],
+        content: [{ type: 'text', text: `xlsx-for-ai error: ${safeMessage}` }],
         isError: true,
       };
     }
