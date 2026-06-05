@@ -7,6 +7,71 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 
 ---
 
+## [3.0.0] - 2026-06-05
+
+The "whole new world" consolidation cut. Bob's call: the 2.x→now delta
+(hosted server platform, 7-theme production-hardening, healer-deep,
+Stamp+Receipt, MCP tool annotations, prepublish allowlist guard, npm
+deprecation channel) is big enough that a major bump tells users
+"this is a different product than where you joined." 3.0.0 is that
+line.
+
+### Added
+
+**Healer family exposed via MCP — 4 tools.**
+The healer-deep server build (4 routes deployed since 2026-06-04) was
+invisible to MCP-aware clients until now. Adds `xlsx_healer_diagnose`,
+`xlsx_healer_cure`, `xlsx_healer_simulate`, and `xlsx_healer_intent` to
+the npm client `mcp.js` TOOLS array + dispatch handlers.
+
+- `xlsx_healer_diagnose` — structured report of external-ref breakage
+  (broken refs, defined-name external refs, PQ connections with embedded
+  credentials, `#REF!` propagation maps, multi-hop chains). Read-only.
+- `xlsx_healer_cure` — apply ONE specific cure operation
+  (rename_move / pattern_bulk / source_deleted_freeze / redirect /
+  localize / permission_denied / structure_changed / format_change /
+  make_standalone, plus v1.1 chain_collapse + modernize_to_pq).
+  Returns cured bytes + per-operation receipt.
+- `xlsx_healer_simulate` — recipient-side accessibility check. Given
+  paths the recipient CAN see, returns which refs will resolve and which
+  will break. Read-only — no output workbook.
+- `xlsx_healer_intent` — goal-driven healing. Declare an intent
+  (`make-it-work` / `make-standalone` / `migrate`) and Healer plans the
+  operation sequence + applies it. Returns planned ops + cured bytes +
+  unactionable list. `migrate` requires `from`/`to` prefix params;
+  `in_place` mode requires `confirm: true`.
+
+**CLI `heal` intent path (completes the subcommand).**
+`xlsx-for-ai heal <file> --intent <make-it-work|make-standalone|migrate>`
++ `--from <prefix>` + `--to <prefix>` + `--confirm` (required for
+`--mode in_place`). The previous version of the CLI rejected
+`--intent`/`--from`/`--to` with a "reserved for v1.1" stub since the
+server route wasn't live; the route has been shipping since
+2026-06-04. Goes alongside the existing diagnose-only and
+`--operation` paths (now mutually exclusive — pick one).
+
+### Changed
+
+**Tool count: 48** (was 44 at 2.26.x). README counts updated everywhere
+they appear. Categories: 1 capstone (xlsx_doctor), the read/write/
+analysis/inspection cluster, 2 integrations (Slack + Teams), and the
+new 8-tool integrity surface (Stamp + Verify Stamp + Receipt + Verify
+Receipt + 4 Healer).
+
+**Canonical MCP install: `npx -y -p xlsx-for-ai@latest xlsx-for-ai-mcp`.**
+Self-heals across npm releases on every MCP client restart — no
+manual `npm install -g` needed when a new version ships. The 6 README
+client snippets (Claude Desktop / Cursor / Continue / Codex CLI /
+Zed / Windsurf) all use this form. Global install is kept as the
+offline-friendly alternative.
+
+### Server-side (was already deployed before 3.0.0)
+
+- `xlsx_receipt` + `xlsx_verify_receipt` added to the server's
+  `tools-list.ts` inventory (they were already shipping as routes +
+  npm-client tools — this closes the manifest-drift gap so
+  `GET /api/v1/tools` reports the actual shipped surface).
+
 ## [2.26.1] - 2026-06-05
 
 ### Fixed

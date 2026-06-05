@@ -1045,6 +1045,129 @@ const TOOLS = [
       required: ['file_path'],
     },
   },
+
+  {
+    name: 'xlsx_healer_diagnose',
+    description:
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: produce a structured diagnostic report of external references that are broken or at risk in a workbook. Returns five classes of finding: (1) external-workbook references that can\'t resolve, (2) defined-name external refs, (3) Power Query connections with embedded credentials, (4) #REF! propagation maps from upstream breakage, (5) multi-hop chains (workbook → workbook → workbook). Findings carry reference_id keys that downstream cure operations key on.\n\n' +
+      'USE WHEN: a workbook shows #REF! errors, an agent moves a file and refs need rewriting, a customer reports "the workbook stopped working after we reorganized SharePoint", or auditing a corpus for hidden external-link breakage before sharing.\n\n' +
+      'DO NOT USE WHEN: the user wants the cleaning/normalization surface (use xlsx_data_clean — different concern). Or when there is no .xlsx source path (Healer reads the source bytes, doesn\'t reconstruct from a structured spec).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file to diagnose.' },
+      },
+      required: ['file_path'],
+    },
+  },
+
+  {
+    name: 'xlsx_healer_cure',
+    description:
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: apply ONE specific cure operation against a diagnosed workbook. Each operation targets a specific failure mode: rename_move (rewrite ref paths), pattern_bulk (regex-style ref rewrites), source_deleted_freeze (replace broken refs with cached values), source_deleted_redirect (point at a replacement file), source_deleted_localize (snapshot full external source into a local copy), permission_denied (strip credentials), structure_changed (rewrite formulas for moved cells), format_change (re-link after extension change), make_standalone (fully dereference all externals). Returns the cured workbook bytes + a receipt naming exactly what changed.\n\n' +
+      'USE WHEN: a diagnostic report (xlsx_healer_diagnose) named a specific operation as the recommended fix and the user confirmed it; or running a known recipe across a folder of files; or restoring a workbook whose source moved by a known prefix.\n\n' +
+      'DO NOT USE WHEN: the failure mode isn\'t one of the supported operations (use xlsx_healer_intent for goal-shaped fixes). Or when diagnose hasn\'t been run yet on the file (cures need diagnose-emitted reference_ids).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file to cure.' },
+        operation: {
+          type: 'string',
+          description: 'The cure operation to apply.',
+          enum: [
+            'rename_move',
+            'pattern_bulk',
+            'source_deleted_freeze',
+            'source_deleted_redirect',
+            'source_deleted_localize',
+            'permission_denied',
+            'structure_changed',
+            'format_change',
+            'make_standalone',
+            'chain_collapse',
+            'modernize_to_pq',
+          ],
+        },
+        cure_params: {
+          type: 'object',
+          description: 'Operation-specific parameters. E.g., rename_move takes {from_prefix, to_prefix}; pattern_bulk takes {pattern, replacement}.',
+        },
+        mode: {
+          type: 'string',
+          enum: ['as_copy', 'in_place'],
+          description: 'as_copy (default) writes a new file alongside the source; in_place overwrites it.',
+        },
+        confirm: {
+          type: 'boolean',
+          description: 'Required as true when mode=in_place. Prevents accidental in-place overwrites; explicit confirmation is the safety gate.',
+        },
+        out_path: { type: 'string', description: 'Optional: write the cured workbook to this absolute path. Defaults to <name>-healed.xlsx next to the source when mode=as_copy.' },
+      },
+      required: ['file_path', 'operation'],
+    },
+  },
+
+  {
+    name: 'xlsx_healer_simulate',
+    description:
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: simulate recipient-side accessibility of a workbook\'s external references. Given a list of paths the recipient CAN see (`accessible_paths`), returns which references will still resolve at the recipient end and which will break (and why). Read-only; produces no output workbook.\n\n' +
+      'USE WHEN: an agent or user wants to know "will this workbook work when I send it to <person>?" before sharing — e.g., before posting to Slack, attaching to email, or sharing a OneDrive link. Or auditing a workbook against a known recipient-accessible-paths inventory.\n\n' +
+      'DO NOT USE WHEN: the user wants to FIX the breakage (use xlsx_healer_cure or xlsx_healer_intent). Or when the recipient is the sender themselves (no path discrepancy to simulate).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file to simulate.' },
+        accessible_paths: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'List of paths (absolute or URL) the recipient CAN see. Max 1000 entries, each ≤4096 chars. Often a folder tree or a SharePoint root.',
+        },
+      },
+      required: ['file_path', 'accessible_paths'],
+    },
+  },
+
+  {
+    name: 'xlsx_healer_intent',
+    description:
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: goal-driven healing. Caller declares an INTENT (`make-it-work`, `make-standalone`, or `migrate`) instead of a specific cure operation; Healer plans the operation sequence + applies it. make-it-work: minimum surgery to clear errors. make-standalone: fully de-externalize the workbook (snapshot every external dep). migrate: rewrite all references against a from/to prefix pair. Returns the planned operations, the cured bytes, and an unactionable list for refs that couldn\'t be auto-resolved.\n\n' +
+      'USE WHEN: the user describes the goal in plain English ("just make this work for the recipient" / "send a fully self-contained version" / "we moved the share root, update the refs"). Or when multiple cure operations need to compose and the orchestration is non-trivial.\n\n' +
+      'DO NOT USE WHEN: the user has already chosen a specific cure operation (use xlsx_healer_cure directly — avoids the planning overhead). Or when no diagnostic has been run on the workbook yet (intent uses the diagnostic surface internally; running diagnose first surfaces what intent will work with).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file to heal.' },
+        intent: {
+          type: 'string',
+          enum: ['make-it-work', 'make-standalone', 'migrate'],
+          description: 'The healing goal. make-it-work: smallest surgery to clear errors. make-standalone: fully dereference all externals. migrate: rewrite against a from/to prefix pair (requires intent_params.from + intent_params.to).',
+        },
+        intent_params: {
+          type: 'object',
+          properties: {
+            from: { type: 'string', description: 'Source path prefix (required for migrate intent).' },
+            to: { type: 'string', description: 'Target path prefix (required for migrate intent).' },
+          },
+          description: 'Intent-specific parameters. Required keys depend on the intent (migrate needs from + to).',
+        },
+        mode: {
+          type: 'string',
+          enum: ['as_copy', 'in_place'],
+          description: 'as_copy (default) writes a new file alongside the source; in_place overwrites it.',
+        },
+        confirm: {
+          type: 'boolean',
+          description: 'Required as true when mode=in_place. Prevents accidental in-place overwrites; explicit confirmation is the safety gate.',
+        },
+        out_path: { type: 'string', description: 'Optional: write the cured workbook to this absolute path. Defaults to <name>-healed.xlsx next to the source when mode=as_copy.' },
+      },
+      required: ['file_path', 'intent'],
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -1565,6 +1688,54 @@ async function dispatchTool(name, args) {
   if (name === 'xlsx_verify_receipt') {
     const body = { file_b64: fileToB64(args.file_path) };
     return callTool('xlsx_verify_receipt', body);
+  }
+
+  // xlsx_healer_diagnose: produce structured diagnostic report of broken/
+  // at-risk external refs. Read-only; returns the report in the response
+  // _meta block. No output file.
+  if (name === 'xlsx_healer_diagnose') {
+    const body = { file_b64: fileToB64(args.file_path) };
+    return callTool('xlsx_healer_diagnose', body);
+  }
+
+  // xlsx_healer_cure: apply ONE specific cure operation. Returns the
+  // cured bytes in _meta.file_b64 + a per-operation receipt; out_path
+  // (or in_place mode) triggers the standard applyFileB64 disk write.
+  if (name === 'xlsx_healer_cure') {
+    const body = {
+      file_b64: fileToB64(args.file_path),
+      operation: args.operation,
+    };
+    if (args.cure_params !== undefined) body.cure_params = args.cure_params;
+    if (args.mode !== undefined) body.mode = args.mode;
+    if (args.confirm !== undefined) body.confirm = args.confirm;
+    const result = await callTool('xlsx_healer_cure', body);
+    return applyFileB64(result, args.out_path);
+  }
+
+  // xlsx_healer_simulate: recipient-side accessibility check. Read-only;
+  // returns the simulation report in _meta. No output file.
+  if (name === 'xlsx_healer_simulate') {
+    const body = {
+      file_b64: fileToB64(args.file_path),
+      accessible_paths: args.accessible_paths,
+    };
+    return callTool('xlsx_healer_simulate', body);
+  }
+
+  // xlsx_healer_intent: goal-driven healing (plan + apply). Returns the
+  // planned operations + cured bytes + unactionable list. Same out_path /
+  // in_place semantics as xlsx_healer_cure.
+  if (name === 'xlsx_healer_intent') {
+    const body = {
+      file_b64: fileToB64(args.file_path),
+      intent: args.intent,
+    };
+    if (args.intent_params !== undefined) body.intent_params = args.intent_params;
+    if (args.mode !== undefined) body.mode = args.mode;
+    if (args.confirm !== undefined) body.confirm = args.confirm;
+    const result = await callTool('xlsx_healer_intent', body);
+    return applyFileB64(result, args.out_path);
   }
 
   // All other tools (list_sheets, schema, hyperlinks, conditional_formats,

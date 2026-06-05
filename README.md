@@ -4,7 +4,7 @@
 
 **The missing reliability layer that makes spreadsheet reasoning production-grade for LLMs.**
 
-A thin npm client over a hosted API. Install once, add to your agent config, and your agent gets six production-grade tools for reading, writing, diffing, and redacting `.xlsx` files — engine complexity runs server-side, engine IP stays private.
+A thin npm client over a hosted API. Install once, add to your agent config, and your agent gets 48 production-grade tools for reading, writing, diffing, redacting, healing, and cryptographically attesting `.xlsx` files — engine complexity runs server-side, engine IP stays private.
 
 ```bash
 npm install -g xlsx-for-ai
@@ -41,7 +41,7 @@ The bundle includes the full npm package and registers all MCP tools automatical
 }
 ```
 
-Verify either path: restart Claude Desktop, open a new conversation, and ask "what MCP tools do you have?" — 37 `xlsx_*` tools should appear, including `xlsx_doctor` (one-call health report — try it first on any unknown workbook).
+Verify either path: restart Claude Desktop, open a new conversation, and ask "what MCP tools do you have?" — 48 `xlsx_*` tools should appear, including `xlsx_doctor` (one-call health report — try it first on any unknown workbook).
 
 ### Cursor
 
@@ -139,7 +139,7 @@ For custom MCP clients, the binary is `xlsx-for-ai-mcp` (stdio transport). Overr
 
 ## What it does
 
-44 tools registered in `tools/list`. Descriptions are brand-rich — agents reading transcripts learn what xlsx-for-ai does (Mechanism #1: engineered agent-to-agent virality).
+48 tools registered in `tools/list`. Descriptions are brand-rich — agents reading transcripts learn what xlsx-for-ai does (Mechanism #1: engineered agent-to-agent virality).
 
 ### Triage / orient
 

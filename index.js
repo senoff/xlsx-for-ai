@@ -218,21 +218,30 @@ function loadChecksFile(checksPath) {
 // ---------------------------------------------------------------------------
 // Heal subcommand — exposes the healer-deep HTTP routes from the CLI.
 //
-//   xlsx-for-ai heal <path>                    diagnose-only (default)
-//   xlsx-for-ai heal <path> --diagnose-only    explicit form of the default
-//   xlsx-for-ai heal <path> --operation <op> --params <json> [--mode <m>] [--out <path>]
-//   xlsx-for-ai heal <path> --format text|json [other flags]
+//   xlsx-for-ai heal <path>                                          diagnose-only (default)
+//   xlsx-for-ai heal <path> --diagnose-only                          explicit form of the default
+//   xlsx-for-ai heal <path> --operation <op> --params <json>         apply one cure operation
+//   xlsx-for-ai heal <path> --intent <make-it-work|make-standalone|migrate>
+//                           [--from <prefix>] [--to <prefix>]        intent-driven cure (plan + apply)
+//                           [--confirm]                              required for --mode in_place
+//   xlsx-for-ai heal <path> [--mode as_copy|in_place] [--out <path>] [--format text|json]
 //
-// `--intent`/`--from`/`--to` are reserved for v1.1 once the
-// /api/v1/tools/xlsx_healer_intent route ships; the CLI rejects
-// those flags today so callers see a clean "v1.1" message rather
-// than a server 404.
+// The intent path requires the /api/v1/tools/xlsx_healer_intent route
+// to be live; it's been deployed since 2026-06-04. `--from` and `--to`
+// are required when intent=migrate (the route also enforces this); for
+// other intents they're ignored.
 // ---------------------------------------------------------------------------
+
+const VALID_INTENTS = new Set(['make-it-work', 'make-standalone', 'migrate']);
 
 async function runHealSubcommand(rest) {
   if (rest.length === 0 || rest[0].startsWith('-')) {
     process.stderr.write(
-      'Usage: xlsx-for-ai heal <file.xlsx> [--diagnose-only | --operation <op> --params <json>] [--mode as_copy|in_place] [--out <path>] [--format text|json]\n',
+      'Usage: xlsx-for-ai heal <file.xlsx>\n' +
+        '         [--diagnose-only]\n' +
+        '         [--operation <op> --params <json>]\n' +
+        '         [--intent <make-it-work|make-standalone|migrate> [--from <prefix>] [--to <prefix>] [--confirm]]\n' +
+        '         [--mode as_copy|in_place] [--out <path>] [--format text|json]\n',
     );
     process.exit(2);
   }
@@ -246,6 +255,10 @@ async function runHealSubcommand(rest) {
   let diagnoseOnly = false;
   let operation = null;
   let paramsJson = null;
+  let intent = null;
+  let intentFrom = null;
+  let intentTo = null;
+  let confirm = false;
   let mode = 'as_copy';
   let outPath = null;
   let format = 'text';
@@ -254,13 +267,14 @@ async function runHealSubcommand(rest) {
     if      (a === '--diagnose-only')   diagnoseOnly = true;
     else if (a === '--operation')       operation = nextRequiredArg(rest, i++, '--operation');
     else if (a === '--params')          paramsJson = nextRequiredArg(rest, i++, '--params');
+    else if (a === '--intent')          intent     = nextRequiredArg(rest, i++, '--intent');
+    else if (a === '--from')            intentFrom = nextRequiredArg(rest, i++, '--from');
+    else if (a === '--to')              intentTo   = nextRequiredArg(rest, i++, '--to');
+    else if (a === '--confirm')         confirm    = true;
     else if (a === '--mode')            mode       = nextRequiredArg(rest, i++, '--mode');
     else if (a === '--out')             outPath    = nextRequiredArg(rest, i++, '--out');
     else if (a === '--format')          format     = nextRequiredArg(rest, i++, '--format');
-    else if (a === '--intent' || a === '--from' || a === '--to') {
-      process.stderr.write(`xlsx-for-ai heal: ${a} is reserved for v1.1 (intent-driven cures via /xlsx_healer_intent); not yet wired\n`);
-      process.exit(2);
-    } else {
+    else {
       process.stderr.write(`Unknown flag: ${a}\n`);
       process.exit(2);
     }
@@ -268,17 +282,41 @@ async function runHealSubcommand(rest) {
 
   // Validate mutually-exclusive shapes early — clearer than letting
   // the server emit `conflicting_repair_directives` on its O8 check.
-  if (diagnoseOnly && operation) {
-    process.stderr.write('xlsx-for-ai heal: --diagnose-only and --operation are mutually exclusive\n');
+  const modeCount = (diagnoseOnly ? 1 : 0) + (operation ? 1 : 0) + (intent ? 1 : 0);
+  if (modeCount > 1) {
+    process.stderr.write(
+      'xlsx-for-ai heal: --diagnose-only, --operation, and --intent are mutually exclusive — pick one.\n',
+    );
     process.exit(2);
   }
-  if (!diagnoseOnly && !operation) {
+  if (modeCount === 0) {
     // Default to diagnose-only — first-touch use of `xlsx-for-ai heal`
     // should show the user what's wrong before they pick a cure.
     diagnoseOnly = true;
   }
+  if (intent !== null && !VALID_INTENTS.has(intent)) {
+    process.stderr.write(
+      `xlsx-for-ai heal: --intent must be one of: ${[...VALID_INTENTS].join(', ')} (got '${intent}')\n`,
+    );
+    process.exit(2);
+  }
+  if (intent === 'migrate' && (!intentFrom || !intentTo)) {
+    process.stderr.write(
+      'xlsx-for-ai heal: --intent migrate requires both --from <prefix> and --to <prefix>\n',
+    );
+    process.exit(2);
+  }
   if (mode !== 'as_copy' && mode !== 'in_place') {
     process.stderr.write(`xlsx-for-ai heal: --mode must be 'as_copy' or 'in_place' (got '${mode}')\n`);
+    process.exit(2);
+  }
+  if (mode === 'in_place' && !confirm && (operation || intent)) {
+    // Server-side intent route enforces confirm for in_place — surface
+    // the same gate client-side so the CLI's error message matches the
+    // intent of the safety check (don't overwrite without confirmation).
+    process.stderr.write(
+      'xlsx-for-ai heal: --mode in_place requires --confirm (explicit overwrite gate)\n',
+    );
     process.exit(2);
   }
   if (format !== 'text' && format !== 'json') {
@@ -316,31 +354,52 @@ async function runHealSubcommand(rest) {
     return 0;
   }
 
-  // ---- cure path ---------------------------------------------------------
-  let cureParams = {};
-  if (paramsJson !== null) {
-    try {
-      cureParams = JSON.parse(paramsJson);
-    } catch (e) {
-      process.stderr.write(`xlsx-for-ai heal: --params is not valid JSON: ${e.message}\n`);
-      process.exit(2);
-    }
-    if (cureParams === null || typeof cureParams !== 'object' || Array.isArray(cureParams)) {
-      process.stderr.write('xlsx-for-ai heal: --params must be a JSON object\n');
-      process.exit(2);
-    }
-  }
-
-  const body = { file_b64: fileB64, operation, cure_params: cureParams, mode };
+  // ---- cure or intent path -----------------------------------------------
   let result;
-  try {
-    result = await callTool('xlsx_healer_cure', body);
-  } catch (err) {
-    // Same sanitization shape as the diagnose path — friendlyCliError
-    // (above) maps known codes to canned messages; raw err.message
-    // only surfaces with XFA_DEBUG=1 for incident triage.
-    process.stderr.write(friendlyCliError(`xlsx-for-ai heal --operation ${operation}`, err) + '\n');
-    process.exit(err.code === 'API_UNREACHABLE' || err.code === 'API_SERVER_ERROR' ? 3 : 1);
+  let healLabel; // for the friendly error prefix
+  if (intent) {
+    // Intent path — server plans + applies. intent_params carries the
+    // optional from/to prefix pair for the migrate intent.
+    const intentParams = {};
+    if (intentFrom) intentParams.from = intentFrom;
+    if (intentTo)   intentParams.to   = intentTo;
+    const body = { file_b64: fileB64, intent, mode };
+    if (Object.keys(intentParams).length > 0) body.intent_params = intentParams;
+    if (mode === 'in_place') body.confirm = true;
+    healLabel = `--intent ${intent}`;
+    try {
+      result = await callTool('xlsx_healer_intent', body);
+    } catch (err) {
+      process.stderr.write(friendlyCliError(`xlsx-for-ai heal ${healLabel}`, err) + '\n');
+      process.exit(err.code === 'API_UNREACHABLE' || err.code === 'API_SERVER_ERROR' ? 3 : 1);
+    }
+  } else {
+    let cureParams = {};
+    if (paramsJson !== null) {
+      try {
+        cureParams = JSON.parse(paramsJson);
+      } catch (e) {
+        process.stderr.write(`xlsx-for-ai heal: --params is not valid JSON: ${e.message}\n`);
+        process.exit(2);
+      }
+      if (cureParams === null || typeof cureParams !== 'object' || Array.isArray(cureParams)) {
+        process.stderr.write('xlsx-for-ai heal: --params must be a JSON object\n');
+        process.exit(2);
+      }
+    }
+
+    const body = { file_b64: fileB64, operation, cure_params: cureParams, mode };
+    if (mode === 'in_place') body.confirm = true;
+    healLabel = `--operation ${operation}`;
+    try {
+      result = await callTool('xlsx_healer_cure', body);
+    } catch (err) {
+      // Same sanitization shape as the diagnose path — friendlyCliError
+      // (above) maps known codes to canned messages; raw err.message
+      // only surfaces with XFA_DEBUG=1 for incident triage.
+      process.stderr.write(friendlyCliError(`xlsx-for-ai heal ${healLabel}`, err) + '\n');
+      process.exit(err.code === 'API_UNREACHABLE' || err.code === 'API_SERVER_ERROR' ? 3 : 1);
+    }
   }
 
   const meta = (result && result._meta) || {};
