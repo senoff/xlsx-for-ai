@@ -1,0 +1,81 @@
+name: deprecate
+
+# Mark a published npm version as deprecated. The XLSX_NPM token already
+# has publish rights, which include deprecate. Fires `npm deprecate
+# xlsx-for-ai@<version> "<message>"` and reports the resulting npm
+# deprecation field for verification.
+#
+# When to use: a published version is broken at runtime (MODULE_NOT_FOUND,
+# crash on startup) and `npm install` should surface a warning + upgrade
+# path on every install/outdated/view. The closest thing npm has to an
+# auto-fix push.
+#
+# Triggered manually via:
+#   gh workflow run deprecate.yml -R senoff/xlsx-for-ai \
+#     -f version=2.25.0 \
+#     -f message="MCP server broken (missing lib/annotations.js); upgrade: npm i -g xlsx-for-ai@latest"
+#
+# Pass an empty message via `-f message=""` to UN-deprecate (clears the
+# deprecation field). Caller-friendly so the workflow doubles as the
+# undo for accidental deprecations.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to deprecate (must already be published, e.g. 2.25.0)."
+        required: true
+        type: string
+      message:
+        description: "Deprecation message shown on install/outdated/view. Pass empty to un-deprecate."
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deprecate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Verify the target version exists on the registry
+        run: |
+          set -euo pipefail
+          if ! npm view "xlsx-for-ai@${{ inputs.version }}" version >/dev/null; then
+            echo "ERROR: xlsx-for-ai@${{ inputs.version }} is not published — refusing to deprecate a non-existent version."
+            exit 1
+          fi
+
+      - name: Run npm deprecate
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.XLSX_NPM }}
+        run: |
+          set -euo pipefail
+          # npm deprecate accepts an empty message to clear the field.
+          npm deprecate "xlsx-for-ai@${{ inputs.version }}" "${{ inputs.message }}"
+
+      - name: Verify deprecation field
+        run: |
+          set -euo pipefail
+          dep=$(npm view "xlsx-for-ai@${{ inputs.version }}" deprecated 2>/dev/null || true)
+          if [ -z "${{ inputs.message }}" ]; then
+            if [ -z "$dep" ]; then
+              echo "OK: deprecation cleared on xlsx-for-ai@${{ inputs.version }}."
+            else
+              echo "WARN: clear requested but registry still shows: $dep"
+              exit 1
+            fi
+          else
+            if [ -z "$dep" ]; then
+              echo "ERROR: deprecation field is empty post-call — propagation failed."
+              exit 1
+            fi
+            echo "OK: xlsx-for-ai@${{ inputs.version }} now deprecated: $dep"
+          fi

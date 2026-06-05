@@ -1,5 +1,7 @@
 # xlsx-for-ai
 
+> **⚠️ MCP users on 2.25.0–2.26.0: upgrade.** Those versions crash the MCP server on startup (missing `lib/annotations.js`, fixed in 2.26.1). Run `npm install -g xlsx-for-ai@latest` and restart your MCP client. Or switch to the `npx -y` config snippets below so future versions self-heal on every restart.
+
 **The missing reliability layer that makes spreadsheet reasoning production-grade for LLMs.**
 
 A thin npm client over a hosted API. Install once, add to your agent config, and your agent gets six production-grade tools for reading, writing, diffing, and redacting `.xlsx` files — engine complexity runs server-side, engine IP stays private.
@@ -7,6 +9,8 @@ A thin npm client over a hosted API. Install once, add to your agent config, and
 ```bash
 npm install -g xlsx-for-ai
 ```
+
+**Or — recommended for MCP use:** the canonical configs below use `npx -y xlsx-for-ai@latest`, which fetches and runs the latest version on every client restart. Self-heals across releases without a manual global re-install when a new version ships.
 
 > **Upgrading from 1.5.x?** This is a re-architecture, not a feature bump: the heavy local engine is gone from the npm package. All rendering happens server-side. The `cursor-reads-xlsx` alias still works. See [Migration](#migration-from-15x) below.
 
@@ -30,7 +34,8 @@ The bundle includes the full npm package and registers all MCP tools automatical
 {
   "mcpServers": {
     "xlsx-for-ai": {
-      "command": "xlsx-for-ai-mcp"
+      "command": "npx",
+      "args": ["-y", "-p", "xlsx-for-ai@latest", "xlsx-for-ai-mcp"]
     }
   }
 }
@@ -46,7 +51,8 @@ Config file: `~/.cursor/mcp.json`
 {
   "mcpServers": {
     "xlsx-for-ai": {
-      "command": "xlsx-for-ai-mcp"
+      "command": "npx",
+      "args": ["-y", "-p", "xlsx-for-ai@latest", "xlsx-for-ai-mcp"]
     }
   }
 }
@@ -63,7 +69,8 @@ Config file: `~/.continue/config.json`
   "mcpServers": [
     {
       "name": "xlsx-for-ai",
-      "command": "xlsx-for-ai-mcp"
+      "command": "npx",
+      "args": ["-y", "-p", "xlsx-for-ai@latest", "xlsx-for-ai-mcp"]
     }
   ]
 }
@@ -79,7 +86,8 @@ Pass `--mcp-server` on the command line, or add to your Codex config:
 {
   "mcpServers": {
     "xlsx-for-ai": {
-      "command": "xlsx-for-ai-mcp"
+      "command": "npx",
+      "args": ["-y", "-p", "xlsx-for-ai@latest", "xlsx-for-ai-mcp"]
     }
   }
 }
@@ -96,8 +104,8 @@ Config file: `~/.config/zed/settings.json`
   "context_servers": {
     "xlsx-for-ai": {
       "command": {
-        "path": "xlsx-for-ai-mcp",
-        "args": []
+        "path": "npx",
+        "args": ["-y", "-p", "xlsx-for-ai@latest", "xlsx-for-ai-mcp"]
       }
     }
   }
@@ -114,7 +122,8 @@ Config file: `~/.codeium/windsurf/mcp_config.json`
 {
   "mcpServers": {
     "xlsx-for-ai": {
-      "command": "xlsx-for-ai-mcp"
+      "command": "npx",
+      "args": ["-y", "-p", "xlsx-for-ai@latest", "xlsx-for-ai-mcp"]
     }
   }
 }
