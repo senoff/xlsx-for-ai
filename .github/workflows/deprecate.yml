@@ -61,21 +61,33 @@ jobs:
           # npm deprecate accepts an empty message to clear the field.
           npm deprecate "xlsx-for-ai@${{ inputs.version }}" "${{ inputs.message }}"
 
-      - name: Verify deprecation field
+      - name: Verify deprecation field (with retry for registry propagation)
         run: |
           set -euo pipefail
-          dep=$(npm view "xlsx-for-ai@${{ inputs.version }}" deprecated 2>/dev/null || true)
-          if [ -z "${{ inputs.message }}" ]; then
-            if [ -z "$dep" ]; then
-              echo "OK: deprecation cleared on xlsx-for-ai@${{ inputs.version }}."
+          # Registry propagation can lag the deprecate call by a few seconds
+          # (observed empirically — first dispatch on 2026-06-05 saw 1/3 runs
+          # verify in <1s and 2/3 still empty at the same timing). Poll with
+          # bounded retries instead of a flat sleep so a slow-but-eventually-
+          # propagated state still passes, and a truly-stuck state fails loud.
+          want="${{ inputs.message }}"
+          for attempt in 1 2 3 4 5 6; do
+            dep=$(npm view "xlsx-for-ai@${{ inputs.version }}" deprecated 2>/dev/null || true)
+            if [ -z "$want" ]; then
+              # Un-deprecate: want field empty.
+              if [ -z "$dep" ]; then
+                echo "OK: deprecation cleared on xlsx-for-ai@${{ inputs.version }}."
+                exit 0
+              fi
             else
-              echo "WARN: clear requested but registry still shows: $dep"
-              exit 1
+              # Deprecate: want field non-empty.
+              if [ -n "$dep" ]; then
+                echo "OK: xlsx-for-ai@${{ inputs.version }} now deprecated: $dep"
+                exit 0
+              fi
             fi
-          else
-            if [ -z "$dep" ]; then
-              echo "ERROR: deprecation field is empty post-call — propagation failed."
-              exit 1
-            fi
-            echo "OK: xlsx-for-ai@${{ inputs.version }} now deprecated: $dep"
-          fi
+            echo "Attempt $attempt: state not yet propagated; sleeping 5s..."
+            sleep 5
+          done
+          echo "ERROR: registry state did not converge after 6 attempts (30s total)."
+          echo "Final 'deprecated' field: '$dep'"
+          exit 1
