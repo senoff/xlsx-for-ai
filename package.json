@@ -1,7 +1,7 @@
 {
   "name": "xlsx-for-ai",
   "mcpName": "io.github.senoff/xlsx-for-ai",
-  "version": "2.26.0",
+  "version": "2.26.1",
   "description": "The MCP server that makes LLMs reliable on real-world Excel spreadsheets. Thin npm client over a hosted API — read, write, diff, redact, and supervise .xlsx files from any MCP-aware agent.",
   "main": "index.js",
   "bin": {
@@ -12,11 +12,12 @@
   "files": [
     "index.js",
     "mcp.js",
+    "lib/annotations.js",
     "lib/client.js",
     "lib/config.js",
-    "lib/register.js",
-    "lib/fallback-read.js",
     "lib/discover.js",
+    "lib/fallback-read.js",
+    "lib/register.js",
     "README.md",
     "SECURITY.md",
     "LICENSE"
@@ -25,6 +26,8 @@
     "test": "node --test test/v2/*.test.js",
     "build-manifests": "node scripts/build-manifests.js",
     "check-manifests": "node scripts/build-manifests.js --check",
+    "check-publish-allowlist": "node scripts/check-publish-allowlist.js",
+    "prepublishOnly": "node scripts/check-publish-allowlist.js && node scripts/build-manifests.js --check",
     "prepare": "husky"
   },
   "keywords": [

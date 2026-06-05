@@ -7,6 +7,35 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 
 ---
 
+## [2.26.1] - 2026-06-05
+
+### Fixed
+
+**`lib/annotations.js` was missing from the published tarball, crashing
+MCP startup with `MODULE_NOT_FOUND`.**
+Broken in 2.25.0 → 2.26.0. Root cause: the file was added to source at
+2.25.0 (Theme MCP-annotation work) and required by `mcp.js`, but the
+`package.json` `files` allowlist was never updated to include it.
+`npm pack` shipped every other `lib/` module but omitted that one.
+Result: Claude Desktop showed "Server disconnected" / failed to load
+`xlsx-for-ai`. Fix: add `lib/annotations.js` to the `files` allowlist
++ ship a prepublish guard that scans `require('./lib/...')` against the
+allowlist and refuses to publish if any required module is missing.
+Last clean published version prior to this fix was 2.23.0.
+
+### Added
+
+**Prepublish allowlist guard — `scripts/check-publish-allowlist.js`.**
+Runs on `prepublishOnly`; scans `mcp.js` + `index.js` for
+`require('./lib/<name>')` and asserts every match appears in the
+`files` allowlist (with .js-suffix normalization). Refuses to publish
+with a clear error when a required module is missing. Kills the whole
+class of bug that produced 2.25.0–2.26.0's MODULE_NOT_FOUND crash. 5
+new tests cover pass / fail / .js-normalization / malformed package.json /
+the live tree.
+
+---
+
 ## [Unreleased] — Healer-deep CLI subcommand (2026-06-03)
 
 ### Added
