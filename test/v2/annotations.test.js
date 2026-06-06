@@ -9,7 +9,7 @@ const { TOOL_ANNOTATIONS, applyAnnotations, sanitizeForMcp } = require('../../li
 // check that follows — so a tool swap (e.g., rename without ann map update)
 // can't pass by keeping the count constant.
 const EXPECTED_TOOL_NAMES = new Set([
-  'xlsx_read', 'xlsx_list_sheets', 'xlsx_schema', 'xlsx_diff',
+  'xlsx_read', 'xlsx_read_handle', 'xlsx_list_sheets', 'xlsx_schema', 'xlsx_diff',
   'xlsx_describe', 'xlsx_filter', 'xlsx_aggregate', 'xlsx_named_ranges',
   'xlsx_sort', 'xlsx_value_counts', 'xlsx_formulas', 'xlsx_tables',
   'xlsx_pivot', 'xlsx_eval', 'xlsx_validate', 'xlsx_data_validations',
@@ -18,8 +18,11 @@ const EXPECTED_TOOL_NAMES = new Set([
   'xlsx_merged_cells', 'xlsx_workbook_views', 'xlsx_print_settings',
   'xlsx_properties', 'xlsx_external_links', 'xlsx_slicers_timelines',
   'xlsx_pivot_tables', 'xlsx_images', 'xlsx_charts', 'xlsx_protection',
-  'xlsx_styles', 'xlsx_verify_stamp',
+  'xlsx_styles', 'xlsx_verify_stamp', 'xlsx_verify_receipt',
+  'xlsx_healer_diagnose', 'xlsx_healer_simulate',
   'xlsx_write', 'xlsx_redact', 'xlsx_convert', 'xlsx_data_clean', 'xlsx_stamp',
+  'xlsx_receipt', 'xlsx_healer_cure', 'xlsx_healer_intent',
+  'xlsx_session_set_validations',
   'xlsx_post_slack', 'xlsx_post_teams',
 ]);
 

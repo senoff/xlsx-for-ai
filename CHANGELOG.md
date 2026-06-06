@@ -7,6 +7,37 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 
 ---
 
+## [3.0.5] - 2026-06-05
+
+Hotfix: client-side `lib/annotations.js` was missing entries for 8 of the
+50 tools — Claude Desktop's permission panel rendered them as bare names
+("Other tools 8 by raw name") instead of titled / bucketed rows.
+
+The 8 are: `xlsx_healer_diagnose`, `xlsx_healer_simulate`,
+`xlsx_healer_cure`, `xlsx_healer_intent`, `xlsx_receipt`,
+`xlsx_verify_receipt`, `xlsx_read_handle`, and
+`xlsx_session_set_validations`. They've existed in the MCP surface for
+some time; the annotation map was never updated alongside.
+
+The server-side annotation theme will eventually be the single source
+of truth (emits annotations on `/api/v1/tools/list`), but the npm
+client's baked map is the floor until that ships and deploys. Bringing
+the floor up to parity here.
+
+### Added
+
+- 8 missing entries in `TOOL_ANNOTATIONS`: 4 read-only (healer_diagnose,
+  healer_simulate, verify_receipt, read_handle), 3 Save-As writes
+  (healer_cure, healer_intent, receipt), 1 stateful-session write
+  (session_set_validations).
+- `test/v2/annotations-completeness.test.js` pins the parity invariant:
+  every tool in the `TOOLS` array must have a matching `TOOL_ANNOTATIONS`
+  entry, and every emitted tool must have `annotations.title` plus a
+  boolean `annotations.readOnlyHint`. The next tool added to TOOLS
+  without an annotation entry fails the test before publish.
+
+---
+
 ## [3.0.3] - 2026-06-05
 
 Hotfix: Claude Desktop silently drops tools whose `description` exceeds
