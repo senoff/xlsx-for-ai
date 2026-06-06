@@ -7,6 +7,52 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 
 ---
 
+## [3.0.3] - 2026-06-05
+
+Hotfix: Claude Desktop silently drops tools whose `description` exceeds
+an undocumented per-tool length cap (~1200 chars in the protocol Bob's
+client speaks today). Bob installed 3.0.2 clean — schemas were correct,
+50/50 tools registered — but the Tool permissions panel showed only 43,
+and the 7 missing tools included flagship surfaces (xlsx_stamp,
+xlsx_receipt, xlsx_doctor, xlsx_data_clean).
+
+The MCP TypeScript SDK has no documented cap on `Tool.description`
+(verified — `z.string().optional()`, no `.max()`), and Anthropic's
+public docs don't surface one either. The ~1200 cliff is a Claude
+Desktop client-side enforcement.
+
+### Fixed
+
+- **20 over-budget descriptions trimmed to ≤1024 chars.** Budget set
+  at 1024 (round binary, 18% safety margin under the observed cliff).
+  7 actively-dropped tools (xlsx_data_clean, xlsx_doctor,
+  xlsx_workbook_views, xlsx_stamp, xlsx_receipt, xlsx_properties,
+  xlsx_pivot_tables) + 13 in the 1024-1200 danger zone (defensive
+  against a future Desktop cap tightening).
+- **Bulk-removed the "xlsx-for-ai — read, write, diff, redact,
+  supervise .xlsx files locally." brand boilerplate** from every tool
+  description. The prefix added ~74 chars × 50 tools = ~3.7 KB of
+  catalog noise without steering the model toward any tool. The
+  load-bearing signal is the USE WHEN / DO NOT USE WHEN clauses + the
+  LOCAL filesystem hint.
+- **Compressed competitive framing** ("No other tool does this", "vs.
+  pandas") from the over-budget tools. The model's tool-selection
+  decision keys off Use-when, not vs-competitor framing.
+
+### Tests
+
+`test/v2/description-length.test.js` pins the 1024-char invariant —
+any TOOLS entry whose description exceeds the budget fails the test,
+with the budget-violator names listed in the failure message. Catches
+regressions before publish.
+
+`test/v2/api.test.js` updated: dropped the obsolete assertion that
+every description must start with `xlsx-for-ai —` (the brand prefix
+was removed). USE WHEN / DO NOT USE / LOCAL filesystem assertions
+preserved as the load-bearing checks.
+
+---
+
 ## [3.0.1] - 2026-06-05
 
 Hotfix release. Two coupled defects in 3.0.0 made `.mcpb` install

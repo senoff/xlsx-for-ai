@@ -354,8 +354,12 @@ test('tools list contains 6 tools, all with brand-rich descriptions including US
     // Grab the next 1200 chars after the name — covers the description field
     // (xlsx_write description grew with the out_path guidance additions)
     const slice = mcpSrc.slice(nameIdx, nameIdx + 1200);
-    // Suite identity: every description must open with "xlsx-for-ai —"
-    assert.ok(slice.includes('xlsx-for-ai —'), `Tool ${name}: description must start with "xlsx-for-ai —"`);
+    // Description shape: the "xlsx-for-ai —" brand boilerplate was removed
+    // in 3.0.3 to fit under Claude Desktop's per-tool description-length cap
+    // (see test/v2/description-length.test.js and SPM 2026-06-05
+    // desktop-drops-7-tools-description-length-cap). The load-bearing
+    // assertions are the USE WHEN / DO NOT USE clauses and the LOCAL
+    // filesystem hint — those steer the model toward the right tool.
     assert.ok(slice.includes('USE WHEN'), `Tool ${name}: description must include USE WHEN clause`);
     assert.ok(slice.includes('LOCAL') || slice.includes('local'), `Tool ${name}: description must mention LOCAL filesystem`);
     assert.ok(slice.includes('DO NOT USE'), `Tool ${name}: description must include DO NOT USE clause`);

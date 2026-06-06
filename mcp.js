@@ -30,8 +30,7 @@ const TOOLS = [
   {
     name: 'xlsx_read',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: read an .xlsx file from the LOCAL filesystem and return a rendered markdown/JSON/SQL representation.\n' +
+      'read an .xlsx file from the LOCAL filesystem and return a rendered markdown/JSON/SQL representation.\n' +
       'DEFAULT returns ALL sheets in one response — do not re-call per-sheet. Pass sheet="<name>" only when you specifically need to filter.\n' +
       'Pass format="md" (default — markdown table), "json" (structured rows), or "sql" (CREATE TABLE + INSERTs).\n' +
       'Synonyms accepted: "markdown" maps to "md", "text" maps to "md". Use the short forms to avoid guessing.\n\n' +
@@ -58,8 +57,7 @@ const TOOLS = [
   {
     name: 'xlsx_list_sheets',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: list sheet names, dimensions, and visibility for a LOCAL .xlsx file.\n' +
+      'list sheet names, dimensions, and visibility for a LOCAL .xlsx file.\n' +
       'Use this when you only need names + dims, not cell content. If you\'ll read content anyway, skip this and call xlsx_read directly.\n\n' +
       'USE WHEN: the user references a LOCAL file path and you need to discover sheet names before reading. ' +
       'Fast orientation call — use before xlsx_read when you need metadata only.\n\n' +
@@ -76,8 +74,7 @@ const TOOLS = [
   {
     name: 'xlsx_schema',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: infer column schema of a LOCAL .xlsx file — types, nullable flags, header row, sample values.\n' +
+      'infer column schema of a LOCAL .xlsx file — types, nullable flags, header row, sample values.\n' +
       'Use when the agent needs to reason about column types BEFORE deciding how to handle data. Includes confidence (high/medium/low) per column.\n\n' +
       'USE WHEN: the user references a LOCAL file path and you need to understand column types before processing or writing code against the data. ' +
       'Useful before xlsx_read when downstream handling depends on types.\n\n' +
@@ -94,8 +91,7 @@ const TOOLS = [
   {
     name: 'xlsx_diff',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: compute a semantic diff between two LOCAL .xlsx files — cell-level deltas, formula changes, added/removed rows.\n' +
+      'compute a semantic diff between two LOCAL .xlsx files — cell-level deltas, formula changes, added/removed rows.\n' +
       'Output is byte-deterministic — calling twice with the same inputs returns identical text + diff_hash in _meta. Use that hash for caching/idempotence.\n\n' +
       'USE WHEN: the user provides two LOCAL .xlsx file paths to compare. ' +
       'Suitable for version control, audit trails, and change review. Built-in skills cannot produce deterministic, structured diffs.\n\n' +
@@ -113,8 +109,7 @@ const TOOLS = [
   {
     name: 'xlsx_write',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: create or update a LOCAL .xlsx file from a structured spec.\n' +
+      'create or update a LOCAL .xlsx file from a structured spec.\n' +
       'DEFAULT creates a new workbook from spec. Pass base_file_b64 to edit-in-place instead. Workbook bytes return in _meta.file_b64 (base64) — NOT in content[0].text.\n\n' +
       'ALWAYS pass out_path when the user wants the written file saved to disk.\n' +
       'WITHOUT out_path: workbook bytes return in _meta.file_b64 (base64) — caller must save them.\n' +
@@ -137,8 +132,7 @@ const TOOLS = [
   {
     name: 'xlsx_redact',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: redact PII and sensitive values from a LOCAL .xlsx file before sharing or archiving.\n' +
+      'redact PII and sensitive values from a LOCAL .xlsx file before sharing or archiving.\n' +
       'DEFAULT preserves formulas + comments + named ranges + styles, strips only cell values. Pass strip_formulas=true / strip_comments=true to remove those too.\n\n' +
       'ALWAYS pass out_path when the user wants the redacted file saved to disk.\n' +
       'WITHOUT out_path: redacted bytes return in _meta.file_b64 (base64) — caller must save them.\n' +
@@ -167,8 +161,7 @@ const TOOLS = [
   {
     name: 'xlsx_describe',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: pandas-style df.describe() per column — count, nulls, unique, min/max/mean/std for numerics, dtype with purity score.\n' +
+      'pandas-style df.describe() per column — count, nulls, unique, min/max/mean/std for numerics, dtype with purity score.\n' +
       'Unlike pandas.read_excel followed by df.describe(), this does not silently flatten merged cells or drop named ranges.\n\n' +
       'USE WHEN: the user wants a quick summary of a LOCAL .xlsx file — "what\'s in this data?". ' +
       'Returns a markdown table with one row per column. Faster + more structured than dumping full contents through xlsx_read.\n\n' +
@@ -188,8 +181,7 @@ const TOOLS = [
   {
     name: 'xlsx_filter',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: pandas-style row filter on a LOCAL .xlsx file with predicates AND-combined: eq/ne/gt/gte/lt/lte/contains/in/is_null/not_null.\n' +
+      'pandas-style row filter on a LOCAL .xlsx file with predicates AND-combined: eq/ne/gt/gte/lt/lte/contains/in/is_null/not_null.\n' +
       'Operates on real cell values — formulas evaluated server-side, not the cached results that pandas trusts blindly.\n\n' +
       'USE WHEN: the user asks for "rows where X" / "show me only Y" against a LOCAL .xlsx file. ' +
       'Returns matching rows as a markdown table, capped at 1000 rows by default with the actual match count.\n\n' +
@@ -223,8 +215,7 @@ const TOOLS = [
   {
     name: 'xlsx_aggregate',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: pandas-style df.groupby([cols]).agg({col: func}) on a LOCAL .xlsx file. funcs: sum / mean / min / max / count / count_distinct.\n' +
+      'pandas-style df.groupby([cols]).agg({col: func}) on a LOCAL .xlsx file. funcs: sum / mean / min / max / count / count_distinct.\n' +
       'Type-aware: numeric aggregations skip non-numeric values cleanly instead of pandas\' silent NaN promotion.\n\n' +
       'USE WHEN: the user asks "what\'s the total / average / count of X by Y?" on a LOCAL .xlsx file. ' +
       'Returns one row per group with the requested aggregations as a markdown table.\n\n' +
@@ -260,8 +251,7 @@ const TOOLS = [
   {
     name: 'xlsx_named_ranges',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: list all defined names (named ranges) in a LOCAL .xlsx workbook — name, scope (workbook or sheet), kind (cell / range / formula), reference.\n' +
+      'list all defined names (named ranges) in a LOCAL .xlsx workbook — name, scope (workbook or sheet), kind (cell / range / formula), reference.\n' +
       'pandas.read_excel collapses named ranges into anonymous ranges; this tool surfaces them so the agent can reason about formulas like =NPV(DiscountRate, Cashflows) before reading data.\n\n' +
       'USE WHEN: the agent is reasoning about a financial / engineering model and needs to know what cells named-range references resolve to. ' +
       'Call before xlsx_read to orient.\n\n' +
@@ -278,8 +268,7 @@ const TOOLS = [
   {
     name: 'xlsx_sort',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: pandas-style df.sort_values() on a LOCAL .xlsx file with multi-column sort and per-column direction (asc/desc, default asc).\n' +
+      'pandas-style df.sort_values() on a LOCAL .xlsx file with multi-column sort and per-column direction (asc/desc, default asc).\n' +
       'Stable across all sort keys; type-aware comparison; nulls always sort last.\n\n' +
       'USE WHEN: the user wants rows ordered by one or more columns. Returns the sorted rows as a markdown table.\n\n' +
       'DO NOT USE WHEN: the data is already sorted as desired (use xlsx_read). Or for upload/attached files.',
@@ -311,8 +300,7 @@ const TOOLS = [
   {
     name: 'xlsx_value_counts',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: pandas-style Series.value_counts() on one column of a LOCAL .xlsx file — count each unique value, sorted by frequency desc, with percentage.\n' +
+      'pandas-style Series.value_counts() on one column of a LOCAL .xlsx file — count each unique value, sorted by frequency desc, with percentage.\n' +
       'Excludes nulls by default; pass include_nulls=true to count them.\n\n' +
       'USE WHEN: the user asks "what\'s the distribution of X?" / "how often does each value appear?". Returns a markdown table.\n\n' +
       'DO NOT USE WHEN: the user wants groupby + multi-column aggregations (use xlsx_aggregate). Or for upload/attached files.',
@@ -333,8 +321,7 @@ const TOOLS = [
   {
     name: 'xlsx_formulas',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: extract every formula in a LOCAL .xlsx workbook — cell coord (A1), formula text, cached result. openpyxl-style read-only metadata.\n' +
+      'extract every formula in a LOCAL .xlsx workbook — cell coord (A1), formula text, cached result. openpyxl-style read-only metadata.\n' +
       'Distinct from xlsx_read which returns evaluated values; this returns the formulas themselves so an agent can audit, transform, or rewrite them.\n\n' +
       'USE WHEN: the user wants to see what formulas a workbook uses — spot-checking a model, auditing references, debugging unexpected results. ' +
       'pandas cannot extract formulas; this is the only way for an agent to see them.\n\n' +
@@ -354,8 +341,7 @@ const TOOLS = [
   {
     name: 'xlsx_tables',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: list every Excel ListObject ("Format as Table" structures) in a LOCAL .xlsx workbook — name, sheet, range, header/totals flags, columns.\n' +
+      'list every Excel ListObject ("Format as Table" structures) in a LOCAL .xlsx workbook — name, sheet, range, header/totals flags, columns.\n' +
       'pandas cannot see ListObjects; if a workbook uses Excel Tables, this is the only way to enumerate them.\n\n' +
       'USE WHEN: the user references a "table" in a workbook by name, or you need to know what structured tables exist before reading. ' +
       'Useful for workbooks with multiple tables on one sheet.\n\n' +
@@ -374,8 +360,7 @@ const TOOLS = [
   {
     name: 'xlsx_pivot',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: pandas-style pivot_table() on a LOCAL .xlsx file — reshape a flat table into a 2D matrix where rows are unique values of `index`, columns are unique values of `columns`, and cells are an aggregation of `values`.\n' +
+      'pandas-style pivot_table() on a LOCAL .xlsx file — reshape a flat table into a 2D matrix where rows are unique values of `index`, columns are unique values of `columns`, and cells are an aggregation of `values`.\n' +
       'agg modes: sum / mean / min / max / count / count_distinct. Optional fill_value for missing index×column combinations.\n\n' +
       'USE WHEN: the user wants a cross-tab — "X by Y", "rows by columns" — that needs more than groupby. Returns a markdown table.\n\n' +
       'DO NOT USE WHEN: there\'s only one grouping dimension (use xlsx_aggregate). Or for upload/attached files.',
@@ -398,8 +383,7 @@ const TOOLS = [
   {
     name: 'xlsx_eval',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: evaluate Excel formulas against a LOCAL .xlsx file via HyperFormula. xlwings-style.\n' +
+      'evaluate Excel formulas against a LOCAL .xlsx file via HyperFormula. xlwings-style.\n' +
       'Two modes: pass `formulas` (array of "=SUM(A1:A10)" expressions to compute against the workbook) or `cells` (array of "Sheet1!A1" cell refs to fresh-evaluate). Replaces pandas\' "trust the cached value" behavior with a real eval — if the cache is stale or missing, this still produces the right answer.\n\n' +
       'USE WHEN: the user wants the live computed value of a formula, not the cached one. Or when a workbook has formulas that depend on external data the cache might be stale on. ' +
       'Engine omits INDIRECT/HYPERLINK/WEBSERVICE/RTD/DDE by design — no I/O risk.\n\n' +
@@ -427,8 +411,7 @@ const TOOLS = [
   {
     name: 'xlsx_convert',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: universal spreadsheet format converter. Reads ANY of 25+ input formats (xlsx, xlsb, xlsm, xls, ods, fods, numbers, csv, tsv, dbf, lotus 1-2-3, quattro pro, sylk, dif, html, rtf, etc.) and emits ANY supported output format (xlsx, csv, json, md, html, etc.).\n' +
+      'universal spreadsheet format converter. Reads ANY of 25+ input formats (xlsx, xlsb, xlsm, xls, ods, fods, numbers, csv, tsv, dbf, lotus 1-2-3, quattro pro, sylk, dif, html, rtf, etc.) and emits ANY supported output format (xlsx, csv, json, md, html, etc.).\n' +
       'No other tool in the MCP space ingests legacy formats — pandas.read_excel only reads xlsx/xls; openpyxl is xlsx-only. xlsx_convert is the only "any-spreadsheet → LLM-readable" hosted endpoint.\n\n' +
       'USE WHEN: the user has a .xls / .xlsb / .ods / Numbers / .csv / Lotus / Quattro / dBASE file they want to read or convert. ' +
       'Output to text formats (csv/json/md/html) renders into the response body for the agent to read directly. Output to binary formats (xlsx/xlsb/etc.) returns bytes in `_meta.file_b64` for the npm client to save.\n\n' +
@@ -457,12 +440,10 @@ const TOOLS = [
   {
     name: 'xlsx_data_clean',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: AI-native data cleaning. Scans a workbook for the seven most common data-grime issues — NA variants (N/A, NA, null, -), merged-cell residue, type-coercion mistakes (numeric-as-text / date-as-serial / leading-zero stripped), trailing-row noise (footers / totals), header-row-not-first (preamble before headers), encoding glitches (UTF-8-as-CP1252 mojibake like CafÃ©), and duplicate column headers — and either flags them (diagnose mode) or applies deterministic fixes (execute mode).\n' +
-      'No other tool gives this in a single call: pandas does ad-hoc fixes inline; openpyxl is structure-only; pre-existing Python "clean" libraries are domain-specific. xlsx_data_clean is the only single-call clean pipeline with an explicit informer-not-enforcer contract: every fix surfaces as a Finding the caller can accept / reject / scope-override before the file is mutated.\n\n' +
-      'USE WHEN: an upstream pipeline produced an xlsx that\'s about to feed an LLM or downstream analysis and you want a one-pass scrub. Or you just got a "messy" export (financial reports with merged title banners, CRM exports with stripped zip codes, survey data with NA-variant noise) and need it normalized before reading. ' +
-      'Free tier — counts against the 10k/mo cap.\n\n' +
-      'DO NOT USE WHEN: domain-specific transforms are needed (use a dedicated pipeline; this tool is general-purpose). Or for structural integrity checks (use xlsx_doctor). Or for upload/attached files.',
+      'AI-native data cleaning for a LOCAL .xlsx file. Scans for the seven most common data-grime issues — NA variants (N/A, NA, null, -), merged-cell residue, type-coercion mistakes (numeric-as-text / date-as-serial / leading-zero stripped), trailing-row noise (footers / totals), header-row-not-first (preamble before headers), encoding glitches (UTF-8-as-CP1252 mojibake), and duplicate column headers — and either flags them (diagnose mode) or applies deterministic fixes (execute mode).\n\n' +
+      'Informer-not-enforcer: every fix surfaces as a Finding the caller can accept / reject / scope-override before the file is mutated.\n\n' +
+      'USE WHEN: an upstream pipeline produced a messy xlsx that\'s about to feed an LLM or downstream analysis and you want a one-pass scrub.\n\n' +
+      'DO NOT USE WHEN: domain-specific transforms are needed (use a dedicated pipeline). Or for structural integrity checks (use xlsx_doctor). Or for upload/attached files.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -519,8 +500,7 @@ const TOOLS = [
   {
     name: 'xlsx_validate',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: cross-engine consistency check on a LOCAL .xlsx file — runs the workbook through TWO independent renderers (@protobi/exceljs and @cj-tech-master/excelts) and reports cell-level divergences.\n' +
+      'cross-engine consistency check on a LOCAL .xlsx file — runs the workbook through TWO independent renderers (@protobi/exceljs and @cj-tech-master/excelts) and reports cell-level divergences.\n' +
       'No other tool can do this: pandas trusts cached values, openpyxl is single-engine, and Excel-itself disagrees with everything else on edge cases like LAMBDA, dynamic arrays, and timezone handling. xlsx_validate is the only way to know whether two engines agree on what your workbook says.\n\n' +
       'USE WHEN: the user is about to send the workbook downstream for analysis or as an authoritative source — pre-flight check. Or for audit / regression testing across engine versions. ' +
       'PAID — Bronze / Silver / Gold tier required.\n\n' +
@@ -537,8 +517,7 @@ const TOOLS = [
   {
     name: 'xlsx_data_validations',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: list every cell-level data validation rule (dropdowns, numeric/date bounds, text-length caps, custom formulas) defined in a workbook — the constraints that Excel enforces when a human types into the cell.\n' +
+      'list every cell-level data validation rule (dropdowns, numeric/date bounds, text-length caps, custom formulas) defined in a workbook — the constraints that Excel enforces when a human types into the cell.\n' +
       'No other tool can do this: pandas drops validations entirely on read; openpyxl exposes them but only on a per-cell loop; this surfaces them in one shot with target cells, formulae, error messages, and prompt text.\n\n' +
       'USE WHEN: auditing a form / data-entry workbook to know what inputs are legal. Or extracting a dropdown list for use elsewhere. Or generating fixtures that match the validation contract. ' +
       'Free tier — counts against the 10k/mo cap.\n\n' +
@@ -556,8 +535,7 @@ const TOOLS = [
   {
     name: 'xlsx_hyperlinks',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: list every hyperlink in a workbook with its anchor cell, target URL/anchor, display text, tooltip, and a kind classifier (external / internal / mailto / unknown).\n' +
+      'list every hyperlink in a workbook with its anchor cell, target URL/anchor, display text, tooltip, and a kind classifier (external / internal / mailto / unknown).\n' +
       'No other tool can do this: pandas drops hyperlinks on read entirely; openpyxl gives raw access but does not classify or aggregate; this surfaces all links plus a per-kind tally for instant audit.\n\n' +
       'USE WHEN: security-auditing a workbook before opening it (what URLs does it point at?). Or extracting a reference list of URLs from a financial model / dashboard. Or finding mailto links for a contact-list workbook. ' +
       'Free tier — counts against the 10k/mo cap.\n\n' +
@@ -575,8 +553,7 @@ const TOOLS = [
   {
     name: 'xlsx_topology',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: one-call workbook orientation. Returns sheets × dimensions × formulas × named ranges × tables × validations × hyperlinks × merges in one shot, plus feature flags (macros / external refs / pivots / LAMBDA / dynamic arrays).\n' +
+      'one-call workbook orientation. Returns sheets × dimensions × formulas × named ranges × tables × validations × hyperlinks × merges in one shot, plus feature flags (macros / external refs / pivots / LAMBDA / dynamic arrays).\n' +
       'No other tool can do this: pandas gives you a frame per sheet but no structure; openpyxl makes you fan out across 6+ object trees to learn the same thing; this is the "what is in this workbook?" call you make first to decide which other tool to call next.\n\n' +
       'USE WHEN: an agent has just been handed a workbook and needs to orient before drilling in. Or surveying many workbooks for triage / index. Or auditing whether a workbook is "interesting" (formulas? macros? external refs?). ' +
       'Free tier — counts against the 10k/mo cap.\n\n' +
@@ -593,8 +570,7 @@ const TOOLS = [
   {
     name: 'xlsx_conditional_formats',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: list every conditional formatting rule in a workbook — color scales, data bars, icon sets, formula-based highlights, top-N, duplicate / unique values, contains-text, time-period, above-average. Per rule: range, type, operator, formulae, priority, stopIfTrue.\n' +
+      'list every conditional formatting rule in a workbook — color scales, data bars, icon sets, formula-based highlights, top-N, duplicate / unique values, contains-text, time-period, above-average. Per rule: range, type, operator, formulae, priority, stopIfTrue.\n' +
       'No other tool can do this: pandas drops conditional formatting on read entirely; openpyxl exposes the raw CF objects but offers no rollup or classification. This surfaces every rule plus a per-type tally so an agent can answer "does this workbook use color scales?" without scanning every row.\n\n' +
       'USE WHEN: auditing a dashboard / financial model to know what visual cues a human would see. Or extracting business rules embedded as CF (e.g. "row turns red when col C > 1000" — the rule IS the spec). Or generating fixtures that match a workbook\'s CF semantics. ' +
       'Free tier — counts against the 10k/mo cap.\n\n' +
@@ -612,8 +588,7 @@ const TOOLS = [
   {
     name: 'xlsx_comments',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: list every cell comment in a workbook — both legacy notes (yellow stickies, cell.note) AND modern threaded comments (multi-author conversations stored separately in the OOXML zip). Per entry: kind, sheet, cell, author, text, plus any reply thread.\n' +
+      'list every cell comment in a workbook — both legacy notes (yellow stickies, cell.note) AND modern threaded comments (multi-author conversations stored separately in the OOXML zip). Per entry: kind, sheet, cell, author, text, plus any reply thread.\n' +
       'No other tool can do this: pandas drops both comment systems on read entirely; openpyxl reads only legacy notes (not threaded comments). xlsx_comments reads both, maps personId → display name via xl/persons/person.xml, and folds reply chains into each root comment.\n\n' +
       'USE WHEN: extracting reviewer feedback / approval threads from a spreadsheet (this is where humans hide intent). Or auditing a workbook for hidden context the values themselves don\'t carry. Or building a "show me everywhere finance flagged something" report. ' +
       'Free tier — counts against the 10k/mo cap.\n\n' +
@@ -631,12 +606,10 @@ const TOOLS = [
   {
     name: 'xlsx_doctor',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: ONE-CALL workbook health report. Scans for macros, external workbook references, hidden / veryHidden sheets, missing creator metadata, large embedded images, and surfaces interesting feature flags (LAMBDA, dynamic arrays, pivot cache, slicers, threaded comments). Findings ranked HIGH / MEDIUM / LOW. Plus quick_facts: sheet count, formulas, named ranges, merges, hyperlinks, validations, images, file size.\n' +
-      'No other tool does this aggregate triage in a single call. The "check this workbook" call agents should make BEFORE any other tool — single round trip, exhaustive, ranked output an LLM can read at a glance and decide what to do next (e.g. "macros detected, run xlsx_macros for details, then warn the user").\n\n' +
-      'USE WHEN: an agent has been handed an unknown workbook and needs to triage it before drilling in. Or pre-flighting a file that\'s about to be shared (catches "I\'m about to email this and didn\'t notice the macros" mistakes). Or building a file-quality dashboard across many workbooks. ' +
-      'Free tier — counts against the 10k/mo cap.\n\n' +
-      'DO NOT USE WHEN: you already know what you\'re looking for (use the focused tool instead — xlsx_macros, xlsx_external_links, etc.). Or you only need data values (use xlsx_read).',
+      'ONE-CALL workbook health report for a LOCAL .xlsx file. Scans for macros, external workbook references, hidden / veryHidden sheets, missing creator metadata, large embedded images, and surfaces interesting feature flags (LAMBDA, dynamic arrays, pivot cache, slicers, threaded comments). Findings ranked HIGH / MEDIUM / LOW. Plus quick_facts: sheet count, formulas, named ranges, merges, hyperlinks, validations, images, file size.\n\n' +
+      'The "check this workbook" call agents should make BEFORE any other tool — single round trip, ranked output an LLM can read at a glance.\n\n' +
+      'USE WHEN: an agent has been handed an unknown workbook and needs to triage it before drilling in. Or pre-flighting a file before sharing.\n\n' +
+      'DO NOT USE WHEN: you already know what you\'re looking for (use the focused tool — xlsx_macros, xlsx_external_links, etc.). Or you only need data values (use xlsx_read).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -649,8 +622,7 @@ const TOOLS = [
   {
     name: 'xlsx_form_controls',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: list every form control (Check Box, Button, Drop-down, List Box, Option Button, Scroll Bar, Spinner, Label, Group Box) in a workbook with the linked cell, current value, dropdown source range, and min/max/step bounds where applicable.\n' +
+      'list every form control (Check Box, Button, Drop-down, List Box, Option Button, Scroll Bar, Spinner, Label, Group Box) in a workbook with the linked cell, current value, dropdown source range, and min/max/step bounds where applicable.\n' +
       'No other tool gives this in a single call: ExcelJS doesn\'t expose form controls; pandas drops them entirely; openpyxl support is partial. xlsx_form_controls reads xl/ctrlProps/ctrlProp*.xml directly + maps to sheets via the rel chain.\n\n' +
       'USE WHEN: documenting a survey workbook, scoring rubric, dashboard, or forms-as-spreadsheets template where the interactive UI carries semantic meaning. Or auditing a workbook to find which cells human users can change via a control vs. by direct typing. ' +
       'Free tier — counts against the 10k/mo cap.\n\n' +
@@ -668,12 +640,9 @@ const TOOLS = [
   {
     name: 'xlsx_macros',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: inspect xlsm / xlsb workbooks for VBA macro presence, vbaProject.bin size, and likely module names (ThisWorkbook / Sheet<N> / Module<N> / Class<N> / UserForm<N> via heuristic UTF-16LE scan). Returns short safety advice for the LLM to relay to the user.\n' +
-      'No other tool gives this in a single call: pandas drops macros entirely; openpyxl exposes the raw vbaProject.bin bytes but no usable inspection. xlsx_macros gives the security-audit metadata an agent (or human) needs to decide "should I trust this file?" before opening.\n\n' +
-      'By DELIBERATE POLICY this tool does NOT extract or execute macro source code. Surfaces presence + module name candidates only.\n\n' +
-      'USE WHEN: receiving a macro-enabled workbook from an unknown sender and you want to know what to expect before opening. Or auditing a workbook population for "do any of these contain macros?" without sampling each. ' +
-      'Free tier — counts against the 10k/mo cap.\n\n' +
+      'Inspect xlsm / xlsb workbooks for VBA macro presence, vbaProject.bin size, and likely module names (ThisWorkbook / Sheet<N> / Module<N> / Class<N> / UserForm<N> via heuristic UTF-16LE scan). Returns short safety advice the LLM should relay to the user.\n\n' +
+      'By DELIBERATE POLICY this tool does NOT extract or execute macro source code. Surfaces presence + module-name candidates only — security-audit metadata for "should I trust this file?" decisions.\n\n' +
+      'USE WHEN: receiving a macro-enabled workbook from an unknown sender and you want to know what to expect before opening. Or auditing many workbooks for "do any of these contain macros?" without sampling each.\n\n' +
       'DO NOT USE WHEN: you need to actually inspect / debug VBA source — open the file in Excel (Alt+F11) on a trusted machine.',
     inputSchema: {
       type: 'object',
@@ -687,8 +656,7 @@ const TOOLS = [
   {
     name: 'xlsx_merged_cells',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: list every merged-cell region with master-cell value, range, span dimensions, and kind heuristic ("header" / "horizontal" / "vertical" / "block"). Pandas reads merged cells by dropping the relationship — it sees one value in the master cell and three blanks alongside. xlsx_merged_cells is the layout-aware view: "A1:D1 is ONE cell that says Q4 2024" rather than four cells where three are mysteriously empty.\n' +
+      'list every merged-cell region with master-cell value, range, span dimensions, and kind heuristic ("header" / "horizontal" / "vertical" / "block"). Pandas reads merged cells by dropping the relationship — it sees one value in the master cell and three blanks alongside. xlsx_merged_cells is the layout-aware view: "A1:D1 is ONE cell that says Q4 2024" rather than four cells where three are mysteriously empty.\n' +
       'No other tool surfaces merges with master values rolled in: pandas drops merge metadata; openpyxl exposes ranges but not the master value alongside.\n\n' +
       'USE WHEN: parsing report templates, dashboards, or form workbooks where merges encode visual hierarchy (section titles, sub-headers, banner rows). Or auditing a workbook for accidental merges that distort downstream pandas reads. ' +
       'Free tier — counts against the 10k/mo cap.\n\n' +
@@ -706,11 +674,9 @@ const TOOLS = [
   {
     name: 'xlsx_workbook_views',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: surface the UI state of a workbook — what a human sees when they open the file in Excel. Per sheet: visibility (visible / hidden / veryHidden), view state (normal / frozen / split / pageBreakPreview / pageLayout), zoom level, active cell + selection range, frozen pane breakdown (rows/cols frozen + top-left of scroll area), gridlines / row-col headers / ruler / RTL flags, tab color. Workbook level: which sheet is the active tab when Excel opens.\n' +
-      'No other tool surfaces this: pandas drops every bit of UI state; openpyxl exposes view objects but in deeply nested form. xlsx_workbook_views is the "when the user opens this file, what do they see?" rollup an LLM needs to reason about continuity (resume editing where they left off, notice a hidden sheet exists, etc.).\n\n' +
-      'USE WHEN: an agent has been handed a workbook mid-workflow and needs to know "where was the user last working?" (active cell, active tab, zoom). Or auditing for hidden / veryHidden sheets that often hide sensitive data. Or extracting frozen-pane configuration to recreate the same UX in a generated workbook. ' +
-      'Free tier — counts against the 10k/mo cap.\n\n' +
+      'Surface the UI state of a LOCAL .xlsx file — what a human sees when they open it in Excel. Per sheet: visibility (visible / hidden / veryHidden), view state, zoom, active cell + selection, frozen-pane breakdown, gridlines / row-col headers / ruler / RTL flags, tab color. Workbook level: which sheet is active when Excel opens.\n\n' +
+      'The "when the user opens this file, what do they see?" rollup — useful when an agent needs to reason about UI continuity (resume editing, notice a hidden sheet, replicate frozen panes in a generated workbook).\n\n' +
+      'USE WHEN: handed a workbook mid-workflow and need "where was the user last working?" (active cell, tab, zoom). Or auditing for hidden / veryHidden sheets that often conceal sensitive data.\n\n' +
       'DO NOT USE WHEN: just reading values (use xlsx_read).',
     inputSchema: {
       type: 'object',
@@ -725,8 +691,7 @@ const TOOLS = [
   {
     name: 'xlsx_print_settings',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: surface "what would Excel print right now" per worksheet — print area, orientation, paper size (A4 / Letter / Legal / Tabloid / etc.), scale or fitToPage, margins, headers/footers split into Excel\'s L/C/R zones, print titles (rows / columns repeated on every page), manual page breaks, plus B&W / draft / centered flags.\n' +
+      'surface "what would Excel print right now" per worksheet — print area, orientation, paper size (A4 / Letter / Legal / Tabloid / etc.), scale or fitToPage, margins, headers/footers split into Excel\'s L/C/R zones, print titles (rows / columns repeated on every page), manual page breaks, plus B&W / draft / centered flags.\n' +
       'No other tool can do this rolled-up: pandas drops every bit of print configuration; openpyxl exposes it but in nested object form. xlsx_print_settings is the "if a human hits Cmd+P, what comes out?" answer.\n\n' +
       'USE WHEN: about to PDF / print a workbook and want to know what it\'ll look like before doing it. Or auditing a financial / regulatory report\'s print configuration (legal sometimes cares about page-1 headers). Or extracting the print-titles row a complex workbook uses for repeating headers. ' +
       'Free tier — counts against the 10k/mo cap.\n\n' +
@@ -744,12 +709,10 @@ const TOOLS = [
   {
     name: 'xlsx_properties',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: surface the workbook\'s identity card. Core: creator, last_modified_by, created/modified/lastPrinted timestamps, title, subject, company, manager, keywords, category, description. Application: app name, app version, doc security label, hyperlink base. Custom: every user-defined Info > Properties entry (Department, ReviewedBy, ApprovalRequired, etc.) with type tag and value.\n' +
-      'No other tool gives you this rolled up: pandas drops document properties entirely; openpyxl exposes core props but in nested object form unsuitable for LLM consumption. Reads docProps/core.xml, docProps/app.xml, and docProps/custom.xml directly.\n\n' +
-      'USE WHEN: auditing a workbook for attribution ("who built this and when?"). Or stripping sensitive metadata before sharing externally (creator names, internal company names, manager email). Or extracting custom finance/legal flags ("ReviewedBy", "ApprovalRequired") that workflows pin to the file. ' +
-      'Free tier — counts against the 10k/mo cap.\n\n' +
-      'DO NOT USE WHEN: just reading values (use xlsx_read). Or trying to MODIFY metadata (use xlsx_redact for sensitive-field stripping; xlsx_write does not write doc props).',
+      'Surface the workbook\'s identity card from a LOCAL .xlsx file. Core: creator, last_modified_by, created/modified/lastPrinted timestamps, title, subject, company, manager, keywords, category, description. Application: app name + version, doc security label, hyperlink base. Custom: every user-defined Info > Properties entry (Department, ReviewedBy, ApprovalRequired, etc.) with type tag and value.\n\n' +
+      'Reads docProps/core.xml, docProps/app.xml, and docProps/custom.xml directly — a surface pandas drops entirely.\n\n' +
+      'USE WHEN: auditing a workbook for attribution ("who built this and when?"). Or stripping sensitive metadata before sharing externally. Or extracting custom finance/legal flags ("ReviewedBy", "ApprovalRequired") that workflows pin to the file.\n\n' +
+      'DO NOT USE WHEN: just reading values (use xlsx_read). Or trying to MODIFY metadata (use xlsx_redact for sensitive-field stripping).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -762,8 +725,7 @@ const TOOLS = [
   {
     name: 'xlsx_external_links',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: list every external workbook reference this file depends on — `=[Budget.xlsx]Sheet1!A1` style formulas. Per link: target path (decoded), classification (http / network share / absolute / relative), sheets pulled from the external workbook, count of cached cell values, and defined-name references.\n' +
+      'list every external workbook reference this file depends on — `=[Budget.xlsx]Sheet1!A1` style formulas. Per link: target path (decoded), classification (http / network share / absolute / relative), sheets pulled from the external workbook, count of cached cell values, and defined-name references.\n' +
       'No other tool can do this consistently: pandas, openpyxl, and ExcelJS all surface external links partially or inconsistently. xlsx_external_links reads xl/externalLinks/*.xml directly and warns when targets are absolute paths or network shares — those break the moment the workbook moves elsewhere.\n\n' +
       'USE WHEN: about to send a workbook somewhere and want to know if its formulas will break (broken external refs are a top-3 silent corruption mode in finance workflows). Or auditing for accidentally-leaked file paths to internal network shares. Or doing dependency analysis on a model. ' +
       'Free tier — counts against the 10k/mo cap.\n\n' +
@@ -780,11 +742,9 @@ const TOOLS = [
   {
     name: 'xlsx_slicers_timelines',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: list every slicer (interactive filter button) and timeline (date-range filter visual) in a workbook with their captions, source bindings (table column or pivot table), and timeline granularity (years / quarters / months / days) plus the currently-selected date range.\n' +
-      'No other tool can do this: ExcelJS has NO API for slicers or timelines and silently drops both on every round-trip; pandas drops them entirely; openpyxl support is partial. xlsx_slicers_timelines reads the OOXML zip (xl/slicers/*, xl/slicerCaches/*, xl/timelines/*, xl/timelineCaches/*) directly.\n\n' +
-      'USE WHEN: documenting a dashboard so an LLM knows what filter UI a human sees. Or auditing whether a slicer\'s table-column binding still matches the underlying data after a refactor. Or extracting the date range a timeline currently filters on without screenshotting Excel. ' +
-      'Free tier — counts against the 10k/mo cap.\n\n' +
+      'List every slicer (interactive filter button) and timeline (date-range filter visual) in a LOCAL .xlsx file with their captions, source bindings (table column or pivot table), and timeline granularity (years / quarters / months / days) plus the currently-selected date range.\n\n' +
+      'Reads the OOXML zip (xl/slicers/*, xl/slicerCaches/*, xl/timelines/*, xl/timelineCaches/*) directly — a surface ExcelJS silently drops on round-trip.\n\n' +
+      'USE WHEN: documenting a dashboard so an LLM knows what filter UI a human sees. Or auditing whether a slicer\'s binding still matches the underlying data after a refactor.\n\n' +
       'DO NOT USE WHEN: just reading values (use xlsx_read). Or trying to APPLY a filter (use xlsx_filter — slicers/timelines are UI metadata, not data filters).',
     inputSchema: {
       type: 'object',
@@ -798,11 +758,9 @@ const TOOLS = [
   {
     name: 'xlsx_pivot_tables',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: list every PRE-EXISTING pivot table definition in a workbook (the ones an Excel user already built). Per pivot: sheet, name, location range, source range (or named-range / table reference), row / column / page fields, and data fields with their agg function (sum / count / average / max / min / product / stdDev / etc.).\n' +
-      'No other tool can do this: ExcelJS doesn\'t expose pivot tables; pandas drops them entirely; openpyxl reads them but in a deeply-nested object model unsuitable for LLM consumption. Distinct from `xlsx_pivot` which COMPUTES a fresh pivot from raw data — this tool surfaces the existing pivot CONTRACT so an agent can answer "what does PivotTable3 on the Summary sheet actually compute?".\n\n' +
-      'USE WHEN: documenting a financial model that uses pivot tables. Or auditing whether a pivot still points at the right source range after a data-table refactor. Or answering "which sheet aggregates Sales by Region?" without re-deriving it. ' +
-      'Free tier — counts against the 10k/mo cap.\n\n' +
+      'List every PRE-EXISTING pivot table definition in a LOCAL .xlsx file (the ones an Excel user already built). Per pivot: sheet, name, location range, source range (or named-range / table reference), row / column / page fields, and data fields with their agg function (sum / count / average / max / min / product / stdDev / etc.).\n\n' +
+      'Distinct from `xlsx_pivot` which COMPUTES a fresh pivot from raw data — this tool surfaces the existing pivot CONTRACT so an agent can answer "what does PivotTable3 on the Summary sheet actually compute?".\n\n' +
+      'USE WHEN: documenting a financial model that uses pivot tables. Or auditing whether a pivot still points at the right source range after a data refactor. Or answering "which sheet aggregates Sales by Region?" without re-deriving it.\n\n' +
       'DO NOT USE WHEN: you want to COMPUTE a fresh pivot from raw data (use xlsx_pivot). Or you only need cell values (use xlsx_read).',
     inputSchema: {
       type: 'object',
@@ -817,12 +775,10 @@ const TOOLS = [
   {
     name: 'xlsx_images',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: list every embedded image in a workbook with format (png / jpg / gif / svg / bmp / tiff / emf / wmf), size in bytes, sheet attribution, and anchor cell range (the cells the image floats over). Reads xl/media/* + xl/drawings/* directly.\n' +
-      'No other tool can do this in one call: pandas drops images entirely; openpyxl reads images but doesn\'t roll them up by sheet/format/size or surface anchor cell refs in human-readable form. xlsx_images surfaces "Sheet1 has a 4 KB PNG anchored at B2:D6" — the exact thing an LLM needs to know whether the workbook ships with branding / charts-as-images / signatures.\n\n' +
-      'USE WHEN: cataloging the visual assets in a financial / operational workbook. Or auditing a workbook for embedded images that need to be replaced (logos changed, signatures rotated). Or fingerprinting a template by its image inventory. ' +
-      'Free tier — counts against the 10k/mo cap.\n\n' +
-      'DO NOT USE WHEN: you want the image PIXELS (this surfaces metadata, not bytes — fetching the bytes would inflate the response well beyond LLM context budgets). Or you only need cell values (use xlsx_read).',
+      'List every embedded image in a LOCAL .xlsx file with format (png / jpg / gif / svg / bmp / tiff / emf / wmf), size in bytes, sheet attribution, and anchor cell range (the cells the image floats over). Reads xl/media/* + xl/drawings/* directly.\n\n' +
+      'Surfaces "Sheet1 has a 4 KB PNG anchored at B2:D6" — what an LLM needs to know whether the workbook ships with branding / charts-as-images / signatures.\n\n' +
+      'USE WHEN: cataloging visual assets. Or auditing a workbook for embedded images that need to be replaced (logos, signatures). Or fingerprinting a template by its image inventory.\n\n' +
+      'DO NOT USE WHEN: you want the image PIXELS (this surfaces metadata, not bytes). Or you only need cell values (use xlsx_read).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -836,12 +792,10 @@ const TOOLS = [
   {
     name: 'xlsx_charts',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: list every chart in a workbook with type (bar / line / pie / scatter / area / doughnut / radar / stock / surface / bubble), title, axis titles, and per-series formula refs (the cell ranges the chart pulls from). Sheet attribution via the OOXML drawing rel chain.\n' +
-      'No other tool can do this: ExcelJS doesn\'t expose charts at all (read or write); pandas drops them entirely; openpyxl reads charts but in a deeply-nested object form unsuitable for LLM consumption. xlsx_charts gives you the chart contract — "Sheet2 has a bar chart titled Q4 Revenue plotting Sheet1!B2:B10 against Sheet1!A2:A10" — without rendering anything.\n\n' +
-      'USE WHEN: documenting a financial model / dashboard for an LLM that needs to know "what does this workbook visualize, and from which cells?". Or auditing a workbook for chart-data drift after a refactor (chart still points at old range?). ' +
-      'Free tier — counts against the 10k/mo cap.\n\n' +
-      'DO NOT USE WHEN: you want to RENDER the chart as an image (this tool returns the chart spec, not pixels). Or you only need cell values (use xlsx_read).',
+      'List every chart in a LOCAL .xlsx file with type (bar / line / pie / scatter / area / doughnut / radar / stock / surface / bubble), title, axis titles, and per-series formula refs (the cell ranges the chart pulls from). Sheet attribution via the OOXML drawing rel chain.\n\n' +
+      'Gives you the chart contract — "Sheet2 has a bar chart titled Q4 Revenue plotting Sheet1!B2:B10 against Sheet1!A2:A10" — without rendering anything.\n\n' +
+      'USE WHEN: documenting a financial model / dashboard so an LLM knows "what does this visualize, from which cells?". Or auditing for chart-data drift after a refactor.\n\n' +
+      'DO NOT USE WHEN: you want to RENDER the chart as an image (this returns the spec, not pixels). Or you only need cell values (use xlsx_read).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -855,12 +809,10 @@ const TOOLS = [
   {
     name: 'xlsx_protection',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: surface every protection setting in a workbook so an agent knows what it can and cannot edit. Workbook-level (lockStructure, lockWindows), per-sheet (protected? password? hidden state?), per-action allow/block list (formatCells, sort, insertRows, pivotTables, etc.), and per-cell unlocked / hidden samples — these are the cells a human would actually be allowed to type into when the sheet is otherwise read-only.\n' +
-      'No other tool can do this: pandas drops protection metadata entirely; openpyxl exposes the bool but no normalization. xlsx_protection reads sheetProtection action attrs directly from the OOXML zip (workaround for ExcelJS stripping them on round-trip).\n\n' +
-      'USE WHEN: an agent is about to suggest edits to a workbook and you want to fail fast on cells / sheets the user can\'t change anyway. Or auditing a "submitted form" workbook to see which inputs the form-author intended to be fillable. ' +
-      'Free tier — counts against the 10k/mo cap.\n\n' +
-      'DO NOT USE WHEN: just reading values (use xlsx_read). Or trying to BREAK protection (this tool surfaces what\'s locked; it does not unlock).',
+      'Surface every protection setting in a LOCAL .xlsx file so an agent knows what it can and cannot edit. Workbook-level (lockStructure, lockWindows), per-sheet (protected? password? hidden state?), per-action allow/block list (formatCells, sort, insertRows, pivotTables, etc.), and per-cell unlocked / hidden samples — these are the cells a human would actually be allowed to type into when the sheet is otherwise read-only.\n\n' +
+      'Reads sheetProtection action attrs directly from the OOXML zip (workaround for ExcelJS stripping them on round-trip).\n\n' +
+      'USE WHEN: an agent is about to suggest edits and you want to fail fast on cells / sheets the user can\'t change anyway. Or auditing a "submitted form" workbook to see which inputs the author intended fillable.\n\n' +
+      'DO NOT USE WHEN: just reading values (use xlsx_read). Or trying to BREAK protection (this surfaces what\'s locked; it does not unlock).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -874,8 +826,7 @@ const TOOLS = [
   {
     name: 'xlsx_styles',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: surface cell formatting (number formats, fonts, fills, alignment) so an agent knows what a cell LOOKS like, not just its raw value. Default mode: per-sheet rollup of top-N number formats / fonts / fills with counts. Detailed mode (opt-in, capped at 1000 cells): per-cell breakdown for narrow queries.\n' +
+      'surface cell formatting (number formats, fonts, fills, alignment) so an agent knows what a cell LOOKS like, not just its raw value. Default mode: per-sheet rollup of top-N number formats / fonts / fills with counts. Detailed mode (opt-in, capped at 1000 cells): per-cell breakdown for narrow queries.\n' +
       'No other tool can do this with this fidelity: pandas drops styles on read entirely. The single most valuable slice is number formats — pandas hands an LLM "45292" and the cell rendered as "2024-01-01" because format was "yyyy-mm-dd". xlsx_styles is what makes that recoverable.\n\n' +
       'USE WHEN: an LLM is about to interpret raw numbers (date serials, currency, percents, scientific notation) and you want the format hint that tells it what those numbers MEAN to a human. Or auditing a dashboard\'s typography. Or fingerprinting a template. ' +
       'Free tier — counts against the 10k/mo cap.\n\n' +
@@ -894,8 +845,7 @@ const TOOLS = [
   {
     name: 'xlsx_post_slack',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: upload a local .xlsx file to a Slack channel as a file attachment, with an optional accompanying message.\n' +
+      'upload a local .xlsx file to a Slack channel as a file attachment, with an optional accompanying message.\n' +
       'Token intake: set SLACK_BOT_TOKEN in the environment (recommended — keeps the token out of conversation logs). ' +
       'Alternatively pass slack_token as a tool argument (legacy; token will appear in MCP conversation history).\n' +
       'Posts via Slack\'s 3-step external upload flow (files.getUploadURLExternal → upload → files.completeUploadExternal), which is the only sanctioned path as of 2024+.\n\n' +
@@ -918,14 +868,10 @@ const TOOLS = [
   {
     name: 'xlsx_post_teams',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: upload a local .xlsx file to a Microsoft Teams channel as a file attachment in a channel message, with an optional accompanying message.\n' +
-      'Token intake: set TEAMS_GRAPH_TOKEN in the environment (recommended — keeps the token out of conversation logs). ' +
-      'Alternatively pass graph_token as a tool argument (legacy; token will appear in MCP conversation history).\n' +
-      'Uses Microsoft Graph\'s 4-step flow: locate the channel\'s filesFolder driveItem, create an upload session, upload the bytes, then post a chatMessage with the file as an inline attachment.\n\n' +
-      'USE WHEN: the user asks "post this workbook to my Teams channel," "share this with the team in Teams," or any other outbound-file-to-Teams request. The agent has just produced or modified a workbook and wants to deliver it to a Microsoft Teams channel. ' +
-      'Free tier — counts against the 10k/mo cap.\n\n' +
-      'DO NOT USE WHEN: posting to Slack (use xlsx_post_slack). Or when no Microsoft Graph token is available — the user must have an Entra ID app registration with Group.ReadWrite.All or Files.ReadWrite.All + ChannelMessage.Send scopes, AND a valid access token for that app.',
+      'Upload a local .xlsx file to a Microsoft Teams channel as a file attachment, with an optional accompanying message.\n\n' +
+      'Token intake: set TEAMS_GRAPH_TOKEN in the environment (recommended — keeps the token out of conversation logs). Alternatively pass graph_token as a tool argument (legacy; token will appear in MCP history). Uses Microsoft Graph\'s upload-session + chatMessage flow.\n\n' +
+      'USE WHEN: the user asks "post this workbook to my Teams channel" or any outbound-file-to-Teams request after producing or modifying a workbook.\n\n' +
+      'DO NOT USE WHEN: posting to Slack (use xlsx_post_slack). Or when no Microsoft Graph token is available — the user needs an Entra ID app with Files.ReadWrite.All + ChannelMessage.Send scopes.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -943,11 +889,10 @@ const TOOLS = [
   {
     name: 'xlsx_stamp',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: sign a workbook with a "workbook integrity verification" stamp — a cryptographic attestation embedded in docProps/custom.xml that says "this file was generated by these tools, passed these N specific checks, signed at this time, and hasn\'t been tampered with since." Factual claims only (never an opinion-shaped seal of approval). Returns the stamped workbook as base64 in _meta.file_b64; pass out_path to write to disk.\n' +
+      'Sign a LOCAL .xlsx file with a "workbook integrity verification" stamp — a cryptographic attestation embedded in docProps/custom.xml that says "this file was generated by these tools, passed these N specific checks, signed at this time, and hasn\'t been tampered with since." Factual claims only (never an opinion-shaped seal of approval). Returns the stamped workbook as base64 in _meta.file_b64; pass out_path to write to disk.\n\n' +
       'The caller supplies the `checks` array (e.g., from a supervisor review): list of named tests, each with passed/failed/skipped status. Verifiers see the individual check results, not a single good/bad opinion.\n\n' +
-      'USE WHEN: the agent has just produced or reviewed a workbook and wants to attach provable provenance + check results that travel with the file. The recipient can later verify the stamp via xlsx_verify_stamp to confirm the file hasn\'t been modified and to see the original check results.\n\n' +
-      'DO NOT USE WHEN: the user just wants to share a file (use xlsx_post_slack / xlsx_post_teams). Or when there are no real checks to attest to (an empty checks array is allowed and means "we ran zero checks" — but the stamp\'s value is in the checks it records).',
+      'USE WHEN: an agent has just produced or reviewed a workbook and wants to attach provable provenance + check results that travel with the file. Recipients verify via xlsx_verify_stamp.\n\n' +
+      'DO NOT USE WHEN: the user just wants to share a file (use xlsx_post_slack / xlsx_post_teams).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -977,8 +922,7 @@ const TOOLS = [
   {
     name: 'xlsx_verify_stamp',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: verify a workbook\'s embedded integrity-verification stamp. Returns whether the cryptographic signature is valid, whether the workbook bytes match what was signed (recomputed hash vs hash IN the stamp), and the full check-result content of the stamp.\n' +
+      'verify a workbook\'s embedded integrity-verification stamp. Returns whether the cryptographic signature is valid, whether the workbook bytes match what was signed (recomputed hash vs hash IN the stamp), and the full check-result content of the stamp.\n' +
       'A workbook can fail verification three ways: (1) no stamp present (file was never stamped, or the stamp was stripped); (2) signature_valid=false (someone modified the claims after signing, or signed with a different key); (3) hash_matches=false (someone modified the workbook bytes after signing). Each is a distinct trust signal.\n\n' +
       'USE WHEN: the agent (or a downstream verifier) needs to confirm a workbook hasn\'t been tampered with since it was signed, OR needs to surface the original check results that were attested to. Common scenario: incoming workbook from a counterparty, agent runs verify before trusting any of its values.',
     inputSchema: {
@@ -993,11 +937,10 @@ const TOOLS = [
   {
     name: 'xlsx_receipt',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: attach an AI-generation receipt to a workbook — a cryptographic attestation embedded in docProps/custom.xml that says "this file was generated by THIS agent, at THIS time, against THESE inputs." Returns the receipted workbook as base64 in _meta.file_b64; pass out_path to write to disk.\n' +
-      'Honesty boundary (load-bearing): the server signs the CALLER-DECLARED `agent.name` — it does NOT verify the caller actually IS that agent. The signature proves "this server signed these strings at this time," not "this came from claude-sonnet-4-6." Caller is responsible for honest declaration. Cryptographic identity binding (per-agent issued signing keys) is v1.1+ scope.\n\n' +
-      'USE WHEN: an AI agent (Claude, custom SDK agent, automated pipeline) generates a workbook and the recipient wants verifiable provenance — "what produced this file, when, against what." Or chaining attestations across a multi-step pipeline (each step adds its own receipt under different agent.name).\n\n' +
-      'DO NOT USE WHEN: the workbook was human-authored (use xlsx_stamp — Stamp attests to check results, Receipt attests to generation context). Or when the use case demands cryptographically-bound identity (v1.1+).',
+      'Attach an AI-generation receipt to a LOCAL .xlsx file — a cryptographic attestation embedded in docProps/custom.xml that says "this file was generated by THIS agent, at THIS time, against THESE inputs." Returns the receipted workbook as base64 in _meta.file_b64; pass out_path to write to disk.\n\n' +
+      'Honesty boundary (load-bearing): the server signs the CALLER-DECLARED `agent.name` — it does NOT verify the caller actually IS that agent. The signature proves "this server signed these strings at this time," not "this came from claude-sonnet-4-6." Caller is responsible for honest declaration. Cryptographic identity binding is v1.1+ scope.\n\n' +
+      'USE WHEN: an AI agent generates a workbook and the recipient wants verifiable provenance — "what produced this file, when, against what." Or chaining attestations across a multi-step pipeline.\n\n' +
+      'DO NOT USE WHEN: the workbook was human-authored (use xlsx_stamp — Stamp attests to check results, Receipt attests to generation context).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1033,8 +976,7 @@ const TOOLS = [
   {
     name: 'xlsx_verify_receipt',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: verify a workbook\'s embedded AI-generation receipt. Returns whether the signature is valid, whether the recomputed content hash matches the hash IN the receipt, and the full caller-declared claims (agent identity, generation timestamp, source-file hashes, prompt hash, MCP tools called, description).\n' +
+      'verify a workbook\'s embedded AI-generation receipt. Returns whether the signature is valid, whether the recomputed content hash matches the hash IN the receipt, and the full caller-declared claims (agent identity, generation timestamp, source-file hashes, prompt hash, MCP tools called, description).\n' +
       'A workbook can fail verification three ways: (1) no receipt present (never receipted, or receipt was stripped); (2) signature_valid=false (claims modified after signing); (3) hash_matches=false (workbook bytes modified after receipt was generated). Honesty: a valid receipt proves the SERVER signed the caller-DECLARED agent string — not that the agent IS that.\n\n' +
       'USE WHEN: a workbook arrives claiming AI provenance and the user wants to verify it. Or auditing a corpus of workbooks to find ones with broken receipts (likely-tampered) or no receipts at all.',
     inputSchema: {
@@ -1049,8 +991,7 @@ const TOOLS = [
   {
     name: 'xlsx_healer_diagnose',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: produce a structured diagnostic report of external references that are broken or at risk in a workbook. Returns five classes of finding: (1) external-workbook references that can\'t resolve, (2) defined-name external refs, (3) Power Query connections with embedded credentials, (4) #REF! propagation maps from upstream breakage, (5) multi-hop chains (workbook → workbook → workbook). Findings carry reference_id keys that downstream cure operations key on.\n\n' +
+      'produce a structured diagnostic report of external references that are broken or at risk in a workbook. Returns five classes of finding: (1) external-workbook references that can\'t resolve, (2) defined-name external refs, (3) Power Query connections with embedded credentials, (4) #REF! propagation maps from upstream breakage, (5) multi-hop chains (workbook → workbook → workbook). Findings carry reference_id keys that downstream cure operations key on.\n\n' +
       'USE WHEN: a workbook shows #REF! errors, an agent moves a file and refs need rewriting, a customer reports "the workbook stopped working after we reorganized SharePoint", or auditing a corpus for hidden external-link breakage before sharing.\n\n' +
       'DO NOT USE WHEN: the user wants the cleaning/normalization surface (use xlsx_data_clean — different concern). Or when there is no .xlsx source path (Healer reads the source bytes, doesn\'t reconstruct from a structured spec).',
     inputSchema: {
@@ -1065,10 +1006,9 @@ const TOOLS = [
   {
     name: 'xlsx_healer_cure',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: apply ONE specific cure operation against a diagnosed workbook. Each operation targets a specific failure mode: rename_move (rewrite ref paths), pattern_bulk (regex-style ref rewrites), source_deleted_freeze (replace broken refs with cached values), source_deleted_redirect (point at a replacement file), source_deleted_localize (snapshot full external source into a local copy), permission_denied (strip credentials), structure_changed (rewrite formulas for moved cells), format_change (re-link after extension change), make_standalone (fully dereference all externals). Returns the cured workbook bytes + a receipt naming exactly what changed.\n\n' +
-      'USE WHEN: a diagnostic report (xlsx_healer_diagnose) named a specific operation as the recommended fix and the user confirmed it; or running a known recipe across a folder of files; or restoring a workbook whose source moved by a known prefix.\n\n' +
-      'DO NOT USE WHEN: the failure mode isn\'t one of the supported operations (use xlsx_healer_intent for goal-shaped fixes). Or when diagnose hasn\'t been run yet on the file (cures need diagnose-emitted reference_ids).',
+      'Apply ONE specific cure operation against a diagnosed workbook. Operations: rename_move (rewrite ref paths), pattern_bulk (regex-style ref rewrites), source_deleted_freeze (replace broken refs with cached values), source_deleted_redirect (point at a replacement file), source_deleted_localize (snapshot external source into a local copy), permission_denied (strip credentials), structure_changed (rewrite formulas for moved cells), format_change (re-link after extension change), make_standalone (fully dereference all externals). Returns cured workbook bytes + receipt.\n\n' +
+      'USE WHEN: a diagnostic report (xlsx_healer_diagnose) named a specific operation as the recommended fix; or restoring a workbook whose source moved by a known prefix.\n\n' +
+      'DO NOT USE WHEN: the failure mode isn\'t a supported operation (use xlsx_healer_intent for goal-shaped fixes). Or when diagnose hasn\'t been run (cures need diagnose-emitted reference_ids).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1112,8 +1052,7 @@ const TOOLS = [
   {
     name: 'xlsx_healer_simulate',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: simulate recipient-side accessibility of a workbook\'s external references. Given a list of paths the recipient CAN see (`accessible_paths`), returns which references will still resolve at the recipient end and which will break (and why). Read-only; produces no output workbook.\n\n' +
+      'simulate recipient-side accessibility of a workbook\'s external references. Given a list of paths the recipient CAN see (`accessible_paths`), returns which references will still resolve at the recipient end and which will break (and why). Read-only; produces no output workbook.\n\n' +
       'USE WHEN: an agent or user wants to know "will this workbook work when I send it to <person>?" before sharing — e.g., before posting to Slack, attaching to email, or sharing a OneDrive link. Or auditing a workbook against a known recipient-accessible-paths inventory.\n\n' +
       'DO NOT USE WHEN: the user wants to FIX the breakage (use xlsx_healer_cure or xlsx_healer_intent). Or when the recipient is the sender themselves (no path discrepancy to simulate).',
     inputSchema: {
@@ -1133,10 +1072,9 @@ const TOOLS = [
   {
     name: 'xlsx_healer_intent',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: goal-driven healing. Caller declares an INTENT (`make-it-work`, `make-standalone`, or `migrate`) instead of a specific cure operation; Healer plans the operation sequence + applies it. make-it-work: minimum surgery to clear errors. make-standalone: fully de-externalize the workbook (snapshot every external dep). migrate: rewrite all references against a from/to prefix pair. Returns the planned operations, the cured bytes, and an unactionable list for refs that couldn\'t be auto-resolved.\n\n' +
-      'USE WHEN: the user describes the goal in plain English ("just make this work for the recipient" / "send a fully self-contained version" / "we moved the share root, update the refs"). Or when multiple cure operations need to compose and the orchestration is non-trivial.\n\n' +
-      'DO NOT USE WHEN: the user has already chosen a specific cure operation (use xlsx_healer_cure directly — avoids the planning overhead). Or when no diagnostic has been run on the workbook yet (intent uses the diagnostic surface internally; running diagnose first surfaces what intent will work with).',
+      'Goal-driven healing. Caller declares an INTENT (`make-it-work`, `make-standalone`, or `migrate`) instead of a specific cure operation; Healer plans the operation sequence + applies it. make-it-work: minimum surgery to clear errors. make-standalone: fully de-externalize (snapshot every external dep). migrate: rewrite all references against a from/to prefix pair. Returns the planned operations, cured bytes, and an unactionable list.\n\n' +
+      'USE WHEN: the user describes the goal in plain English ("just make this work for the recipient" / "send a self-contained version" / "we moved the share root, update the refs"). Or when multiple cure operations need to compose.\n\n' +
+      'DO NOT USE WHEN: the user has chosen a specific cure operation (use xlsx_healer_cure directly). Or when no diagnostic has been run on the workbook yet.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1171,8 +1109,7 @@ const TOOLS = [
   {
     name: 'xlsx_read_handle',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: read a workbook that has already been uploaded to the server via the chunked upload flow, by its server-side cache handle, WITHOUT re-transferring the bytes. Returns the same shape as xlsx_read (text / json / markdown) but skips the file_b64 round-trip.\n\n' +
+      'read a workbook that has already been uploaded to the server via the chunked upload flow, by its server-side cache handle, WITHOUT re-transferring the bytes. Returns the same shape as xlsx_read (text / json / markdown) but skips the file_b64 round-trip.\n\n' +
       'USE WHEN: the workbook has already been chunked + finalized into the server-side workbook cache (a `workbook_handle` was returned from the finalize call) and you want to read it again — e.g., a multi-step session where the same large workbook is queried repeatedly. Avoids re-uploading the bytes on every call.\n\n' +
       'DO NOT USE WHEN: you have a local file path and no prior upload (use xlsx_read — it handles the file_b64 transport for you). Handles expire when the cache TTL elapses; the call returns a clear "not found / expired" error in that case.',
     inputSchema: {
@@ -1197,8 +1134,7 @@ const TOOLS = [
   {
     name: 'xlsx_session_set_validations',
     description:
-      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
-      'This tool: configure per-session data-validation rules the server will apply to subsequent calls in the same session (e.g., reject rows missing required columns, enforce enum values on a category column, range-bound numeric inputs). Stateful — affects this session only.\n\n' +
+      'configure per-session data-validation rules the server will apply to subsequent calls in the same session (e.g., reject rows missing required columns, enforce enum values on a category column, range-bound numeric inputs). Stateful — affects this session only.\n\n' +
       'USE WHEN: the workflow has multiple write/clean steps in sequence and you want consistent server-side validation across them without restating the rules on every call. Or when validating user-supplied data against a known schema you want enforced for the rest of the session.\n\n' +
       'DO NOT USE WHEN: you only have a single call to make (just include the validation logic in that call). Or when you do not have a `session_id` (sessions are returned from the session-create surface; this tool is a no-op without one).',
     inputSchema: {
