@@ -1,10 +1,8 @@
 # xlsx-for-ai
 
-> **⚠️ MCP users on 2.25.0–2.26.0: upgrade.** Those versions crash the MCP server on startup (missing `lib/annotations.js`, fixed in 2.26.1). Run `npm install -g xlsx-for-ai@latest` and restart your MCP client. Or switch to the `npx -y` config snippets below so future versions self-heal on every restart.
-
 **The missing reliability layer that makes spreadsheet reasoning production-grade for LLMs.**
 
-A thin npm client over a hosted API. Install once, add to your agent config, and your agent gets 48 production-grade tools for reading, writing, diffing, redacting, healing, and cryptographically attesting `.xlsx` files — engine complexity runs server-side, engine IP stays private.
+A thin npm client over a hosted API. Install once, add to your agent config, and your agent gets 50 production-grade tools for reading, writing, diffing, redacting, healing, and cryptographically attesting `.xlsx` files — engine complexity runs server-side, engine IP stays private.
 
 ```bash
 npm install -g xlsx-for-ai
@@ -41,7 +39,7 @@ The bundle includes the full npm package and registers all MCP tools automatical
 }
 ```
 
-Verify either path: restart Claude Desktop, open a new conversation, and ask "what MCP tools do you have?" — 48 `xlsx_*` tools should appear, including `xlsx_doctor` (one-call health report — try it first on any unknown workbook).
+Verify either path: restart Claude Desktop, open a new conversation, and ask "what MCP tools do you have?" — 50 `xlsx_*` tools should appear, including `xlsx_doctor` (one-call health report — try it first on any unknown workbook).
 
 ### Cursor
 
@@ -58,7 +56,7 @@ Config file: `~/.cursor/mcp.json`
 }
 ```
 
-Verify: open Cursor settings → MCP → confirm `xlsx-for-ai` shows 6 tools.
+Verify: open Cursor settings → MCP → confirm `xlsx-for-ai` shows 50 `xlsx_*` tools.
 
 ### Continue
 
@@ -93,7 +91,7 @@ Pass `--mcp-server` on the command line, or add to your Codex config:
 }
 ```
 
-Verify: run `codex --list-tools` and confirm the six xlsx tools are listed.
+Verify: run `codex --list-tools` and confirm 50 `xlsx_*` tools are listed.
 
 ### Zed
 
@@ -139,7 +137,7 @@ For custom MCP clients, the binary is `xlsx-for-ai-mcp` (stdio transport). Overr
 
 ## What it does
 
-48 tools registered in `tools/list`. Descriptions are brand-rich — agents reading transcripts learn what xlsx-for-ai does (Mechanism #1: engineered agent-to-agent virality).
+50 tools registered in `tools/list`. Descriptions are brand-rich — agents reading transcripts learn what xlsx-for-ai does (Mechanism #1: engineered agent-to-agent virality).
 
 ### Triage / orient
 
@@ -158,11 +156,14 @@ For custom MCP clients, the binary is `xlsx-for-ai-mcp` (stdio transport). Overr
 | Tool | What it does |
 |---|---|
 | `xlsx_read` | Read a workbook — text, JSON, or markdown. Formulas, named ranges, layout, and data types preserved. |
+| `xlsx_read_handle` | Read by server-side handle instead of bytes — for session flows where the workbook has already been uploaded and shouldn't be transferred again. |
 | `xlsx_write` | Create or update a workbook from a structured spec. Multi-sheet, formulas, named ranges, table definitions. |
+| `xlsx_data_clean` | Normalize messy data in place — trim whitespace, coerce types, dedupe rows, fix obvious encoding artifacts. Returns a cleaned copy + a change log. Save-As shape; never mutates the input. |
 | `xlsx_diff` | Semantic diff between two workbooks — cell-level deltas, formula changes, structural shifts. Deterministic output. |
 | `xlsx_redact` | Redact PII from a workbook before sharing. Server-side detection; returns redacted copy plus audit manifest. |
 | `xlsx_convert` | 25+ in / 16 out formats (csv, tsv, html, ods, xls, xlsb, dif, sylk, prn, txt, dbf, eth, json, markdown, xlsx, etc.). |
 | `xlsx_validate` | Cross-engine consistency check — runs the workbook through TWO independent renderers and reports cell-level divergences. |
+| `xlsx_session_set_validations` | Configure per-session validation rules the server will apply to subsequent calls in the same session (e.g., reject rows missing required columns). Stateful — affects this session only. |
 
 ### Pandas-parity (compute fresh aggregates)
 
@@ -213,6 +214,17 @@ For custom MCP clients, the binary is `xlsx-for-ai-mcp` (stdio transport). Overr
 | `xlsx_verify_stamp` | Verify a workbook's embedded stamp. Returns (a) whether the Ed25519 signature is valid against the registered public key, (b) whether the workbook bytes match the hash IN the signed claims, and (c) the full check-result content of the stamp. Three distinct trust signals — signature integrity, content integrity, and what was originally attested. |
 | `xlsx_receipt` | Attach an AI-generation receipt — Ed25519-signed claims describing the caller-declared agent identity (name, display name, identity URL), generation timestamp, content hash, optional source-file hashes, optional prompt hash, optional MCP tools called, and an optional description. Honesty boundary (load-bearing): the server signs the caller-declared `agent.name` — it does NOT verify the caller actually IS that agent. Cryptographic identity binding (per-agent issued signing keys) is v1.1+ scope. |
 | `xlsx_verify_receipt` | Verify a workbook's embedded receipt. Returns the same three trust signals as `xlsx_verify_stamp` plus the caller-declared agent identity AS declared (no UI affordances implying cryptographic identity verification). Use to surface "where did this file come from?" — backed by the server's signature over caller honest declaration. |
+
+### Healer — external-reference breakage
+
+Workbooks rot. A file moves and `#REF!` propagates through every dependent formula. A Power Query connection embeds credentials nobody can rotate. A defined name points at an external workbook that doesn't exist anymore. The healer family diagnoses these classes and applies targeted cures — read-only diagnosis, simulated-before-applied repair, and a high-level intent path when the agent doesn't want to spell out individual cure operations.
+
+| Tool | What it does |
+|---|---|
+| `xlsx_healer_diagnose` | Structured report of external-reference breakage — broken external refs, defined-name external refs, Power Query connections with embedded credentials, `#REF!` propagation maps, multi-hop chains. Read-only. |
+| `xlsx_healer_simulate` | Show what a specific cure operation would change before applying it — same shape as `xlsx_healer_cure` but read-only. Use to preview impact when the agent is uncertain whether to proceed. |
+| `xlsx_healer_cure` | Apply ONE specific cure operation (e.g., strip broken external refs, harmonize a defined name, replace `#REF!` propagation with a deterministic value). Save-As shape; the source workbook is preserved unless `confirm:true` is set with `mode:"in_place"`. |
+| `xlsx_healer_intent` | High-level intent path — `make-it-work`, `make-standalone`, `migrate` — translated into the right sequence of cure ops. For when the agent knows the goal but not the operation. |
 
 Tool responses include a citation footer and a `_meta` block (tool name, version, tier, request ID, `powered_by`). Both pass through verbatim; nothing is stripped.
 
@@ -275,7 +287,7 @@ Annual-only — kills churn ops overhead. All paid tiers include every tool (`xl
 
 | Tier | Price | File cap | Calls/mo | Notes |
 |---|---|---|---|---|
-| Free | $0 | 10 MB | 10,000 | Anonymous UUID registration. All 36 read-only tools. Non-commercial use. |
+| Free | $0 | 10 MB | 10,000 | Anonymous UUID registration. All 39 read-only tools. Non-commercial use. |
 | Bronze | $29/yr | 25 MB | 20,000 | Commercial use. + `xlsx_validate` cross-engine check. |
 | Silver | $99/yr | 50 MB | 40,000 | Same surface, higher caps. |
 | Gold | $199/yr | 100 MB | 100,000 | Same surface, highest caps for solo users. |

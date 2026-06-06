@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { TOOL_ANNOTATIONS, applyAnnotations } = require('../../lib/annotations');
+const { TOOL_ANNOTATIONS, applyAnnotations, sanitizeForMcp } = require('../../lib/annotations');
 
 // Canonical surfaced-tool list. Update this if a tool is added to or removed
 // from the MCP surface. Drives both the count assertion and the set-equality
@@ -150,4 +150,67 @@ test('applyAnnotations ignores non-plain-object annotation values', () => {
     assert.equal(out[0].annotations.title, 'Read Excel file');
     assert.equal(out[0].annotations.readOnlyHint, true);
   }
+});
+
+// ---------------------------------------------------------------------------
+// sanitizeForMcp — guarantees every emitted tool registers in Claude Desktop
+// ---------------------------------------------------------------------------
+
+test('sanitizeForMcp: missing inputSchema gets permissive object floor', () => {
+  const out = sanitizeForMcp([
+    { name: 'xlsx_stub', description: 'has desc but no schema' },
+  ]);
+  assert.equal(out.length, 1);
+  assert.deepEqual(out[0].inputSchema, { type: 'object' });
+});
+
+test('sanitizeForMcp: missing description falls back to annotation title', () => {
+  const out = sanitizeForMcp([
+    { name: 'xlsx_stub', annotations: { title: 'A stub tool' } },
+  ]);
+  assert.equal(out[0].description, 'A stub tool');
+});
+
+test('sanitizeForMcp: missing description and missing annotation → generic fallback', () => {
+  const out = sanitizeForMcp([{ name: 'xlsx_stub' }]);
+  assert.equal(out[0].description, 'xlsx-for-ai tool: xlsx_stub');
+});
+
+test('sanitizeForMcp: present inputSchema/description pass through unchanged', () => {
+  const schema = { type: 'object', properties: { p: { type: 'string' } } };
+  const out = sanitizeForMcp([
+    { name: 'xlsx_full', description: 'Real desc', inputSchema: schema },
+  ]);
+  assert.equal(out[0].description, 'Real desc');
+  assert.deepEqual(out[0].inputSchema, schema);
+});
+
+test('sanitizeForMcp: drops nameless / malformed entries', () => {
+  const out = sanitizeForMcp([
+    { name: 'xlsx_ok' },
+    null,
+    { description: 'no name' },
+    { name: '' },
+    'not an object',
+    { name: 42 },
+  ]);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].name, 'xlsx_ok');
+});
+
+test('sanitizeForMcp: arrays and non-objects for inputSchema get replaced', () => {
+  const out = sanitizeForMcp([
+    { name: 'a', inputSchema: [1, 2] },     // array — invalid
+    { name: 'b', inputSchema: 'a string' }, // primitive — invalid
+    { name: 'c', inputSchema: null },       // null
+  ]);
+  for (const t of out) {
+    assert.deepEqual(t.inputSchema, { type: 'object' });
+  }
+});
+
+test('sanitizeForMcp: tolerates a non-array input', () => {
+  assert.deepEqual(sanitizeForMcp(null), []);
+  assert.deepEqual(sanitizeForMcp(undefined), []);
+  assert.deepEqual(sanitizeForMcp({}), []);
 });

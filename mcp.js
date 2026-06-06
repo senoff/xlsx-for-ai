@@ -17,7 +17,7 @@ const { ensureRegistered } = require('./lib/register');
 const { callTool }         = require('./lib/client');
 const { fallbackRead }     = require('./lib/fallback-read');
 const { resolveCatalog }   = require('./lib/discover');
-const { applyAnnotations } = require('./lib/annotations');
+const { applyAnnotations, sanitizeForMcp } = require('./lib/annotations');
 const fs                   = require('fs');
 const fsPromises           = require('fs/promises');
 const path                 = require('path');
@@ -1758,46 +1758,56 @@ async function dispatchTool(name, args) {
 // ---------------------------------------------------------------------------
 
 async function main() {
-  await ensureRegistered();
-
-  // Dynamic tool catalog: query the hosted API once at startup so new
-  // server-side tools appear without re-publishing this npm package.
-  // resolveCatalog returns the baked-in TOOLS as last-resort fallback so
-  // we never fail-open on a transient network blip. See lib/discover.js.
+  // Swallow EPIPE on the transport. When the client disconnects while a
+  // background catalog upgrade is still in flight, sendToolListChanged
+  // writes to a closed pipe and Node raises EPIPE asynchronously on the
+  // Socket — our awaited try/catch around sendToolListChanged never sees
+  // it. Without this guard, a client unplug after the upgrade settles
+  // crashes the process with an unhandled Socket 'error' event.
   //
-  // Hard timeout (8s) on top of any timeout inside resolveCatalog so that
-  // a network call which hangs forever (DNS sinkhole, TCP black hole, slow-
-  // loris-style stalled response) cannot block MCP server startup
-  // indefinitely. Pre-Friday-external CRITICAL per the Tier-1 audit.
-  const CATALOG_FETCH_TIMEOUT_MS = 8000;
-  let catalog;
-  try {
-    catalog = await Promise.race([
-      resolveCatalog(TOOLS),
-      new Promise((_, reject) =>
-        setTimeout(
-          () => reject(new Error(`catalog fetch timed out after ${CATALOG_FETCH_TIMEOUT_MS}ms`)),
-          CATALOG_FETCH_TIMEOUT_MS
-        )
-      ),
-    ]);
-  } catch (_) {
-    catalog = { tools: TOOLS, source: 'static-fallback' };
-  }
-  // Surface catalog source so operators can tell server vs cache vs static
-  // when an MCP session looks "off" (e.g., a tool missing because the remote
-  // /api/v1/tools/list 404'd and we silently fell back to the stale baked-in
-  // set). Stderr only — stdout is the MCP transport.
-  process.stderr.write(`xlsx-for-ai-mcp: tool catalog source=${catalog.source} count=${Array.isArray(catalog.tools) ? catalog.tools.length : 0}\n`);
-  // Overlay MCP annotations (title / readOnlyHint / destructiveHint) so
-  // they flow through to clients regardless of catalog source. The remote
-  // /api/v1/tools/list returns minimal entries today; this is what
-  // restores the annotations the wire format would otherwise drop.
-  const liveTools = applyAnnotations(Array.isArray(catalog.tools) ? catalog.tools : []);
+  // stdout is the MCP transport: EPIPE there means the client is gone,
+  // exit cleanly. stderr is the log sink: an EPIPE on stderr (parent
+  // closed its log pipe) is NOT a transport failure and must not take
+  // the server down.
+  process.stdout.on('error', (err) => {
+    if (err && err.code === 'EPIPE') {
+      process.exit(0);
+    }
+    // Anything else on the transport stream is a real failure (e.g.
+    // ERR_STREAM_DESTROYED) — rethrow so it surfaces as uncaughtException
+    // instead of being silently swallowed.
+    throw err;
+  });
+  process.stderr.on('error', (err) => {
+    // Silence EPIPE on stderr; rethrow anything else so we don't hide
+    // genuine logging-layer bugs.
+    if (!err || err.code !== 'EPIPE') throw err;
+  });
+
+  // `initialize` MUST respond from local state — never block on the network.
+  // Under Claude Desktop's bundled Node 24.x runtime, the registration POST
+  // and the catalog GET can hang indefinitely (Happy-Eyeballs / IPv6 dial
+  // edge cases inside Electron), and the client gives up at 60s. The whole
+  // MCP attach dies before tools/list is even called.
+  //
+  // Shape: connect transport FIRST with the bundled TOOLS as the floor.
+  // Then background-upgrade registration + catalog with bounded timeouts,
+  // and fire notifications/tools/list_changed once the live catalog lands.
+  // The bundled set already covers every tool the user reaches in normal
+  // flows; the upgrade is additive.
+  // sanitizeForMcp guarantees every tool the server emits has a valid
+  // inputSchema + description — without it Claude Desktop silently drops
+  // tools that lack inputSchema, which is the exact symptom in SPM P0
+  // 2026-06-05 (mcp-toolslist-missing-inputschema). For the bundled
+  // catalog this is a no-op (every TOOLS entry already has full fields);
+  // for the upgraded catalog it's the floor that keeps stub server
+  // entries registerable.
+  let liveTools = sanitizeForMcp(applyAnnotations(TOOLS));
+  process.stderr.write(`xlsx-for-ai-mcp: tool catalog source=bundled count=${liveTools.length}\n`);
 
   const server = new Server(
     { name: 'xlsx-for-ai', version: require('./package.json').version },
-    { capabilities: { tools: {} } }
+    { capabilities: { tools: { listChanged: true } } }
   );
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: liveTools }));
@@ -1841,6 +1851,88 @@ async function main() {
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
+
+  // Background-upgrade: registration + dynamic catalog. Bounded so a
+  // hung network never wastes resources; failure is non-fatal because
+  // the bundled catalog already serves tools/list. Detached on purpose
+  // — we do not await this; main() returns and the upgrade lands when
+  // it lands.
+  upgradeCatalogInBackground(server, (next) => {
+    liveTools = next;
+  });
+}
+
+async function withTimeout(promise, ms, label) {
+  // Promise.race with a setTimeout-rejecting promise leaks unhandled
+  // rejections in two directions:
+  //   (a) Main wins — the timer still fires later and its branch
+  //       rejects with nobody awaiting it. clearTimeout in finally
+  //       eliminates this.
+  //   (b) Timer wins — the original promise can still reject later
+  //       (the underlying fetch eventually errors out long after we
+  //       gave up). Attaching a no-op catch ensures that late
+  //       rejection is consumed instead of crashing the MCP server
+  //       minutes after startup.
+  // The (b) case is the SPM P0 surface: the bundled-Node-24 dial
+  // can stall, time out, and then much later reject with EAI_AGAIN
+  // or a TLS error — by then nobody is listening.
+  promise.catch(() => {});
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`${label} timed out after ${ms}ms`)),
+          ms
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function upgradeCatalogInBackground(server, swap) {
+  const REGISTRATION_TIMEOUT_MS = 10_000;
+  const CATALOG_TIMEOUT_MS = 8_000;
+
+  try {
+    await withTimeout(ensureRegistered(), REGISTRATION_TIMEOUT_MS, 'registration');
+  } catch (err) {
+    process.stderr.write(`xlsx-for-ai-mcp: registration deferred (${err.message})\n`);
+  }
+
+  let catalog;
+  try {
+    catalog = await withTimeout(resolveCatalog(TOOLS), CATALOG_TIMEOUT_MS, 'catalog fetch');
+  } catch (err) {
+    process.stderr.write(`xlsx-for-ai-mcp: catalog upgrade skipped (${err.message})\n`);
+    return;
+  }
+
+  if (!catalog || !Array.isArray(catalog.tools)) {
+    return;
+  }
+  // No upgrade to apply when discover.js fell back to the baked-in set
+  // (source=static): the list is identical to what initialize already
+  // returned, so a list_changed notification would be wire noise.
+  if (catalog.source === 'static') {
+    process.stderr.write(`xlsx-for-ai-mcp: catalog upgrade unavailable (source=static) — staying on bundled\n`);
+    return;
+  }
+
+  const upgraded = sanitizeForMcp(applyAnnotations(catalog.tools));
+  swap(upgraded);
+  process.stderr.write(`xlsx-for-ai-mcp: tool catalog source=${catalog.source} count=${upgraded.length}\n`);
+
+  try {
+    await server.sendToolListChanged();
+  } catch (_) {
+    // Transport may already be torn down (client disconnected before the
+    // upgrade landed). Non-fatal — next attach starts with the bundled
+    // catalog and retries the upgrade.
+  }
 }
 
 // Guard: don't auto-start when required by tests

@@ -7,6 +7,100 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 
 ---
 
+## [3.0.1] - 2026-06-05
+
+Hotfix release. Two coupled defects in 3.0.0 made `.mcpb` install
+unusable in Claude Desktop:
+
+1. **`initialize` blocked on the network.** Under Claude Desktop's
+   bundled Node 24.15.0 runtime, `mcp.js` blocked `initialize` on the
+   first-run registration POST and the dynamic tool-catalog GET; the
+   dial would stall (IPv6 / Happy-Eyeballs edge inside Electron), the
+   client's 60s timeout fired, and the MCP attach died before
+   `tools/list` was ever called. The same bundle worked under system
+   Node 25.6.1 because the dial resolved instantly.
+
+2. **`tools/list` shipped without `inputSchema`/`description`.** The
+   hosted `/api/v1/tools/list` returns minimal stubs
+   (`{name, category, maturity_state, endpoint}`), and the
+   client's `mergeTools` was letting those stubs *replace* the
+   bundled-catalog full schemas on every name collision. Claude
+   Desktop receives a tools/list whose entries have no `inputSchema`
+   and silently drops the entire array — tool permissions panel
+   empty, no `tools/call` ever fires, even after reinstall / connector
+   toggle / restart. Server-side defect mirrored client-side; this
+   release fixes the client floor so the bundled schemas survive.
+
+### Fixed
+
+- **`initialize` is now decoupled from the network.** The MCP transport
+  connects first and serves the bundled tool catalog (48 tools) as the
+  floor. Registration + dynamic catalog upgrade run in the background
+  after `connect`. The client sees `initialize` respond in milliseconds
+  regardless of network state.
+- **`tools/list_changed` notification.** When the background upgrade
+  swaps in the live catalog (typically 50 tools), the server emits
+  `notifications/tools/list_changed` so the client refreshes its tool
+  inventory. The server now declares `capabilities.tools.listChanged`.
+- **Bounded background timeouts.** Registration: 10s. Catalog: 8s. If
+  either hangs, it's logged to stderr and the process keeps running on
+  the bundled catalog. The bundled set already covers every tool the
+  user reaches in normal flows; the upgrade is additive.
+- **EPIPE on background writes.** If a client disconnects while the
+  catalog upgrade is in flight, `sendToolListChanged()` writes to a
+  closed pipe and Node raises EPIPE asynchronously on the Socket. The
+  process now exits 0 cleanly instead of crashing with an unhandled
+  Socket `'error'` event.
+
+- **`mergeTools` is now a field-level merge.** Remote tools win on every
+  field they actually provide; baked-in fields (`description`,
+  `inputSchema`) fill in the gaps. This preserves the MCP-spec fields
+  the hosted catalog currently omits.
+- **`sanitizeForMcp` floor in `lib/annotations.js`.** Any tool that
+  reaches the MCP transport without `inputSchema` gets the permissive
+  `{ type: 'object' }` floor; any tool without a `description` gets
+  the annotation title (or a generic `xlsx-for-ai tool: <name>`).
+  This is what keeps server-only tools (in the remote response but
+  not in the bundled `TOOLS` array) registerable in Claude Desktop.
+
+### Tests
+
+`test/v2/mcp-initialize.test.js` pins the invariants end-to-end:
+
+- `initialize` responds in <2s even when `XLSX_FOR_AI_API` points at a
+  TCP black hole (RFC 5737 TEST-NET-1).
+- `tools/list` serves the bundled catalog (≥40 tools, all with name +
+  inputSchema + non-empty description) before any network upgrade lands.
+- Upgrade path: a stub server returning only `{name, category,
+  maturity_state, endpoint}` produces a sanitized tools/list where
+  every entry has `inputSchema` and `description`; the overlap with
+  the bundled catalog keeps the full bundled schema; tools/list_changed
+  fires on the wire.
+
+`test/v2/annotations.test.js` adds 7 unit tests for `sanitizeForMcp`.
+
+`test/v2/discover.test.js` pins the field-level merge: when remote
+omits `inputSchema`/`description`, baked fills them; when remote
+provides any field, remote wins on it.
+
+### Docs
+
+- README tool count corrected to 50 (intro, "What it does" header,
+  Claude Desktop verify line, Cursor verify line, Codex CLI verify line).
+- New Healer section documents the 4-tool family (`xlsx_healer_diagnose`,
+  `xlsx_healer_simulate`, `xlsx_healer_cure`, `xlsx_healer_intent`) —
+  external-reference breakage repair, the biggest documentation gap.
+- Read/write section adds `xlsx_data_clean`, `xlsx_read_handle`, and
+  `xlsx_session_set_validations` (previously undocumented in the README
+  even though all three are live in the hosted catalog).
+- Free-tier read-only count corrected to 39 (was 36; `xlsx_validate`
+  remains the lone Free-excluded read-only tool, requires Bronze+).
+- Removed the 2.25.0–2.26.0 crash banner — the deprecate workflow
+  surfaces it at `npm install` time, and it's confusing to a fresh
+  3.0.x reader.
+
+---
+
 ## [3.0.0] - 2026-06-05
 
 The "whole new world" consolidation cut. Bob's call: the 2.x→now delta

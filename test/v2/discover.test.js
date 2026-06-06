@@ -61,6 +61,33 @@ test('mergeTools: server wins on name collision; baked-in fills gaps', () => {
   assert.equal(merged[2].name, 'xlsx_list_sheets', 'baked-only tool preserved');
 });
 
+test('mergeTools: baked-in inputSchema + description survive when remote omits them', () => {
+  // SPM P0 2026-06-05 (mcp-toolslist-missing-inputschema). The hosted
+  // /api/v1/tools/list endpoint returns minimal entries
+  // ({name, category, maturity_state, endpoint}) — without field-merge,
+  // remote-wins-by-replacement strips the baked-in inputSchema and
+  // description, and Claude Desktop drops the whole tools/list.
+  const remote = [
+    { name: 'xlsx_read', category: 'reading', endpoint: 'POST /api/v1/tools/xlsx_read' },
+  ];
+  const baked = [
+    {
+      name: 'xlsx_read',
+      description: 'baked read',
+      inputSchema: { type: 'object', properties: { file_path: { type: 'string' } } },
+    },
+  ];
+  const merged = _internal.mergeTools(remote, baked);
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].name, 'xlsx_read');
+  // Remote-provided field wins.
+  assert.equal(merged[0].category, 'reading');
+  assert.equal(merged[0].endpoint, 'POST /api/v1/tools/xlsx_read');
+  // Baked-provided field survives because remote omitted it.
+  assert.equal(merged[0].description, 'baked read');
+  assert.deepEqual(merged[0].inputSchema, baked[0].inputSchema);
+});
+
 test('mergeTools: dedupes within remote; first occurrence wins', () => {
   const remote = [
     { name: 'xlsx_dup', description: 'first wins' },
