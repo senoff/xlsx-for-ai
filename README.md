@@ -24,7 +24,7 @@ Add `xlsx-for-ai` as a tool server in your agent runtime. First invocation auto-
 
 **Easiest: one-click install via the `.mcpb` bundle.** Download and drag into Claude Desktop (Settings → Extensions):
 
-**[xlsx-for-ai-2.0.0.mcpb](https://github.com/senoff/xlsx-for-ai/releases/latest/download/xlsx-for-ai-2.0.0.mcpb)** *(latest release)*
+**[xlsx-for-ai.mcpb](https://github.com/senoff/xlsx-for-ai/releases/latest/download/xlsx-for-ai.mcpb)** *(latest release — version-agnostic stable filename, always serves the current bundle)*
 
 The bundle includes the full npm package and registers all MCP tools automatically. No manual config edits needed.
 
