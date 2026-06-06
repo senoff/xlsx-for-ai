@@ -7,6 +7,59 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 
 ---
 
+## [3.0.7] - 2026-06-06
+
+P1 mitigation + observability for the hosted-tool latency Bob saw in
+Claude Desktop this morning. SPM measured 2 min 12 s round-trip for an
+`xlsx_describe` call on a 2-row × 3-col file, with the SERVER processing
+the request in 190 ms — the 2-minute gap was between client send and
+server receive, in the dial / IPC layer.
+
+3.0.7 doesn't pretend to root-cause that gap yet (the pattern fits an
+IPv6-black-hole TCP-SYN retransmission timeline of ~127s, but it could
+also be undici keep-alive socket churn or Claude Desktop's IPC queue;
+the observability shipped here is the next-occurrence diagnostic).
+
+### Changed
+
+- **Per-attempt fetch timeout tightened from 30s to 15s** in `lib/client.js`.
+  A stuck dial now fails fast instead of waiting half a minute.
+- **Retry count bumped from 1 to 2 (3 attempts total, 45s ceiling).** Each
+  retry opens a fresh socket after the prior AbortController fires, which
+  breaks the stuck-keep-alive class of dial failures.
+
+### Added
+
+- **Structured stderr timing log per phase** of every tool call:
+  - `send` — request prepared, body size recorded.
+  - `response-headers` — server returned headers, attempt elapsed_ms.
+  - `attempt-failed` — fetch threw, error name + code + attempt elapsed_ms.
+  - `body-complete` — JSON body parsed, total elapsed_ms.
+  - `all-attempts-failed` — all retries exhausted.
+
+  Format: one-line JSON, `{"t":"xlsx-for-ai-mcp.timing", ...}`. Lands in
+  `~/Library/Logs/Claude/mcp-server-xlsx-for-ai.log` automatically.
+  Next time tool calls hang, SPM/Bob can grep that log and see which
+  phase is slow.
+- **`~` path expansion** in `mcp.js` `fileToB64`. Models often pass
+  `~/Desktop/foo.xlsx`; Node's `fs.openSync` doesn't expand `~`, so the
+  path ENOENT'd at the OS level. `~` and `~/...` are now expanded to
+  the user's home dir before resolution. `~user/...` patterns pass
+  through untouched (forward-only narrow).
+
+### Tests
+
+- `test/v2/client-timing.test.js` — asserts the stderr timing contract
+  end-to-end via a subprocess against a local stub server. Catches a
+  future refactor that drops the diagnostic signal. Also pins TIMEOUT_MS
+  ≤ 15s and MAX_ATTEMPTS ≥ 3 at the source level so the SPM-tightened
+  ceiling can't drift back.
+- `test/v2/tilde-expansion.test.js` — 6 tests on `expandTilde`: bare
+  `~`, `~/` prefix, mid-string `~` ignored, `~user/` ignored, non-string
+  / empty input tolerated.
+
+---
+
 ## [3.0.5] - 2026-06-05
 
 Hotfix: client-side `lib/annotations.js` was missing entries for 8 of the

@@ -20,6 +20,7 @@ const { resolveCatalog }   = require('./lib/discover');
 const { applyAnnotations, sanitizeForMcp } = require('./lib/annotations');
 const fs                   = require('fs');
 const fsPromises           = require('fs/promises');
+const os                   = require('os');
 const path                 = require('path');
 
 // ---------------------------------------------------------------------------
@@ -1193,8 +1194,19 @@ function getMaxFileMB() {
   return parsed;
 }
 
+// Expand a leading `~` to the user's home dir so tilde-prefixed paths the
+// model passes ("~/Desktop/foo.xlsx") don't dead-end with ENOENT. SPM P1
+// 2026-06-06 "secondary" finding — a cheap friction-reducer.
+// Only the leading character; we don't try to resolve `~user/foo` patterns.
+function expandTilde(p) {
+  if (typeof p !== 'string' || p.length === 0) return p;
+  if (p === '~') return os.homedir();
+  if (p.startsWith('~/')) return path.join(os.homedir(), p.slice(2));
+  return p;
+}
+
 function fileToB64(filePath) {
-  const resolved = path.resolve(filePath);
+  const resolved = path.resolve(expandTilde(filePath));
 
   // Open the file once and operate on the fd from here on. fstatSync and the
   // subsequent read both bind to the inode the fd points at, so even if the
