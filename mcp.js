@@ -110,24 +110,95 @@ const TOOLS = [
   {
     name: 'xlsx_write',
     description:
-      'create or update a LOCAL .xlsx file from a structured spec.\n' +
-      'DEFAULT creates a new workbook from spec. Pass base_file_b64 to edit-in-place instead. Workbook bytes return in _meta.file_b64 (base64) — NOT in content[0].text.\n\n' +
-      'ALWAYS pass out_path when the user wants the written file saved to disk.\n' +
-      'WITHOUT out_path: workbook bytes return in _meta.file_b64 (base64) — caller must save them.\n' +
-      'The response text confirms whether a save happened — trust the response, do not infer.\n\n' +
-      'USE WHEN: the user wants to write or edit a spreadsheet at a LOCAL file path. ' +
-      'Supports multi-sheet workbooks, formulas, named ranges, and table definitions. ' +
-      'Server-validated before writing — safer than generating xlsx bytes directly.\n\n' +
-      'DO NOT USE WHEN: working in a sandbox without local filesystem write access. ' +
-      'Or when the user wants to edit an uploaded file in place (there is no local path to write to).',
+      'create or update a LOCAL .xlsx file from a structured spec.\n\n' +
+      'Spec shape: `{sheets: [{name, cells: [{address, value | formula}]}]}`. Each cell has an A1 address ("A1", "B2") and EITHER `value` (string|number|boolean|null) OR `formula` (string, no leading "="). Minimal example:\n' +
+      '`{"sheets":[{"name":"Sheet1","cells":[{"address":"A1","value":"id"},{"address":"A2","value":1},{"address":"B2","formula":"A2*2"}]}]}`\n\n' +
+      'ALWAYS pass out_path to save to disk. Without out_path the workbook bytes return in _meta.file_b64.\n\n' +
+      'USE WHEN: the user wants to write or edit a spreadsheet at a LOCAL file path. Server-validated before writing — safer than generating xlsx bytes directly.\n\n' +
+      'DO NOT USE WHEN: working in a sandbox without local filesystem write access. Or editing an uploaded file in place (there is no local path to write to).',
     inputSchema: {
       type: 'object',
       properties: {
-        spec:      { type: 'object', description: 'Workbook spec object.' },
-        spec_path: { type: 'string', description: 'Path to a JSON spec file (alternative to inline spec).' },
-        out_path:  { type: 'string', description: 'Destination .xlsx path.' },
+        spec: {
+          type: 'object',
+          description:
+            'Workbook spec. Shape: {sheets: [{name: string, cells: [{address, value | formula}]}]}. ' +
+            'Each cell has an A1-style `address` (regex ^[A-Za-z]+\\d+$) and EXACTLY ONE of `value` ' +
+            '(string|number|boolean|null) or `formula` (string WITHOUT leading "=" — e.g. "SUM(A1:A10)" not "=SUM(A1:A10)"). ' +
+            'Example: {"sheets":[{"name":"Sheet1","cells":[{"address":"A1","value":"id"},{"address":"A2","value":1},{"address":"B2","formula":"A2*2"}]}]}',
+          properties: {
+            sheets: {
+              type: 'array',
+              minItems: 1,
+              description: 'One or more sheets. Each sheet is { name: string, cells: array }.',
+              items: {
+                type: 'object',
+                required: ['name', 'cells'],
+                properties: {
+                  name: {
+                    type: 'string',
+                    minLength: 1,
+                    description: 'Sheet name (non-empty).',
+                  },
+                  cells: {
+                    type: 'array',
+                    description: 'List of cells to write. Order does not matter; addresses are absolute.',
+                    items: {
+                      type: 'object',
+                      required: ['address'],
+                      description: 'Cell entry. Provide EXACTLY ONE of `value` or `formula`.',
+                      properties: {
+                        address: {
+                          type: 'string',
+                          pattern: '^[A-Za-z]+\\d+$',
+                          description: 'A1-style cell address — e.g. "A1", "B2", "AA10".',
+                        },
+                        value: {
+                          type: ['string', 'number', 'boolean', 'null'],
+                          description: 'Cell value: string, number, boolean, or null. Mutually exclusive with `formula`.',
+                        },
+                        formula: {
+                          type: 'string',
+                          // No leading `=` — the server expects bare expressions.
+                          // `^(?!=)` is a negative lookahead that rejects an `=`
+                          // as the first character; ECMA-262 supported.
+                          pattern: '^(?!=).+',
+                          description: 'Excel formula, WITHOUT leading "=". E.g. "SUM(A1:A10)" not "=SUM(A1:A10)". Mutually exclusive with `value`.',
+                        },
+                      },
+                      // Enforce the value-XOR-formula rule at the schema layer
+                      // so a strict client (or future server) rejects malformed
+                      // cells before the request fires. SPM 2026-06-06
+                      // wild-adoption follow-up.
+                      oneOf: [
+                        { required: ['value'], not: { required: ['formula'] } },
+                        { required: ['formula'], not: { required: ['value'] } },
+                      ],
+                    },
+                  },
+                },
+              },
+            },
+          },
+          required: ['sheets'],
+        },
+        spec_path: {
+          type: 'string',
+          description: 'Path to a .json file carrying the spec (alternative to inline spec for large workbooks).',
+        },
+        out_path: {
+          type: 'string',
+          description: 'Destination .xlsx path. Required when the caller wants the file saved to disk.',
+        },
+        base_file_b64: {
+          type: 'string',
+          description: 'Optional base64 of an existing .xlsx to edit-in-place. When omitted, a fresh workbook is created.',
+        },
       },
-      required: ['out_path'],
+      // out_path is the typical caller's choice but not strictly required —
+      // when omitted, the workbook bytes return in _meta.file_b64 and the
+      // caller saves them (or feeds them to another tool). spec / spec_path
+      // is the only hard requirement.
     },
   },
   {
@@ -1355,7 +1426,63 @@ async function applyFileB64(result, outPath) {
 // reveal at the boundary.
 // ---------------------------------------------------------------------------
 
-function friendlyErrorMessage(toolName, code) {
+// Defense in depth on the 4xx inline message. The SPEC's bet is that
+// 4xx server messages describe the CALLER'S OWN INPUT (which field,
+// what was expected) — but a wrapped 4xx path could still carry
+// absolute file paths, emails, JWTs / Bearer tokens, Slack tokens,
+// or other PII. Scrub those before surfacing, replace with `<…>`
+// placeholders so the caller still sees the SHAPE of the message
+// without the sensitive payload.
+//
+// `<…>` was picked over a more verbose `[redacted-x]` so it's
+// visually compact and unambiguously not real input.
+const PII_SCRUBBERS = [
+  // Bearer / Authorization tokens — match before generic JWT pattern.
+  [/\bBearer\s+[A-Za-z0-9._~+/-]{8,}=*/g, '<bearer>'],
+  // JSON Web Tokens. Three dot-separated base64url segments, the first
+  // starting with `eyJ` (the canonical JWT header prefix).
+  [/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, '<jwt>'],
+  // Slack bot / user / app tokens.
+  [/\bxox[bpoars]-[A-Za-z0-9-]{10,}\b/g, '<slack-token>'],
+  // Our own API keys.
+  [/\bxfa_[a-z]+_[A-Za-z0-9]{16,}\b/g, '<xfa-key>'],
+  // Generic 32+ char hex (api keys / hashes).
+  [/\b[a-f0-9]{32,}\b/gi, '<hex>'],
+  // Emails.
+  [/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, '<email>'],
+  // POSIX absolute paths under /Users, /home, /var, /opt, /tmp, /etc, /private.
+  [/\/(?:Users|home|var|opt|tmp|etc|private)\/[^\s'"`)\]]+/g, '<path>'],
+  // Windows absolute paths.
+  [/[A-Za-z]:\\[^\s'"`)\]]+/g, '<path>'],
+];
+
+// Strip the well-known low-signal noise an inline 4xx surface message
+// could carry: leading "xlsx-for-ai API error 4xx: " prefix from
+// lib/client.js, scrub PII via PII_SCRUBBERS, bound the length so a
+// pathological payload can't blow up the conversation log.
+const INLINE_4XX_MAX_LEN = 280;
+function shapeInline4xxMessage(raw) {
+  if (typeof raw !== 'string') return '';
+  let s = raw.replace(/^xlsx-for-ai API error \d+:\s*/i, '').trim();
+  for (const [pattern, replacement] of PII_SCRUBBERS) {
+    s = s.replace(pattern, replacement);
+  }
+  if (s.length > INLINE_4XX_MAX_LEN) {
+    s = s.slice(0, INLINE_4XX_MAX_LEN - 1) + '…';
+  }
+  return s;
+}
+
+function friendlyErrorMessage(toolName, err) {
+  // err may be undefined (defensive) or any thrown value. Extract the
+  // fields we care about safely.
+  const code = err && err.code;
+  const status = err && err.status;
+  const payload = err && err.payload;
+
+  // Known client-side / mcp.js error codes — keep their pre-existing
+  // short text. Ordered before the 4xx default so the specific message
+  // wins.
   switch (code) {
     case 'DISALLOWED_EXTENSION':
       return `${toolName}: file path must point at a workbook (allowed: .xlsx/.xls/.xlsm/.xlsb/.csv/.ods/.fods/.numbers/.tsv).`;
@@ -1371,8 +1498,6 @@ function friendlyErrorMessage(toolName, code) {
       return `${toolName}: required token env var is not set (see tool docs for which one).`;
     case 'API_UNREACHABLE':
       return `${toolName}: API is unreachable — check network connectivity.`;
-    case 'API_SERVER_ERROR':
-      return `${toolName}: API returned a server error — retry shortly.`;
     case 'TIER_UPGRADE_REQUIRED':
       return `${toolName}: this capability requires a paid tier.`;
     case 'RATE_LIMITED':
@@ -1380,8 +1505,57 @@ function friendlyErrorMessage(toolName, code) {
     case 'FALLBACK_ENGINE_MISSING':
       return `${toolName}: local fallback engine not installed (\`npm install @protobi/exceljs\`).`;
     default:
-      return `${toolName} failed — see server-side logs (request_id in response _meta) for details.`;
+      break;
   }
+
+  // 4xx client-error class: surface the server's validation message
+  // inline. SPM 2026-06-06 wild-adoption SPEC. The 4xx surface
+  // describes the CALLER'S OWN INPUT shape ("spec.sheets must be an
+  // array", "cells[3].address is not a valid Excel address"); the
+  // caller needs that message to fix their call. 5xx stays generic
+  // (it can carry upstream internals).
+  //
+  // Known specific HTTP statuses are mapped first so they keep their
+  // short curated text:
+  if (code === 'API_CLIENT_ERROR') {
+    if (status === 429) {
+      return `${toolName}: free-tier monthly cap reached — see xlsx-for-ai.dev/pricing.`;
+    }
+    if (status === 402) {
+      return `${toolName}: this capability requires a paid tier.`;
+    }
+    // Generic 4xx: surface the server message. Prefer the structured
+    // shape, fall through to the flat message, fall through to the
+    // wrapped err.message (stripped of the "API error 4xx:" prefix).
+    let inline = '';
+    if (payload && typeof payload === 'object') {
+      const structured = payload.error;
+      if (structured && typeof structured === 'object' && typeof structured.message === 'string') {
+        inline = structured.message;
+      } else if (typeof payload.message === 'string') {
+        inline = payload.message;
+      } else if (typeof payload.error === 'string') {
+        inline = payload.error;
+      }
+    }
+    if (!inline && err && typeof err.message === 'string') {
+      inline = err.message;
+    }
+    const shaped = shapeInline4xxMessage(inline);
+    if (shaped) {
+      return `${toolName}: ${shaped}`;
+    }
+    // Graceful fallback when no message is available (empty/absent
+    // payload, non-string fields): generic with tool name, no
+    // `undefined`, no `[object Object]`.
+    return `${toolName}: invalid request (no detail provided).`;
+  }
+
+  // 5xx and everything else — stay generic. Security boundary preserved.
+  if (code === 'API_SERVER_ERROR') {
+    return `${toolName}: API returned a server error — retry shortly.`;
+  }
+  return `${toolName} failed — see server-side logs (request_id in response _meta) for details.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -1873,8 +2047,7 @@ async function main() {
       // generic "tool failed" with the tool name so callers can still
       // route on it without leaking path/server detail. Pre-Friday-
       // external CRITICAL per the Tier-1 audit.
-      const code = err && err.code;
-      const safeMessage = friendlyErrorMessage(name, code);
+      const safeMessage = friendlyErrorMessage(name, err);
       return {
         content: [{ type: 'text', text: `xlsx-for-ai error: ${safeMessage}` }],
         isError: true,
@@ -1981,4 +2154,4 @@ if (require.main === module) {
 // script use TOOLS as the single source of truth for downstream artifacts
 // (manifest.json, mcp-tools.json snapshot consumed by the MSFT plugin
 // manifest), and to expose helpers under test.
-module.exports = { applyFileB64, dispatchTool, TOOLS };
+module.exports = { applyFileB64, dispatchTool, TOOLS, friendlyErrorMessage };

@@ -7,6 +7,58 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 
 ---
 
+## [3.0.8] - 2026-06-06
+
+Wild-adoption fix pair surfaced by a non-Bob Claude agent live-testing
+the MCP. Both are pure friction-removal for callers who can't see our
+server logs.
+
+### Fixed
+
+- **`xlsx_write` is now self-describing.** The `spec` param previously
+  typed as bare `{type: 'object'}` with no shape. Agents guessed
+  reasonable-but-wrong forms (top-level rows array, A1-keyed cells
+  map). 3.0.8 declares the full nested shape (`{sheets: [{name,
+  cells: [{address, value | formula}]}]}`) with property-level
+  constraints (`address` regex, `value` vs `formula` mutual
+  exclusivity, no-leading-`=` on formula). Tool description carries a
+  minimal inline example so a single-shot read works without nested
+  schema rendering.
+- **4xx validation errors now surface inline.** `friendlyErrorMessage`
+  previously had no `API_CLIENT_ERROR` case; the server's precise
+  validation messages (`spec.sheets must be an array`,
+  `cells[3].address is not a valid Excel address`) were computed,
+  preserved by `lib/client.js`, then discarded at the MCP boundary in
+  favor of the generic "see server-side logs" text. Callers without
+  log access had no path forward.
+
+  3.0.8 surfaces the structured server message (`payload.error.message`
+  → `payload.message` → wrapped `err.message` with the
+  `xlsx-for-ai API error 4xx:` prefix stripped) for the generic 4xx
+  default. Specific HTTP statuses (429 rate-limit, 402 tier-upgrade)
+  keep their pre-existing short friendly text. Bounded at 280 chars
+  with an ellipsis to prevent pathological payloads.
+
+### Security boundary preserved
+
+- **5xx stays generic.** `API_SERVER_ERROR` returns the unchanged
+  generic message — 5xx bodies can carry upstream internals. The new
+  surfacing is 4xx-only.
+- All pre-existing client-side codes (FILE_NOT_FOUND, DISALLOWED_EXTENSION,
+  etc.) keep their dedicated short text and do NOT echo paths.
+
+### Tests
+
+- `test/v2/write-self-describing.test.js` — 3 tests pinning the
+  inputSchema shape, the inline example, and the ≤1024 cap.
+- `test/v2/friendly-error.test.js` — 11 tests covering the TEST_PLAN:
+  structured 4xx, flat 4xx, empty 4xx, absent 4xx, prefix-strip
+  fallback, **5xx-stays-generic discriminating case**, 429 / 402
+  specific text, FILE_NOT_FOUND path-redaction, 280-char ellipsis,
+  null/undefined-err graceful default.
+
+---
+
 ## [3.0.7] - 2026-06-06
 
 P1 mitigation + observability for the hosted-tool latency Bob saw in

@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "xlsx-for-ai",
   "display_name": "xlsx-for-ai",
-  "version": "3.0.7",
+  "version": "3.0.8",
   "description": "Reliable Excel/.xlsx access for AI agents. Read, write, diff, redact, validate, describe, filter, aggregate — backed by a hosted API. Free tier auto-registers anonymously on first use.",
   "long_description": "**xlsx-for-ai** is the missing reliability layer that makes spreadsheet reasoning production-grade for LLM agents.\n\nUnlike pandas-style sandboxes, it preserves merged cells, named ranges, formulas, conditional formatting, charts, pivots, and slicers. Cross-engine validation catches the corruption pandas silently masks.\n\n- **Free tier (10,000 calls/month)** — auto-registers an anonymous client_id on first use. No email, no signup form.\n- **Paid tiers** (Bronze / Silver / Gold) for commercial use.\n- **Server-mediated** — engine runs on api.xlsx-for-ai.dev, not your machine. The thin client only reads local file paths and relays bytes.\n- **Dynamic tool catalog** — the tool surface is discovered from the server at startup. New tools appear without re-installing the extension.",
   "author": {
@@ -60,7 +60,7 @@
     },
     {
       "name": "xlsx_write",
-      "description": "create or update a LOCAL .xlsx file from a structured spec.\nDEFAULT creates a new workbook from spec. Pass base_file_b64 to edit-in-place instead. Workbook bytes return in _meta.file_b64 (base64) — NOT in content[0].text.\n\nALWAYS pass out_path when the user wants the written file saved to disk.\nWITHOUT out_path: workbook bytes return in _meta.file_b64 (base64) — caller must save them.\nThe response text confirms whether a save happened — trust the response, do not infer.\n\nUSE WHEN: the user wants to write or edit a spreadsheet at a LOCAL file path. Supports multi-sheet workbooks, formulas, named ranges, and table definitions. Server-validated before writing — safer than generating xlsx bytes directly.\n\nDO NOT USE WHEN: working in a sandbox without local filesystem write access. Or when the user wants to edit an uploaded file in place (there is no local path to write to)."
+      "description": "create or update a LOCAL .xlsx file from a structured spec.\n\nSpec shape: `{sheets: [{name, cells: [{address, value | formula}]}]}`. Each cell has an A1 address (\"A1\", \"B2\") and EITHER `value` (string|number|boolean|null) OR `formula` (string, no leading \"=\"). Minimal example:\n`{\"sheets\":[{\"name\":\"Sheet1\",\"cells\":[{\"address\":\"A1\",\"value\":\"id\"},{\"address\":\"A2\",\"value\":1},{\"address\":\"B2\",\"formula\":\"A2*2\"}]}]}`\n\nALWAYS pass out_path to save to disk. Without out_path the workbook bytes return in _meta.file_b64.\n\nUSE WHEN: the user wants to write or edit a spreadsheet at a LOCAL file path. Server-validated before writing — safer than generating xlsx bytes directly.\n\nDO NOT USE WHEN: working in a sandbox without local filesystem write access. Or editing an uploaded file in place (there is no local path to write to)."
     },
     {
       "name": "xlsx_redact",
