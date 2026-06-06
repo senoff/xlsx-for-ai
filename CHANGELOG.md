@@ -56,12 +56,21 @@ unusable in Claude Desktop:
   field they actually provide; baked-in fields (`description`,
   `inputSchema`) fill in the gaps. This preserves the MCP-spec fields
   the hosted catalog currently omits.
-- **`sanitizeForMcp` floor in `lib/annotations.js`.** Any tool that
-  reaches the MCP transport without `inputSchema` gets the permissive
-  `{ type: 'object' }` floor; any tool without a `description` gets
-  the annotation title (or a generic `xlsx-for-ai tool: <name>`).
-  This is what keeps server-only tools (in the remote response but
-  not in the bundled `TOOLS` array) registerable in Claude Desktop.
+- **`sanitizeForMcp` floor in `lib/annotations.js`.** A safety net: any
+  tool that reaches the MCP transport without `inputSchema` gets the
+  permissive `{ type: 'object' }` floor; any tool without a `description`
+  gets the annotation title (or a generic `xlsx-for-ai tool: <name>`).
+  This guarantees registration even when the catalog returns a stub
+  the bundled `TOOLS` array can't shape — but the floor is a *diagnostic*,
+  not the ship target.
+- **Real per-tool `inputSchema` for the 2 previously server-only tools.**
+  `xlsx_read_handle` and `xlsx_session_set_validations` are now in the
+  bundled `TOOLS` array with full `inputSchema` (properties + required)
+  mirroring the server-side route validation. Dispatch handlers added
+  in `dispatchTool` so the calls relay correctly (`workbook_handle` for
+  read-handle, `session_id + validations` for the session tool — neither
+  fits the generic file_b64 relay path). All 50 tools now ship with
+  real per-tool schemas; zero fall through to the sanitize floor.
 
 ### Tests
 
@@ -85,6 +94,8 @@ provides any field, remote wins on it.
 
 ### Docs
 
+- Bundled tool count rises from 48 → 50 (added `xlsx_read_handle`
+  + `xlsx_session_set_validations` per the tightening above).
 - README tool count corrected to 50 (intro, "What it does" header,
   Claude Desktop verify line, Cursor verify line, Codex CLI verify line).
 - New Healer section documents the 4-tool family (`xlsx_healer_diagnose`,

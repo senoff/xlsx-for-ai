@@ -1168,6 +1168,70 @@ const TOOLS = [
       required: ['file_path', 'intent'],
     },
   },
+  {
+    name: 'xlsx_read_handle',
+    description:
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: read a workbook that has already been uploaded to the server via the chunked upload flow, by its server-side cache handle, WITHOUT re-transferring the bytes. Returns the same shape as xlsx_read (text / json / markdown) but skips the file_b64 round-trip.\n\n' +
+      'USE WHEN: the workbook has already been chunked + finalized into the server-side workbook cache (a `workbook_handle` was returned from the finalize call) and you want to read it again — e.g., a multi-step session where the same large workbook is queried repeatedly. Avoids re-uploading the bytes on every call.\n\n' +
+      'DO NOT USE WHEN: you have a local file path and no prior upload (use xlsx_read — it handles the file_b64 transport for you). Handles expire when the cache TTL elapses; the call returns a clear "not found / expired" error in that case.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workbook_handle: {
+          type: 'string',
+          description: 'Server-side cache handle returned by the chunked-upload finalize call. 1-128 chars.',
+          minLength: 1,
+          maxLength: 128,
+        },
+        sheet: { type: 'string', description: 'Optional: restrict the read to a single sheet by name.' },
+        format: {
+          type: 'string',
+          enum: ['md', 'json'],
+          description: 'Output format. Defaults to md.',
+        },
+      },
+      required: ['workbook_handle'],
+    },
+  },
+  {
+    name: 'xlsx_session_set_validations',
+    description:
+      'xlsx-for-ai — read, write, diff, redact, supervise .xlsx files locally.\n' +
+      'This tool: configure per-session data-validation rules the server will apply to subsequent calls in the same session (e.g., reject rows missing required columns, enforce enum values on a category column, range-bound numeric inputs). Stateful — affects this session only.\n\n' +
+      'USE WHEN: the workflow has multiple write/clean steps in sequence and you want consistent server-side validation across them without restating the rules on every call. Or when validating user-supplied data against a known schema you want enforced for the rest of the session.\n\n' +
+      'DO NOT USE WHEN: you only have a single call to make (just include the validation logic in that call). Or when you do not have a `session_id` (sessions are returned from the session-create surface; this tool is a no-op without one).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        session_id: {
+          type: 'string',
+          description: 'Session identifier returned by the session-create surface. 16-128 chars.',
+          minLength: 16,
+          maxLength: 128,
+        },
+        validations: {
+          type: 'array',
+          description: 'List of validation rules to apply. Each rule names a sheet, a cell ref (e.g., "A1:A100"), and a type (whole|decimal|list|date|time|textLength|custom).',
+          minItems: 1,
+          maxItems: 5000,
+          items: {
+            type: 'object',
+            properties: {
+              sheet: { type: 'string', description: 'Target sheet name.' },
+              ref: { type: 'string', description: 'A1-style cell range the rule applies to.' },
+              type: {
+                type: 'string',
+                description: 'Validation type. Server-side enum: whole, decimal, list, date, time, textLength, custom.',
+              },
+            },
+            required: ['sheet', 'ref', 'type'],
+          },
+        },
+      },
+      required: ['session_id', 'validations'],
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -1736,6 +1800,27 @@ async function dispatchTool(name, args) {
     if (args.confirm !== undefined) body.confirm = args.confirm;
     const result = await callTool('xlsx_healer_intent', body);
     return applyFileB64(result, args.out_path);
+  }
+
+  // Handle-based read (no file_b64; the bytes are already in the server
+  // cache from a prior chunked-upload finalize). Body mirrors the server
+  // schema in routes/xlsx-read-handle.ts.
+  if (name === 'xlsx_read_handle') {
+    const options = {};
+    if (args.sheet !== undefined) options.sheet = args.sheet;
+    if (args.format !== undefined) options.format = args.format;
+    const body = { workbook_handle: args.workbook_handle };
+    if (Object.keys(options).length > 0) body.options = options;
+    return callTool('xlsx_read_handle', body);
+  }
+
+  // Session-state write — no file bytes, just session_id + validation rules.
+  // Body mirrors the server schema in routes/xlsx-session-set-validations.ts.
+  if (name === 'xlsx_session_set_validations') {
+    return callTool('xlsx_session_set_validations', {
+      session_id: args.session_id,
+      validations: args.validations,
+    });
   }
 
   // All other tools (list_sheets, schema, hyperlinks, conditional_formats,
