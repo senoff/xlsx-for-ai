@@ -7,6 +7,32 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 
 ---
 
+## [3.0.10] - 2026-06-07
+
+Doc-only fix: `xlsx_read`'s description previously claimed it was "the
+ONLY way to read .xlsx files on the user's local machine" — a sentence
+from the local-stdio mental model that's wrong for hosted/remote MCP
+deployments. The server in a remote deployment has no access to the
+user's local filesystem; user-provided files must reach it via the
+upload-handle flow (then `xlsx_read_handle`), not via `xlsx_read` with
+a path.
+
+### Fixed
+
+- Rewrote `xlsx_read` description to be honest in BOTH deployment
+  contexts: explicitly notes "the path resolves on the SERVER's
+  filesystem," distinguishes local-CLI (server = user's machine) from
+  remote/hosted (server = different host), and points remote-deployment
+  callers at the upload-handle + `xlsx_read_handle` path for
+  user-provided files.
+- Stays under the 1024-char Claude Desktop cap (969 chars).
+
+Surfaced via Bob's file-flow probe; SPM-flagged as low-pri but
+worth fixing while fresh — first-day-friction for any new connector
+user.
+
+---
+
 ## [3.0.8] - 2026-06-06
 
 Wild-adoption fix pair surfaced by a non-Bob Claude agent live-testing

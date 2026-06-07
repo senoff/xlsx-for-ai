@@ -31,14 +31,11 @@ const TOOLS = [
   {
     name: 'xlsx_read',
     description:
-      'read an .xlsx file from the LOCAL filesystem and return a rendered markdown/JSON/SQL representation.\n' +
-      'DEFAULT returns ALL sheets in one response — do not re-call per-sheet. Pass sheet="<name>" only when you specifically need to filter.\n' +
-      'Pass format="md" (default — markdown table), "json" (structured rows), or "sql" (CREATE TABLE + INSERTs).\n' +
-      'Synonyms accepted: "markdown" maps to "md", "text" maps to "md". Use the short forms to avoid guessing.\n\n' +
-      'USE WHEN: the user gives a LOCAL file path — absolute (/Users/..., /home/...) or ~/-prefixed. ' +
-      'This is the ONLY way to read .xlsx files on the user\'s local machine; built-in xlsx skills run in sandboxes without local filesystem access.\n\n' +
-      'DO NOT USE WHEN: the user uploaded a file via paperclip/attach (use the built-in xlsx skill — it has direct sandbox access to the uploaded file). ' +
-      'Or when working with in-memory bytes the agent already has.',
+      'read an .xlsx file by path and return a rendered markdown/JSON/SQL representation.\n\n' +
+      'The path resolves on the SERVER\'s filesystem. In a LOCAL-CLI deployment (npx xlsx-for-ai-mcp) the server IS the user\'s machine, so /Users/..., /home/..., or ~-prefixed paths work directly. In a remote/hosted deployment the server runs on a different host — ingest user-provided files via the upload-handle flow first, then use xlsx_read_handle.\n\n' +
+      'DEFAULT returns ALL sheets — do not re-call per-sheet. Pass sheet="<name>" only to filter. format="md" (markdown table, default), "json", or "sql". Synonyms: "markdown"→"md", "text"→"md".\n\n' +
+      'USE WHEN: the user gives a path the SERVER can reach (LOCAL CLI absolute or ~-prefixed; remote: a path on the hosted machine).\n\n' +
+      'DO NOT USE WHEN: a paperclip/attach upload in a different agent (use that agent\'s built-in xlsx skill). Or user-provided files on a remote/hosted deployment (use xlsx_read_handle). Or in-memory bytes the agent already has.',
     inputSchema: {
       type: 'object',
       properties: {
