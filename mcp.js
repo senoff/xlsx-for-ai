@@ -39,7 +39,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file. Pass the path string AS-IS — do NOT read, open, or base64-encode the file; the client handles all file I/O. The base64 surface in this connector is OUTPUT-only (_meta.file_b64).' },
         format:    {
           type: 'string',
           enum: ['md', 'json', 'sql'],
@@ -64,7 +64,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file. Pass the path string AS-IS — do NOT read, open, or base64-encode the file; the client handles all file I/O. The base64 surface in this connector is OUTPUT-only (_meta.file_b64).' },
       },
       required: ['file_path'],
     },
@@ -80,7 +80,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file. Pass the path string AS-IS — do NOT read, open, or base64-encode the file; the client handles all file I/O. The base64 surface in this connector is OUTPUT-only (_meta.file_b64).' },
         sheet:     { type: 'string', description: 'Limit to one sheet (default: all).' },
       },
       required: ['file_path'],
@@ -97,8 +97,8 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        file_path_a: { type: 'string', description: 'Path to the base .xlsx file.' },
-        file_path_b: { type: 'string', description: 'Path to the changed .xlsx file.' },
+        file_path_a: { type: 'string', description: 'Absolute path to the base .xlsx file. Pass the path string AS-IS — do NOT base64-encode the file; the client reads it.' },
+        file_path_b: { type: 'string', description: 'Absolute path to the changed .xlsx file. Pass the path string AS-IS — do NOT base64-encode the file; the client reads it.' },
         sheet:       { type: 'string', description: 'Limit diff to one sheet (default: all).' },
       },
       required: ['file_path_a', 'file_path_b'],
@@ -181,7 +181,7 @@ const TOOLS = [
         },
         spec_path: {
           type: 'string',
-          description: 'Path to a .json file carrying the spec (alternative to inline spec for large workbooks).',
+          description: 'Absolute path to a .json file carrying the spec (alternative to inline spec for large workbooks). Pass the path string AS-IS — do NOT base64-encode; the client reads it.',
         },
         out_path: {
           type: 'string',
@@ -189,7 +189,7 @@ const TOOLS = [
         },
         base_file_b64: {
           type: 'string',
-          description: 'Optional base64 of an existing .xlsx to edit-in-place. When omitted, a fresh workbook is created.',
+          description: 'NARROW EXCEPTION — xlsx_write ONLY accepts a base64-encoded base workbook here for edit-in-place. Every OTHER tool in this connector takes a file PATH (`file_path`), not bytes. When omitted, a fresh workbook is created.',
         },
       },
       // out_path is the typical caller's choice but not strictly required —
@@ -212,7 +212,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: 'Absolute path to the source .xlsx file.' },
+        file_path: { type: 'string', description: 'Absolute path to the source .xlsx file. Pass the path string AS-IS — do NOT read, open, or base64-encode the file; the client handles all file I/O.' },
         out_path:  { type: 'string', description: 'Destination for the redacted .xlsx file.' },
       },
       required: ['file_path', 'out_path'],
@@ -238,7 +238,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        file_path:  { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        file_path:  { type: 'string', description: 'Absolute path to the .xlsx file. Pass the path string AS-IS — do NOT read, open, or base64-encode the file; the client handles all file I/O. The base64 surface in this connector is OUTPUT-only (_meta.file_b64).' },
         sheet:      { type: 'string', description: 'Sheet name (default: first sheet).' },
         header_row: { type: 'integer', description: 'Header row (1-based). 0 = treat row 1 as data, no header.' },
         max_rows:   { type: 'integer', description: 'Max data rows to scan (default 10000).' },
@@ -258,7 +258,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        file_path:  { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        file_path:  { type: 'string', description: 'Absolute path to the .xlsx file. Pass the path string AS-IS — do NOT read, open, or base64-encode the file; the client handles all file I/O. The base64 surface in this connector is OUTPUT-only (_meta.file_b64).' },
         predicates: {
           type: 'array',
           minItems: 1,
@@ -292,7 +292,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file. Pass the path string AS-IS — do NOT read, open, or base64-encode the file; the client handles all file I/O. The base64 surface in this connector is OUTPUT-only (_meta.file_b64).' },
         group_by:  { type: 'array', items: { type: 'string' }, minItems: 1, description: 'Columns to group by.' },
         aggs:      {
           type: 'array',
@@ -328,7 +328,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file. Pass the path string AS-IS — do NOT read, open, or base64-encode the file; the client handles all file I/O. The base64 surface in this connector is OUTPUT-only (_meta.file_b64).' },
       },
       required: ['file_path'],
     },
@@ -344,7 +344,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file. Pass the path string AS-IS — do NOT read, open, or base64-encode the file; the client handles all file I/O. The base64 surface in this connector is OUTPUT-only (_meta.file_b64).' },
         by:        {
           type: 'array',
           minItems: 1,
@@ -376,7 +376,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file. Pass the path string AS-IS — do NOT read, open, or base64-encode the file; the client handles all file I/O. The base64 surface in this connector is OUTPUT-only (_meta.file_b64).' },
         column:    { type: 'string', description: 'Column to count values in.' },
         sheet:     { type: 'string' },
         header_row:    { type: 'integer' },
@@ -398,7 +398,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file. Pass the path string AS-IS — do NOT read, open, or base64-encode the file; the client handles all file I/O. The base64 surface in this connector is OUTPUT-only (_meta.file_b64).' },
         sheet:     { type: 'string', description: 'Filter to one sheet (default: all sheets).' },
         include_results: { type: 'boolean', description: 'Include cached results column (default true).' },
         limit:     { type: 'integer', description: 'Max formulas to return (default 1000, max 5000).' },
@@ -418,7 +418,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file. Pass the path string AS-IS — do NOT read, open, or base64-encode the file; the client handles all file I/O. The base64 surface in this connector is OUTPUT-only (_meta.file_b64).' },
         sheet:     { type: 'string', description: 'Filter to one sheet (default: all sheets).' },
         include_columns: { type: 'boolean', description: 'Include column names per table (default true).' },
       },
@@ -436,7 +436,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file. Pass the path string AS-IS — do NOT read, open, or base64-encode the file; the client handles all file I/O. The base64 surface in this connector is OUTPUT-only (_meta.file_b64).' },
         index:     { type: 'array', items: { type: 'string' }, minItems: 1, description: 'Row-axis grouping columns.' },
         columns:   { type: 'array', items: { type: 'string' }, description: 'Column-axis grouping columns (optional).' },
         values:    { type: 'array', items: { type: 'string' }, minItems: 1, description: 'Columns to aggregate.' },
@@ -460,7 +460,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file. Pass the path string AS-IS — do NOT read, open, or base64-encode the file; the client handles all file I/O. The base64 surface in this connector is OUTPUT-only (_meta.file_b64).' },
         formulas: {
           type: 'array',
           items: { type: 'string' },
@@ -488,7 +488,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: 'Absolute path to the source spreadsheet file (any supported format).' },
+        file_path: { type: 'string', description: 'Absolute path to the source spreadsheet file (any supported format). Pass the path string AS-IS — do NOT read, open, or base64-encode the file; the client handles all file I/O.' },
         to: {
           type: 'string',
           enum: [
@@ -516,7 +516,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file. Pass the path string AS-IS — do NOT read, open, or base64-encode the file; the client handles all file I/O. The base64 surface in this connector is OUTPUT-only (_meta.file_b64).' },
         mode: {
           type: 'string',
           enum: ['diagnose', 'execute'],
@@ -577,7 +577,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file. Pass the path string AS-IS — do NOT read, open, or base64-encode the file; the client handles all file I/O. The base64 surface in this connector is OUTPUT-only (_meta.file_b64).' },
       },
       required: ['file_path'],
     },
@@ -594,7 +594,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file. Pass the path string AS-IS — do NOT read, open, or base64-encode the file; the client handles all file I/O. The base64 surface in this connector is OUTPUT-only (_meta.file_b64).' },
         sheet: { type: 'string', description: 'Optional: restrict to a specific sheet.' },
       },
       required: ['file_path'],
@@ -612,7 +612,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file. Pass the path string AS-IS — do NOT read, open, or base64-encode the file; the client handles all file I/O. The base64 surface in this connector is OUTPUT-only (_meta.file_b64).' },
         sheet: { type: 'string', description: 'Optional: restrict to a specific sheet.' },
       },
       required: ['file_path'],
@@ -630,7 +630,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file. Pass the path string AS-IS — do NOT read, open, or base64-encode the file; the client handles all file I/O. The base64 surface in this connector is OUTPUT-only (_meta.file_b64).' },
       },
       required: ['file_path'],
     },
@@ -647,7 +647,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file. Pass the path string AS-IS — do NOT read, open, or base64-encode the file; the client handles all file I/O. The base64 surface in this connector is OUTPUT-only (_meta.file_b64).' },
         sheet: { type: 'string', description: 'Optional: restrict to a specific sheet.' },
       },
       required: ['file_path'],
@@ -665,7 +665,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file. Pass the path string AS-IS — do NOT read, open, or base64-encode the file; the client handles all file I/O. The base64 surface in this connector is OUTPUT-only (_meta.file_b64).' },
         sheet: { type: 'string', description: 'Optional: restrict to a specific sheet.' },
       },
       required: ['file_path'],
@@ -682,7 +682,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: 'Absolute path to the .xlsx / .xlsm file.' },
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx / .xlsm file. Pass the path string AS-IS — do NOT read, open, or base64-encode the file; the client handles all file I/O.' },
       },
       required: ['file_path'],
     },
@@ -699,7 +699,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file. Pass the path string AS-IS — do NOT read, open, or base64-encode the file; the client handles all file I/O. The base64 surface in this connector is OUTPUT-only (_meta.file_b64).' },
         sheet: { type: 'string', description: 'Optional: restrict to a specific sheet.' },
       },
       required: ['file_path'],
@@ -716,7 +716,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: 'Absolute path to the .xlsx / .xlsm / .xlsb file.' },
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx / .xlsm / .xlsb file. Pass the path string AS-IS — do NOT read, open, or base64-encode the file; the client handles all file I/O.' },
       },
       required: ['file_path'],
     },
@@ -733,7 +733,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file. Pass the path string AS-IS — do NOT read, open, or base64-encode the file; the client handles all file I/O. The base64 surface in this connector is OUTPUT-only (_meta.file_b64).' },
         sheet: { type: 'string', description: 'Optional: restrict to a specific sheet.' },
       },
       required: ['file_path'],
@@ -750,7 +750,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file. Pass the path string AS-IS — do NOT read, open, or base64-encode the file; the client handles all file I/O. The base64 surface in this connector is OUTPUT-only (_meta.file_b64).' },
         sheet: { type: 'string', description: 'Optional: restrict to a specific sheet.' },
       },
       required: ['file_path'],
@@ -768,7 +768,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file. Pass the path string AS-IS — do NOT read, open, or base64-encode the file; the client handles all file I/O. The base64 surface in this connector is OUTPUT-only (_meta.file_b64).' },
         sheet: { type: 'string', description: 'Optional: restrict to a specific sheet.' },
       },
       required: ['file_path'],
@@ -785,7 +785,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file. Pass the path string AS-IS — do NOT read, open, or base64-encode the file; the client handles all file I/O. The base64 surface in this connector is OUTPUT-only (_meta.file_b64).' },
       },
       required: ['file_path'],
     },
@@ -802,7 +802,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file. Pass the path string AS-IS — do NOT read, open, or base64-encode the file; the client handles all file I/O. The base64 surface in this connector is OUTPUT-only (_meta.file_b64).' },
       },
       required: ['file_path'],
     },
@@ -818,7 +818,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file. Pass the path string AS-IS — do NOT read, open, or base64-encode the file; the client handles all file I/O. The base64 surface in this connector is OUTPUT-only (_meta.file_b64).' },
       },
       required: ['file_path'],
     },
@@ -834,7 +834,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file. Pass the path string AS-IS — do NOT read, open, or base64-encode the file; the client handles all file I/O. The base64 surface in this connector is OUTPUT-only (_meta.file_b64).' },
         sheet: { type: 'string', description: 'Optional: restrict to a specific sheet.' },
       },
       required: ['file_path'],
@@ -851,7 +851,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file. Pass the path string AS-IS — do NOT read, open, or base64-encode the file; the client handles all file I/O. The base64 surface in this connector is OUTPUT-only (_meta.file_b64).' },
         sheet: { type: 'string', description: 'Optional: restrict to a specific sheet.' },
       },
       required: ['file_path'],
@@ -868,7 +868,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file. Pass the path string AS-IS — do NOT read, open, or base64-encode the file; the client handles all file I/O. The base64 surface in this connector is OUTPUT-only (_meta.file_b64).' },
         sheet: { type: 'string', description: 'Optional: restrict to a specific sheet.' },
       },
       required: ['file_path'],
@@ -885,7 +885,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file. Pass the path string AS-IS — do NOT read, open, or base64-encode the file; the client handles all file I/O. The base64 surface in this connector is OUTPUT-only (_meta.file_b64).' },
         sheet: { type: 'string', description: 'Optional: restrict to a specific sheet.' },
       },
       required: ['file_path'],
@@ -903,7 +903,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: 'Absolute path to the .xlsx file.' },
+        file_path: { type: 'string', description: 'Absolute path to the .xlsx file. Pass the path string AS-IS — do NOT read, open, or base64-encode the file; the client handles all file I/O. The base64 surface in this connector is OUTPUT-only (_meta.file_b64).' },
         sheet: { type: 'string', description: 'Optional: restrict to a specific sheet.' },
         detailed: { type: 'boolean', description: 'If true, return per-cell breakdown (capped at 1000 cells). Default false (per-sheet rollup).' },
       },

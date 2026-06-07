@@ -7,6 +7,49 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 
 ---
 
+## [3.0.14] - 2026-06-07
+
+Doc-class — **demo-blocking**: the agent was inventing a base64-
+encoding step before any tool call ("the doctor tool needs the file
+base64-encoded — let me encode it"), then going off to run `base64`
+in bash and hanging. No tool call ever reached the connector.
+Reproduced live in two sessions including a clean cwd with no
+project CLAUDE.md.
+
+Root cause: `xlsx_write.base_file_b64` is described as "Optional
+base64 of an existing .xlsx to edit-in-place" — the model
+generalized "xlsx tools speak base64" and applied it to every
+input, including read/analysis tools whose only input is a file
+path. The `_meta.file_b64` output mentions reinforced the wrong
+mental model.
+
+### Fixed
+
+- **Tightened every `file_path` property description** (37 sites
+  across the read/analysis/write/integrity surfaces) from the bare
+  "Absolute path to the .xlsx file." to:
+  `"Absolute path to the .xlsx file. Pass the path string AS-IS — do NOT read, open, or base64-encode the file; the client handles all file I/O. The base64 surface in this connector is OUTPUT-only (_meta.file_b64)."`
+- Same tightening on `file_path_a` / `file_path_b` (xlsx_diff) and
+  `spec_path` (xlsx_write).
+- **Sharpened `base_file_b64`** description to flag it as a NARROW
+  EXCEPTION: "xlsx_write ONLY accepts a base64-encoded base
+  workbook here for edit-in-place. Every OTHER tool in this
+  connector takes a file PATH (`file_path`), not bytes."
+
+All edits live in inputSchema property descriptions, which are NOT
+subject to the 1024-char Desktop tool-description cap — the
+hardening costs zero chars against the tool-level description
+budget.
+
+No functional behavior change. Verify by re-running the demo
+prompt set unprompted (no explicit anti-base64 hand-steer) — the
+model should call read/doctor/etc. directly with `file_path`
+without inventing an encode step.
+
+92/92 tests pass.
+
+---
+
 ## [3.0.12] - 2026-06-07
 
 Doc-class — register **xfa** as a documented alias so short prompts
