@@ -31,7 +31,7 @@ const TOOLS = [
   {
     name: 'xlsx_read',
     description:
-      'read an .xlsx file by path and return a rendered markdown/JSON/SQL representation.\n\n' +
+      'xfa — read an .xlsx file by path and return a rendered markdown/JSON/SQL representation.\n\n' +
       'The path resolves on the SERVER\'s filesystem. In a LOCAL-CLI deployment (npx xlsx-for-ai-mcp) the server IS the user\'s machine, so /Users/..., /home/..., or ~-prefixed paths work directly. In a remote/hosted deployment the server runs on a different host — ingest user-provided files via the upload-handle flow first, then use xlsx_read_handle.\n\n' +
       'DEFAULT returns ALL sheets — do not re-call per-sheet. Pass sheet="<name>" only to filter. format="md" (markdown table, default), "json", or "sql". Synonyms: "markdown"→"md", "text"→"md".\n\n' +
       'USE WHEN: the user gives a path the SERVER can reach (LOCAL CLI absolute or ~-prefixed; remote: a path on the hosted machine).\n\n' +

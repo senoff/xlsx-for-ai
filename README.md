@@ -1,5 +1,7 @@
 # xlsx-for-ai
 
+*Short name: **xfa** — works in prompts (e.g. "use xfa to read this file") and matches the internal `xfa_*` / `XFA_*` brand surface.*
+
 **The missing reliability layer that makes spreadsheet reasoning production-grade for LLMs.**
 
 A thin npm client over a hosted API. Install once, add to your agent config, and your agent gets 50 production-grade tools for reading, writing, diffing, redacting, healing, and cryptographically attesting `.xlsx` files — engine complexity runs server-side, engine IP stays private.

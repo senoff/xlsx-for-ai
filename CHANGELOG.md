@@ -7,6 +7,40 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 
 ---
 
+## [3.0.12] - 2026-06-07
+
+Doc-class — register **xfa** as a documented alias so short prompts
+("use xfa to read this file") route reliably to the connector. xfa
+is already the internal brand surface (`xfa_*` API key prefix, `XFA_*`
+env vars, `XFA_PRIVACY`, `XFA_WORKBOOK_CACHE_*`); this surfaces the
+alias to the model so tool-selection signals match.
+
+### Fixed
+
+- `manifest.json.display_name`: `"xlsx-for-ai (xfa)"` — the alias
+  appears in Claude Desktop's connector panel.
+- `manifest.json.long_description`: opens with "(short name **xfa**)"
+  so the alias is in the first sentence the model reads.
+- `manifest.json.description`: notes "short name: xfa" alongside the
+  product line.
+- `manifest.json.keywords`: adds `"xfa"` for directory/search indexing.
+- `mcp.js` `xlsx_read.description`: prepends `xfa — ` (6 chars). The
+  workhorse tool (69% of all xfa traffic) now carries the alias in
+  the description the model reads on every selection. Stays under
+  the 1024-char Desktop cap (975 chars).
+- README intro: adds an italic alias note up top.
+
+Other tool descriptions left unchanged — the connector-level signal
+(display name + long description) covers the routing flag for any
+tool the model picks once it's in the xfa context, and the
+xlsx_read prefix carries the workhorse case. Touching all 50 tool
+descriptions would cost ~300 chars of catalog inflation without
+adding meaningful selection signal.
+
+No functional behavior change.
+
+---
+
 ## [3.0.10] - 2026-06-07
 
 Doc-only fix: `xlsx_read`'s description previously claimed it was "the
