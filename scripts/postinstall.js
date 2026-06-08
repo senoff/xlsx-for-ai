@@ -22,9 +22,19 @@ function isCi() {
   );
 }
 
+// `sudo npm i -g` runs this hook as root: registering then would write
+// /root/.claude.json (or back up root's home), never the invoking user's
+// config — silently misconfiguring the real account. Skip on elevation and
+// let the user run `xlsx-for-ai setup` themselves as their normal user.
+function isElevated() {
+  try { if (process.getuid && process.getuid() === 0) return true; } catch (_) { /* no getuid (Windows) */ }
+  return !!process.env.SUDO_USER;
+}
+
 function main() {
   if (process.env.npm_config_global !== 'true') return;
   if (isCi()) return;
+  if (isElevated()) return;
   try {
     const { registerMcpServer } = require('../lib/mcp-register');
     registerMcpServer({ mode: 'postinstall' });

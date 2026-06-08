@@ -133,6 +133,28 @@ test('FAIL-SAFE: with no known current, a shadowing global is listed but never d
   });
 });
 
+test('TOCTOU guard: refuses to delete through a symlink at the cache dir', () => {
+  const dir = sandbox();
+  const npx = path.join(dir, '_npx');
+  // A real directory an attacker might redirect the cache entry at.
+  const decoy = path.join(dir, 'decoy');
+  fs.mkdirSync(decoy, { recursive: true });
+  fs.writeFileSync(path.join(decoy, 'keep.txt'), 'do not delete me');
+  // The cache's package dir is a SYMLINK (passes isPackageDir via statSync,
+  // which follows links) — simulating a swap into the check→delete window.
+  const nm = path.join(npx, 'h1', 'node_modules');
+  fs.mkdirSync(nm, { recursive: true });
+  const link = path.join(nm, 'xlsx-for-ai');
+  fs.symlinkSync(decoy, link);
+  withEnv({ XFA_NPX_CACHE_DIR: npx, XFA_PREFIX_CANDIDATES: '', XFA_CURRENT_GLOBAL: '' }, () => {
+    const { runCleanup } = load();
+    const res = runCleanup({ confirm: true, log: noLog });
+    assert.deepEqual(res.removed, [], 'must not delete through a symlink');
+    assert.ok(fs.existsSync(link), 'the symlink itself is left untouched');
+    assert.ok(fs.existsSync(path.join(decoy, 'keep.txt')), 'symlink target must be untouched');
+  });
+});
+
 test('isPackageDir enforces the node_modules/xlsx-for-ai shape', () => {
   const dir = sandbox();
   const { isPackageDir } = load();
