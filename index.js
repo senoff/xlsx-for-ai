@@ -559,6 +559,45 @@ async function callServerForStamp(tool, body, explicitOutPath, sourcePath, sidec
   return result;
 }
 
+// ---------------------------------------------------------------------------
+// samples subcommand — copy the bundled demo workbooks into the cwd and print
+// paste-ready prompts so a fresh install has something to run against.
+// ---------------------------------------------------------------------------
+const SAMPLE_FILES = ['reporting-pack-v1.xlsx', 'reporting-pack-v2.xlsx'];
+
+function runSamplesSubcommand(rest) {
+  const force = rest.includes('--force');
+  const srcDir = path.join(__dirname, 'samples');
+  const written = [];
+
+  for (const name of SAMPLE_FILES) {
+    const src = path.join(srcDir, name);
+    if (!fs.existsSync(src)) {
+      process.stderr.write(`xlsx-for-ai samples: bundled sample missing: ${src}\n`);
+      return 1;
+    }
+    const dest = path.resolve(process.cwd(), name);
+    if (fs.existsSync(dest) && !force) {
+      process.stderr.write(`Skipped ${name} (already exists — pass --force to overwrite)\n`);
+      written.push(dest);
+      continue;
+    }
+    fs.copyFileSync(src, dest);
+    process.stderr.write(`Wrote ${dest}\n`);
+    written.push(dest);
+  }
+
+  const [v1, v2] = written;
+  process.stdout.write(
+    '\nDemo workbooks ready. Try these in your AI agent:\n\n' +
+    `  • "Diff ${path.basename(v1)} against ${path.basename(v2)} and tell me what changed."\n` +
+    `  • "Validate ${path.basename(v2)} across two engines and report any cell divergences."\n` +
+    `  • "Redact any PII in ${path.basename(v2)} and show me a manifest of what was found."\n` +
+    `  • "Give me a one-call health report on ${path.basename(v1)}."  (xlsx_doctor)\n\n`,
+  );
+  return 0;
+}
+
 async function main() {
   // Subcommand dispatch — stamp/verify-stamp/receipt/verify-receipt
   // route through dedicated handlers; everything else uses the legacy
@@ -571,6 +610,9 @@ async function main() {
   if (argv.length > 0 && HEAL_SUBCOMMANDS.has(argv[0])) {
     const code = await runHealSubcommand(argv.slice(1));
     process.exit(code);
+  }
+  if (argv.length > 0 && argv[0] === 'samples') {
+    process.exit(runSamplesSubcommand(argv.slice(1)));
   }
 
   const opts = parseArgs(argv);
