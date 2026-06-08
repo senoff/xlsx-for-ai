@@ -74,5 +74,8 @@
   },
   "devDependencies": {
     "husky": "^9.1.7"
+  },
+  "overrides": {
+    "tmp": ">=0.2.6"
   }
 }
