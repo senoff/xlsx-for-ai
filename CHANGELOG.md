@@ -7,6 +7,30 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 
 ---
 
+## [3.1.0] - 2026-06-08
+
+Demo-funnel release. Bundles runnable sample workbooks, adds a one-command
+way to get started, and aligns the package with the everything-free pivot.
+
+### Added
+
+- **`xlsx-for-ai samples` subcommand** — copies two bundled demo workbooks
+  (`reporting-pack-v1.xlsx`, `reporting-pack-v2.xlsx`) into the current
+  directory and prints paste-ready prompts (diff / validate / redact /
+  doctor). `--force` overwrites; existing files are skipped. The workbooks
+  ship in the published tarball under `samples/`.
+
+### Changed
+
+- **README** now leads with the Claude Code install path
+  (`npm install -g xlsx-for-ai && claude mcp add xlsx-for-ai -- xlsx-for-ai-mcp`).
+  The Claude Desktop / `.mcpb`-bundle section and the pricing table are
+  removed — all 50 tools are free (10k calls/mo volume cap is the only limit).
+- **`xlsx_validate` tool description** no longer advertises "PAID — Bronze /
+  Silver / Gold tier required"; it's been free since server v79.
+
+---
+
 ## [3.0.16] - 2026-06-08
 
 Belt-and-suspenders on the base64 misread class (SPM SPEC
