@@ -1501,6 +1501,21 @@ function friendlyErrorMessage(toolName, err) {
       return `${toolName}: free-tier monthly cap reached — see xlsx-for-ai.dev/pricing.`;
     case 'FALLBACK_ENGINE_MISSING':
       return `${toolName}: local fallback engine not installed (\`npm install @protobi/exceljs\`).`;
+    case 'BASE64_MISREAD':
+      // SPM SPEC base64-defensive-error-and-suggested-next-call — turn the
+      // base64-bash-hang class into a one-turn recovery. The error names
+      // the offending field AND restates the contract so the next call
+      // self-corrects.
+      return (
+        `${toolName}: argument "${err.field || 'file_path'}" looks like base64-encoded bytes, not a file path. ` +
+        `This tool takes a PATH STRING (e.g. "/Users/you/foo.xlsx" or "~/Desktop/foo.xlsx"); the client reads and encodes the file for you. ` +
+        `Retry with file_path set to the path string.`
+      );
+    case 'MISSING_REQUIRED_ARG':
+      return (
+        `${toolName}: missing required argument "${err.field || ''}". ` +
+        `Check the tool's input schema; the workhorse case is file_path as a path string (NOT bytes).`
+      );
     default:
       break;
   }
@@ -1559,7 +1574,148 @@ function friendlyErrorMessage(toolName, err) {
 // Tool dispatch
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Defensive input-contract validation (belt-and-suspenders for SPM SPEC
+// base64-defensive-error-and-suggested-next-call).
+//
+// Description hardening in 3.0.14 reduces the rate at which the model
+// invents a base64-encoding step, but doesn't eliminate it. If a tool
+// call arrives with byte-shaped content where a file_path is expected,
+// or with file_path missing entirely, throw a crisp error code the
+// friendlyErrorMessage path translates into actionable text — turning
+// the prior indefinite hang into a one-turn recovery.
+// ---------------------------------------------------------------------------
+
+const FILE_PATH_FIELDS = new Set(['file_path', 'file_path_a', 'file_path_b', 'spec_path']);
+const BASE64_ONLY_REGEX = /^[A-Za-z0-9+/]+=*$/;
+
+function looksLikeBase64(value) {
+  if (typeof value !== 'string') return false;
+  // The trap: `/` is a base64-alphabet character AND a POSIX path
+  // separator, so "contains slash" can't distinguish on its own. Real
+  // file paths carry distinctive markers base64 strings don't:
+  //   - `.` for an extension (any spreadsheet path ends with .xlsx/.xls/
+  //     etc; intermediate dirs often have them too)
+  //   - `\` for Windows path separators
+  //   - `~` for home prefix
+  //   - spaces (common in Mac/Windows user dirs)
+  // If ANY of those appear, we treat the string as a path.
+  if (value.length < 200) return false;
+  if (
+    value.includes('.') ||
+    value.includes('\\') ||
+    value.includes('~') ||
+    value.includes(' ')
+  ) {
+    return false;
+  }
+  const trimmed = value.trim();
+  return BASE64_ONLY_REGEX.test(trimmed);
+}
+
+function validateToolArgs(name, args) {
+  // Find the tool's inputSchema so we can read the `required` array. Use a
+  // local Map lookup so a 50-tool catalog isn't re-scanned per call.
+  if (!validateToolArgs._toolByName) {
+    validateToolArgs._toolByName = new Map(TOOLS.map((t) => [t.name, t]));
+  }
+  const tool = validateToolArgs._toolByName.get(name);
+  if (!tool || !tool.inputSchema) return; // unknown tool — server will route or fail
+  const schema = tool.inputSchema;
+  const required = Array.isArray(schema.required) ? schema.required : [];
+  const argsObj = args && typeof args === 'object' ? args : {};
+
+  // Required-field presence check.
+  for (const field of required) {
+    const v = argsObj[field];
+    if (v === undefined || v === null || (typeof v === 'string' && v.length === 0)) {
+      const err = new Error(`${name}: missing required argument "${field}".`);
+      err.code = 'MISSING_REQUIRED_ARG';
+      err.field = field;
+      throw err;
+    }
+  }
+
+  // Base64-misread check on every file_path-shaped field.
+  for (const field of FILE_PATH_FIELDS) {
+    if (!(field in argsObj)) continue;
+    if (looksLikeBase64(argsObj[field])) {
+      const err = new Error(
+        `${name}: argument "${field}" looks like base64-encoded bytes, not a file path.`
+      );
+      err.code = 'BASE64_MISREAD';
+      err.field = field;
+      throw err;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Suggested-next-call injection on triage tools (SPM SPEC follow-up).
+//
+// xlsx_doctor's findings reference follow-on tools by name ("Run
+// xlsx_workbook_views to enumerate", "Run xlsx_external_links to see
+// the target"). Post-process the response text to add a concrete
+// invocation example for each referenced tool — pre-filled with the
+// caller's file_path. Doubles as a correct-usage exemplar (path-shaped,
+// no base64) that mitigates the misread class structurally.
+// ---------------------------------------------------------------------------
+
+// Tools that take ONLY a required file_path — safe to suggest with a
+// one-arg invocation.
+const _drillDownEligible = (() => {
+  const map = new Map();
+  for (const t of TOOLS) {
+    const req = Array.isArray(t.inputSchema?.required) ? t.inputSchema.required : [];
+    if (req.length === 1 && req[0] === 'file_path') map.set(t.name, true);
+  }
+  return map;
+})();
+
+function injectDrillDownExamples(result, callerToolName, args) {
+  if (!result || typeof result !== 'object') return result;
+  if (!args || typeof args.file_path !== 'string' || args.file_path.length === 0) return result;
+  const content = Array.isArray(result.content) ? result.content : null;
+  if (!content) return result;
+  // First text block holds the rendered findings.
+  const firstText = content.find((c) => c && c.type === 'text' && typeof c.text === 'string');
+  if (!firstText) return result;
+
+  // Scan for xlsx_FOO mentions OTHER than the caller itself.
+  const mentioned = new Set();
+  const re = /\bxlsx_[a-z_]+(?:_[a-z_]+)*\b/g;
+  let m;
+  while ((m = re.exec(firstText.text)) !== null) {
+    const tool = m[0];
+    if (tool === callerToolName) continue;
+    if (_drillDownEligible.has(tool)) mentioned.add(tool);
+  }
+  if (mentioned.size === 0) return result;
+
+  const filePathJson = JSON.stringify(args.file_path);
+  const lines = [...mentioned].sort().map(
+    (toolName) => `- \`${toolName}({ "file_path": ${filePathJson} })\``
+  );
+  const footer =
+    '\n\n---\nDrill-down suggestions — concrete invocations pre-filled with your file_path ' +
+    '(pass the path STRING, not file bytes; the client reads the file):\n' +
+    lines.join('\n');
+
+  // Return a new result object with the footer appended; do NOT mutate the
+  // server's response.
+  const newContent = content.map((c) => {
+    if (c === firstText) return { ...c, text: c.text + footer };
+    return c;
+  });
+  return { ...result, content: newContent };
+}
+
 async function dispatchTool(name, args) {
+  // Defensive validation — runs first so a base64 misread or missing
+  // file_path produces an actionable error instead of an opaque server
+  // failure or a base64-bash-hang.
+  validateToolArgs(name, args);
+
   // xlsx_read: relay to API; fallback to local on unreachable / 5xx
   if (name === 'xlsx_read') {
     const body = {
@@ -1954,7 +2110,14 @@ async function dispatchTool(name, args) {
     file_b64: fileToB64(args.file_path),
     options: opts,
   };
-  return callTool(name, body);
+  const result = await callTool(name, body);
+
+  // Triage tools that mention follow-on tools in their findings get a
+  // drill-down footer with pre-filled invocations. xlsx_doctor is the
+  // primary triage surface; xlsx_topology and xlsx_doctor's siblings can
+  // benefit too, so we run the injection universally — it's a no-op on
+  // any response whose text doesn't mention other xlsx_* tools.
+  return injectDrillDownExamples(result, name, args);
 }
 
 // ---------------------------------------------------------------------------

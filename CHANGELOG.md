@@ -7,6 +7,65 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 
 ---
 
+## [3.0.16] - 2026-06-08
+
+Belt-and-suspenders on the base64 misread class (SPM SPEC
+2026-06-07-base64-defensive-error-and-suggested-next-call). The 3.0.14
+description hardening cut the misread rate but didn't guarantee it;
+this release closes the failure shape with two structural defenses.
+
+### Added
+
+- **Defensive input-contract validation** in `dispatchTool` runs BEFORE
+  any server round-trip. Two new error codes:
+  - `MISSING_REQUIRED_ARG` — fires when a required field (per the
+    tool's inputSchema) is missing or empty. Carries the field name
+    so the friendly message can quote it.
+  - `BASE64_MISREAD` — fires when a `file_path` / `file_path_a` /
+    `file_path_b` / `spec_path` argument is >200 chars AND looks like
+    pure base64 (no `.`, `\`, `~`, or spaces; full base64 alphabet).
+    Heuristic chosen because `/` is a base64-alphabet character too —
+    distinguishing on `.`/`\`/`~`/space is what catches the real case
+    without false-positives on legit paths.
+- **friendlyErrorMessage** gains cases for both codes — the response
+  text explicitly names the offending field, restates the
+  path-string-not-bytes contract, and tells the model to retry with
+  `file_path` set to a path string. Turns the prior indefinite
+  base64-bash-hang into a one-turn recovery.
+- **Drill-down footer on triage tool outputs.** When a tool response
+  mentions follow-on `xlsx_*` tool names in its findings (e.g.,
+  `xlsx_doctor` references `xlsx_external_links` / `xlsx_workbook_views`),
+  the client appends concrete invocations with the caller's
+  `file_path` pre-filled:
+  ```
+  ---
+  Drill-down suggestions — concrete invocations pre-filled with your file_path
+  (pass the path STRING, not file bytes; the client reads the file):
+  - `xlsx_workbook_views({ "file_path": "/Users/bob/foo.xlsx" })`
+  - `xlsx_external_links({ "file_path": "/Users/bob/foo.xlsx" })`
+  ```
+  Doubles as a correct-usage exemplar the agent imitates on the next
+  call — structural mitigation against the misread.
+
+### Tests
+
+`test/v2/base64-defensive.test.js` (10 cases):
+- BASE64_MISREAD / MISSING_REQUIRED_ARG friendly-message shape.
+- Missing / empty / base64-shaped / multi-path-field validation.
+- False-positive guards: normal absolute path, tilde path, short
+  string with no separators (all pass validation).
+
+`test/v2/drill-down-suggestions.test.js` (3 cases):
+- Findings mentioning follow-on tools → footer with pre-filled
+  invocations.
+- No tools mentioned → no footer (no-op).
+- Self-reference excluded (`xlsx_doctor` mentioning itself doesn't
+  suggest `xlsx_doctor`).
+
+106 total tests pass.
+
+---
+
 ## [3.0.14] - 2026-06-07
 
 Doc-class — **demo-blocking**: the agent was inventing a base64-
