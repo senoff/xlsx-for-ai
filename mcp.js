@@ -2226,6 +2226,15 @@ async function main() {
   upgradeCatalogInBackground(server, (next) => {
     liveTools = next;
   });
+
+  // Self-upgrade of the globally-installed CLI — detached, throttled to once
+  // per 24h, stderr-only, opt-out via XFA_NO_AUTO_UPDATE=1. Never awaited; a
+  // failure here must never touch the live MCP session.
+  try {
+    require('./lib/auto-upgrade').checkForUpgrade({
+      currentVersion: require('./package.json').version,
+    });
+  } catch (_) { /* never let an upgrade check break startup */ }
 }
 
 async function withTimeout(promise, ms, label) {

@@ -13,6 +13,7 @@
     "index.js",
     "mcp.js",
     "lib/annotations.js",
+    "lib/auto-upgrade.js",
     "lib/client.js",
     "lib/config.js",
     "lib/discover.js",
