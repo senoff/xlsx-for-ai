@@ -170,6 +170,22 @@ test('never widens ~/.claude.json perms (0600 on create, preserved on update)', 
   });
 });
 
+test('backup file does not widen perms beyond the source (~/.claude.json holds tokens)', () => {
+  const { cfg, dir } = sandbox();
+  withEnv(cfg, () => {
+    const { registerMcpServer } = load();
+    // Seed a stale entry at 0o600 so the next register backs it up before mutating.
+    fs.writeFileSync(cfg, JSON.stringify({ mcpServers: { 'xlsx-for-ai': { command: 'npx' } } }));
+    fs.chmodSync(cfg, 0o600);
+    registerMcpServer({ mode: 'cli', log: noLog });
+    const baks = fs.readdirSync(dir).filter((f) => f.includes('.bak-'));
+    assert.equal(baks.length >= 1, true, 'expected a backup to be written');
+    for (const b of baks) {
+      assert.equal(fs.statSync(path.join(dir, b)).mode & 0o777, 0o600, `backup ${b} must not widen perms`);
+    }
+  });
+});
+
 test('isStaleEntry flags npx and non-bin commands, accepts the global bin', () => {
   const { isStaleEntry } = load();
   assert.equal(isStaleEntry({ command: 'npx', args: ['-y', 'xlsx-for-ai-mcp'] }, BIN), true);
