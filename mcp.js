@@ -572,7 +572,7 @@ const TOOLS = [
       'cross-engine consistency check on a LOCAL .xlsx file — runs the workbook through TWO independent renderers (@protobi/exceljs and @cj-tech-master/excelts) and reports cell-level divergences.\n' +
       'No other tool can do this: pandas trusts cached values, openpyxl is single-engine, and Excel-itself disagrees with everything else on edge cases like LAMBDA, dynamic arrays, and timezone handling. xlsx_validate is the only way to know whether two engines agree on what your workbook says.\n\n' +
       'USE WHEN: the user is about to send the workbook downstream for analysis or as an authoritative source — pre-flight check. Or for audit / regression testing across engine versions. ' +
-      'PAID — Bronze / Silver / Gold tier required.\n\n' +
+      'Free tier — counts against the 10k/mo cap.\n\n' +
       'DO NOT USE WHEN: a casual read suffices (use xlsx_read). Or for upload/attached files.',
     inputSchema: {
       type: 'object',
