@@ -18,6 +18,9 @@
     "lib/discover.js",
     "lib/fallback-read.js",
     "lib/register.js",
+    "lib/mcp-register.js",
+    "lib/setup.js",
+    "scripts/postinstall.js",
     "samples/reporting-pack-v1.xlsx",
     "samples/reporting-pack-v2.xlsx",
     "README.md",
@@ -30,6 +33,7 @@
     "check-manifests": "node scripts/build-manifests.js --check",
     "check-publish-allowlist": "node scripts/check-publish-allowlist.js",
     "prepublishOnly": "node scripts/check-publish-allowlist.js && node scripts/build-manifests.js --check",
+    "postinstall": "node scripts/postinstall.js",
     "prepare": "husky"
   },
   "keywords": [

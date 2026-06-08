@@ -2303,6 +2303,11 @@ async function upgradeCatalogInBackground(server, swap) {
 
 // Guard: don't auto-start when required by tests
 if (require.main === module) {
+  // `xlsx-for-ai-mcp setup ...` wires Claude Code instead of starting the
+  // stdio server — intercept before main() opens the transport.
+  if (process.argv[2] === 'setup') {
+    process.exit(require('./lib/setup').runSetup(process.argv.slice(3)));
+  }
   main().catch((err) => {
     process.stderr.write(`xlsx-for-ai MCP fatal: ${err.message}\n`);
     process.exit(1);

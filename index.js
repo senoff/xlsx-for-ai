@@ -619,6 +619,9 @@ async function main() {
   if (argv.length > 0 && argv[0] === 'samples') {
     process.exit(runSamplesSubcommand(argv.slice(1)));
   }
+  if (argv.length > 0 && argv[0] === 'setup') {
+    process.exit(require('./lib/setup').runSetup(argv.slice(1)));
+  }
 
   const opts = parseArgs(argv);
 
