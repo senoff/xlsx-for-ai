@@ -18,6 +18,8 @@
     "lib/discover.js",
     "lib/fallback-read.js",
     "lib/register.js",
+    "samples/reporting-pack-v1.xlsx",
+    "samples/reporting-pack-v2.xlsx",
     "README.md",
     "SECURITY.md",
     "LICENSE"
