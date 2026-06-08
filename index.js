@@ -11,7 +11,9 @@
  *   xlsx-for-ai --enable-telemetry
  *   xlsx-for-ai --disable-telemetry
  *
- * cursor-reads-xlsx is a back-compat alias for xlsx-for-ai.
+ * `xfa` is the short alias for `xlsx-for-ai` (same entrypoint) — e.g. `xfa
+ * <file.xlsx>`, `xfa samples`, `xfa --version`. cursor-reads-xlsx is a
+ * back-compat alias for the same command.
  */
 
 const fs   = require('fs');

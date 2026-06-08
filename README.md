@@ -1,6 +1,6 @@
 # xlsx-for-ai
 
-*Short name: **xfa** — works in prompts (e.g. "use xfa to read this file") and matches the internal `xfa_*` / `XFA_*` brand surface.*
+*Short name: **xfa** — a real CLI command (`xfa <file>`, `xfa samples`, `xfa --version`) and the prompt shorthand (e.g. "use xfa to read this file"). Same entrypoint as `xlsx-for-ai`; matches the internal `xfa_*` / `XFA_*` brand surface.*
 
 **The missing reliability layer that makes spreadsheet reasoning production-grade for LLMs.**
 
@@ -31,7 +31,7 @@ claude mcp add xlsx-for-ai -- xlsx-for-ai-mcp
 
 Verify: in a new Claude Code session, ask "what MCP tools do you have?" — 50 `xlsx_*` tools should appear, including `xlsx_doctor` (one-call health report — try it first on any unknown workbook).
 
-Then run `xlsx-for-ai samples` to drop two demo workbooks in your working directory and get paste-ready prompts to try.
+Then run `xfa samples` (shorthand for `xlsx-for-ai samples`) to drop two demo workbooks in your working directory and get paste-ready prompts to try.
 
 ### Cursor
 
