@@ -582,7 +582,12 @@ function runSamplesSubcommand(rest) {
       written.push(dest);
       continue;
     }
-    fs.copyFileSync(src, dest);
+    try {
+      fs.copyFileSync(src, dest);
+    } catch (e) {
+      process.stderr.write(`xlsx-for-ai samples: could not write ${dest}: ${e.message}\n`);
+      return 1;
+    }
     process.stderr.write(`Wrote ${dest}\n`);
     written.push(dest);
   }
