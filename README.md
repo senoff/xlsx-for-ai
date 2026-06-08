@@ -20,28 +20,18 @@ npm install -g xlsx-for-ai
 
 Add `xlsx-for-ai` as a tool server in your agent runtime. First invocation auto-registers an anonymous client UUID — no email, no signup, no friction.
 
-### Claude Desktop
+### Claude Code
 
-**Easiest: one-click install via the `.mcpb` bundle.** Download and drag into Claude Desktop (Settings → Extensions):
+Install globally, then register the MCP server with one command:
 
-**[xlsx-for-ai.mcpb](https://github.com/senoff/xlsx-for-ai/releases/latest/download/xlsx-for-ai.mcpb)** *(latest release — version-agnostic stable filename, always serves the current bundle)*
-
-The bundle includes the full npm package and registers all MCP tools automatically. No manual config edits needed.
-
-**Or: hand-edit the config file** at `~/Library/Application Support/Claude/claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "xlsx-for-ai": {
-      "command": "npx",
-      "args": ["-y", "-p", "xlsx-for-ai@latest", "xlsx-for-ai-mcp"]
-    }
-  }
-}
+```bash
+npm install -g xlsx-for-ai
+claude mcp add xlsx-for-ai -- xlsx-for-ai-mcp
 ```
 
-Verify either path: restart Claude Desktop, open a new conversation, and ask "what MCP tools do you have?" — 50 `xlsx_*` tools should appear, including `xlsx_doctor` (one-call health report — try it first on any unknown workbook).
+Verify: in a new Claude Code session, ask "what MCP tools do you have?" — 50 `xlsx_*` tools should appear, including `xlsx_doctor` (one-call health report — try it first on any unknown workbook).
+
+Then run `xlsx-for-ai samples` to drop two demo workbooks in your working directory and get paste-ready prompts to try.
 
 ### Cursor
 
@@ -271,7 +261,7 @@ These workflows are the reason tool descriptions are FP&A-legible: when a develo
 - **Confidence-rated schema inference.** `xlsx_schema` returns type confidence scores alongside inferred types. Agents can branch on confidence rather than trusting a blind guess.
 - **Audit trail.** Every tool call — success or failure — is logged server-side with timestamp, client ID, endpoint, file size, latency, and error class. Foundation for the Phase 8 supervisor protocol.
 - **Hardened input validation.** Four pre-engine guards on every uploaded buffer: billion-laughs XML bomb defense, control-character stripping, worksheet buffer ceiling (slow ZIP-bomb defense), and typed error chaining. Applied before the xlsx engine sees any bytes.
-- **Agent-readable errors.** Rate-limit and tier-gate errors return structured JSON with upgrade options — agents can read them and prompt the user intelligently, not just surface a status code.
+- **Agent-readable errors.** Rate-limit and validation errors return structured JSON — agents can read them and prompt the user intelligently, not just surface a status code.
 
 ---
 
@@ -283,19 +273,9 @@ See [PRIVACY.md](PRIVACY.md) for the full data-handling policy.
 
 ---
 
-## Pricing
+## What it costs
 
-Annual-only — kills churn ops overhead. All paid tiers include every tool (`xlsx_validate` is the one Free-excluded tool; everything else is on Free).
-
-| Tier | Price | File cap | Calls/mo | Notes |
-|---|---|---|---|---|
-| Free | $0 | 10 MB | 10,000 | Anonymous UUID registration. All 39 read-only tools. Non-commercial use. |
-| Bronze | $29/yr | 25 MB | 20,000 | Commercial use. + `xlsx_validate` cross-engine check. |
-| Silver | $99/yr | 50 MB | 40,000 | Same surface, higher caps. |
-| Gold | $199/yr | 100 MB | 100,000 | Same surface, highest caps for solo users. |
-| Enterprise | quote | custom | custom | Higher caps, SLA, support. |
-
-Free tier is real. No credit card. No email. Anonymous UUID registration. Pay at [xlsx-for-ai.dev](https://xlsx-for-ai.dev) — Stripe Checkout, instant tier flip via webhook.
+Free. All 50 tools, no paid tiers. No credit card, no email — registration is an anonymous client UUID created on first call. A volume cap (10,000 calls/month) keeps the hosted API healthy; that's the only limit.
 
 ---
 
@@ -308,7 +288,7 @@ The npm client (`xlsx-for-ai`, this package) is MIT. The hosted API server (`xls
 ## Architecture
 
 ```
-agent (Claude Desktop / Cursor / Continue / Zed / Windsurf / custom)
+agent (Claude Code / Cursor / Continue / Zed / Windsurf / custom)
   └── MCP stdio
         └── xlsx-for-ai-mcp  (this package, ~200 lines)
               └── POST /api/v1/tools/<name>  →  xlsx-for-ai-server.fly.dev
