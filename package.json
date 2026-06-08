@@ -20,6 +20,7 @@
     "lib/register.js",
     "lib/mcp-register.js",
     "lib/setup.js",
+    "lib/installer-cleanup.js",
     "scripts/postinstall.js",
     "samples/reporting-pack-v1.xlsx",
     "samples/reporting-pack-v2.xlsx",
