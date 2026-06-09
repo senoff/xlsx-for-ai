@@ -155,6 +155,24 @@ test('TOCTOU guard: refuses to delete through a symlink at the cache dir', () =>
   });
 });
 
+test('FAIL-SAFE: a non-resolvable current path does not make a shadow deletable', () => {
+  const dir = sandbox();
+  const prefix = path.join(dir, 'some-prefix');
+  const shadow = mkPkgDir(prefix, 'lib');
+  withEnv({
+    XFA_NPX_CACHE_DIR: path.join(dir, 'no-npx'),
+    XFA_PREFIX_CANDIDATES: prefix,
+    // Non-empty but points nowhere real: realpath() yields null, so we cannot
+    // prove the shadow isn't the authoritative install — must not delete it.
+    XFA_CURRENT_GLOBAL: path.join(dir, 'does-not-exist', 'xlsx-for-ai'),
+  }, () => {
+    const { runCleanup } = load();
+    const res = runCleanup({ confirm: true, log: noLog });
+    assert.deepEqual(res.removed, [], 'must not delete when current is unresolvable');
+    assert.ok(fs.existsSync(shadow), 'shadowing global untouched');
+  });
+});
+
 test('isPackageDir enforces the node_modules/xlsx-for-ai shape', () => {
   const dir = sandbox();
   const { isPackageDir } = load();

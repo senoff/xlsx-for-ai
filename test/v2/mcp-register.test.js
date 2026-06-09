@@ -106,6 +106,19 @@ test('invalid JSON: backs up and skips without throwing', () => {
   });
 });
 
+test('valid JSON but non-object shape: backs up and skips without throwing', () => {
+  const { dir, cfg } = sandbox();
+  fs.writeFileSync(cfg, '["not", "an", "object"]'); // valid JSON, wrong shape
+  withEnv(cfg, () => {
+    const { registerMcpServer } = load();
+    const res = registerMcpServer({ mode: 'postinstall', log: noLog });
+    assert.equal(res.ok, false);
+    assert.equal(res.skipped, true);
+    const baks = fs.readdirSync(dir).filter((f) => f.includes('.bak-'));
+    assert.ok(baks.length >= 1, 'expected a backup of the non-object config');
+  });
+});
+
 test('missing global bin: cli mode throws, postinstall mode skips', () => {
   const { cfg } = sandbox();
   const prevCfg = process.env.XFA_CLAUDE_CONFIG;
