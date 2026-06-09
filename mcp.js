@@ -14,7 +14,7 @@ const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio
 const { CallToolRequestSchema, ListToolsRequestSchema } = require('@modelcontextprotocol/sdk/types.js');
 
 const { ensureRegistered } = require('./lib/register');
-const { callTool }         = require('./lib/client');
+const { callTool, setMcpClientInfo } = require('./lib/client');
 const { fallbackRead }     = require('./lib/fallback-read');
 const { resolveCatalog }   = require('./lib/discover');
 const { applyAnnotations, sanitizeForMcp } = require('./lib/annotations');
@@ -2179,7 +2179,17 @@ async function main() {
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: liveTools }));
 
+  // Per-runtime telemetry: capture the caller's clientInfo (which MCP runtime
+  // is driving us) once, on the first tool call. `initialize` always precedes
+  // tool calls, so getClientVersion() is populated by now. Guarded so we only
+  // set it once; never fatal if the SDK shape shifts.
+  let clientInfoCaptured = false;
+
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    if (!clientInfoCaptured) {
+      clientInfoCaptured = true;
+      try { setMcpClientInfo(server.getClientVersion()); } catch (_) { /* non-fatal */ }
+    }
     const { name, arguments: args } = request.params;
     // Accept any tool the live catalog advertises. dispatchTool has a
     // generic single-file relay path (see end of dispatchTool) that handles
