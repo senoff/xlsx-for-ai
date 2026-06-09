@@ -222,6 +222,110 @@ Tool responses include a citation footer and a `_meta` block (tool name, version
 
 ---
 
+## Tools
+
+All **50 tools** the MCP server exposes (generated from `tools/list`). Invoke any by asking your agent in plain English, or call the API/CLI directly.
+
+**Read & explore**
+
+- `xlsx_read` — read an .xlsx file by path and return a rendered markdown/JSON/SQL representation.
+- `xlsx_read_handle` — read a workbook that has already been uploaded to the server via the chunked upload flow, by its server-side cache handle, WITHOUT re-transferring the bytes. Returns the same shape as xlsx_read (text / json / markdown) but skips the file_b64 round-trip.
+- `xlsx_validate` — cross-engine consistency check on a LOCAL .xlsx file — runs the workbook through TWO independent renderers (@protobi/exceljs and @cj-tech-master/excelts) and reports cell-level divergences.
+
+**Inspect structure**
+
+- `xlsx_charts` — List every chart in a LOCAL .xlsx file with type (bar / line / pie / scatter / area / doughnut / radar / stock / surface / bubble), title, axis titles, and per-series formula refs (the cell ranges the chart pulls from). Sheet attribution via the OOXML drawing rel chain.
+- `xlsx_comments` — list every cell comment in a workbook — both legacy notes (yellow stickies, cell.note) AND modern threaded comments (multi-author conversations stored separately in the OOXML zip). Per entry: kind, sheet, cell, author, text, plus any reply thread.
+- `xlsx_conditional_formats` — list every conditional formatting rule in a workbook — color scales, data bars, icon sets, formula-based highlights, top-N, duplicate / unique values, contains-text, time-period, above-average. Per rule: range, type, operator, formulae, priority, stopIfTrue.
+- `xlsx_data_validations` — list every cell-level data validation rule (dropdowns, numeric/date bounds, text-length caps, custom formulas) defined in a workbook — the constraints that Excel enforces when a human types into the cell.
+- `xlsx_describe` — pandas-style df.describe() per column — count, nulls, unique, min/max/mean/std for numerics, dtype with purity score.
+- `xlsx_external_links` — list every external workbook reference this file depends on — `=[Budget.xlsx]Sheet1!A1` style formulas. Per link: target path (decoded), classification (http / network share / absolute / relative), sheets pulled from the external workbook, count of cached cell values, and defined-name references.
+- `xlsx_form_controls` — list every form control (Check Box, Button, Drop-down, List Box, Option Button, Scroll Bar, Spinner, Label, Group Box) in a workbook with the linked cell, current value, dropdown source range, and min/max/step bounds where applicable.
+- `xlsx_formulas` — extract every formula in a LOCAL .xlsx workbook — cell coord (A1), formula text, cached result. openpyxl-style read-only metadata.
+- `xlsx_hyperlinks` — list every hyperlink in a workbook with its anchor cell, target URL/anchor, display text, tooltip, and a kind classifier (external / internal / mailto / unknown).
+- `xlsx_images` — List every embedded image in a LOCAL .xlsx file with format (png / jpg / gif / svg / bmp / tiff / emf / wmf), size in bytes, sheet attribution, and anchor cell range (the cells the image floats over). Reads xl/media/* + xl/drawings/* directly.
+- `xlsx_list_sheets` — list sheet names, dimensions, and visibility for a LOCAL .xlsx file.
+- `xlsx_macros` — Inspect xlsm / xlsb workbooks for VBA macro presence, vbaProject.bin size, and likely module names (ThisWorkbook / Sheet<N> / Module<N> / Class<N> / UserForm<N> via heuristic UTF-16LE scan). Returns short safety advice the LLM should relay to the user.
+- `xlsx_merged_cells` — list every merged-cell region with master-cell value, range, span dimensions, and kind heuristic ("header" / "horizontal" / "vertical" / "block"). Pandas reads merged cells by dropping the relationship — it sees one value in the master cell and three blanks alongside. xlsx_merged_cells is the layout-aware view: "A1:D1 is ONE cell that says Q4 2024" rather than four cells where three are mysteriously empty.
+- `xlsx_named_ranges` — list all defined names (named ranges) in a LOCAL .xlsx workbook — name, scope (workbook or sheet), kind (cell / range / formula), reference.
+- `xlsx_pivot_tables` — List every PRE-EXISTING pivot table definition in a LOCAL .xlsx file (the ones an Excel user already built). Per pivot: sheet, name, location range, source range (or named-range / table reference), row / column / page fields, and data fields with their agg function (sum / count / average / max / min / product / stdDev / etc.).
+- `xlsx_print_settings` — surface "what would Excel print right now" per worksheet — print area, orientation, paper size (A4 / Letter / Legal / Tabloid / etc.), scale or fitToPage, margins, headers/footers split into Excel's L/C/R zones, print titles (rows / columns repeated on every page), manual page breaks, plus B&W / draft / centered flags.
+- `xlsx_properties` — Surface the workbook's identity card from a LOCAL .xlsx file. Core: creator, last_modified_by, created/modified/lastPrinted timestamps, title, subject, company, manager, keywords, category, description. Application: app name + version, doc security label, hyperlink base. Custom: every user-defined Info > Properties entry (Department, ReviewedBy, ApprovalRequired, etc.) with type tag and value.
+- `xlsx_protection` — Surface every protection setting in a LOCAL .xlsx file so an agent knows what it can and cannot edit. Workbook-level (lockStructure, lockWindows), per-sheet (protected? password? hidden state?), per-action allow/block list (formatCells, sort, insertRows, pivotTables, etc.), and per-cell unlocked / hidden samples — these are the cells a human would actually be allowed to type into when the sheet is otherwise read-only.
+- `xlsx_schema` — infer column schema of a LOCAL .xlsx file — types, nullable flags, header row, sample values.
+- `xlsx_slicers_timelines` — List every slicer (interactive filter button) and timeline (date-range filter visual) in a LOCAL .xlsx file with their captions, source bindings (table column or pivot table), and timeline granularity (years / quarters / months / days) plus the currently-selected date range.
+- `xlsx_styles` — surface cell formatting (number formats, fonts, fills, alignment) so an agent knows what a cell LOOKS like, not just its raw value. Default mode: per-sheet rollup of top-N number formats / fonts / fills with counts. Detailed mode (opt-in, capped at 1000 cells): per-cell breakdown for narrow queries.
+- `xlsx_tables` — list every Excel ListObject ("Format as Table" structures) in a LOCAL .xlsx workbook — name, sheet, range, header/totals flags, columns.
+- `xlsx_workbook_views` — Surface the UI state of a LOCAL .xlsx file — what a human sees when they open it in Excel. Per sheet: visibility (visible / hidden / veryHidden), view state, zoom, active cell + selection, frozen-pane breakdown, gridlines / row-col headers / ruler / RTL flags, tab color. Workbook level: which sheet is active when Excel opens.
+
+**Query & analyze**
+
+- `xlsx_aggregate` — pandas-style df.groupby([cols]).agg({col: func}) on a LOCAL .xlsx file. funcs: sum / mean / min / max / count / count_distinct.
+- `xlsx_diff` — compute a semantic diff between two LOCAL .xlsx files — cell-level deltas, formula changes, added/removed rows.
+- `xlsx_eval` — evaluate Excel formulas against a LOCAL .xlsx file via HyperFormula. xlwings-style.
+- `xlsx_filter` — pandas-style row filter on a LOCAL .xlsx file with predicates AND-combined: eq/ne/gt/gte/lt/lte/contains/in/is_null/not_null.
+- `xlsx_pivot` — pandas-style pivot_table() on a LOCAL .xlsx file — reshape a flat table into a 2D matrix where rows are unique values of `index`, columns are unique values of `columns`, and cells are an aggregation of `values`.
+- `xlsx_sort` — pandas-style df.sort_values() on a LOCAL .xlsx file with multi-column sort and per-column direction (asc/desc, default asc).
+- `xlsx_topology` — one-call workbook orientation. Returns sheets × dimensions × formulas × named ranges × tables × validations × hyperlinks × merges in one shot, plus feature flags (macros / external refs / pivots / LAMBDA / dynamic arrays).
+- `xlsx_value_counts` — pandas-style Series.value_counts() on one column of a LOCAL .xlsx file — count each unique value, sorted by frequency desc, with percentage.
+
+**Clean & fix**
+
+- `xlsx_data_clean` — AI-native data cleaning for a LOCAL .xlsx file. Scans for the seven most common data-grime issues — NA variants (N/A, NA, null, -), merged-cell residue, type-coercion mistakes (numeric-as-text / date-as-serial / leading-zero stripped), trailing-row noise (footers / totals), header-row-not-first (preamble before headers), encoding glitches (UTF-8-as-CP1252 mojibake), and duplicate column headers — and either flags them (diagnose mode) or applies deterministic fixes (execute mode).
+
+**Convert**
+
+- `xlsx_convert` — universal spreadsheet format converter. Reads ANY of 25+ input formats (xlsx, xlsb, xlsm, xls, ods, fods, numbers, csv, tsv, dbf, lotus 1-2-3, quattro pro, sylk, dif, html, rtf, etc.) and emits ANY supported output format (xlsx, csv, json, md, html, etc.).
+
+**Write (new file)**
+
+- `xlsx_redact` — redact PII and sensitive values from a LOCAL .xlsx file before sharing or archiving.
+- `xlsx_write` — create or update a LOCAL .xlsx file from a structured spec.
+
+**Integrity & verification**
+
+- `xlsx_healer_cure` — Apply ONE specific cure operation against a diagnosed workbook. Operations: rename_move (rewrite ref paths), pattern_bulk (regex-style ref rewrites), source_deleted_freeze (replace broken refs with cached values), source_deleted_redirect (point at a replacement file), source_deleted_localize (snapshot external source into a local copy), permission_denied (strip credentials), structure_changed (rewrite formulas for moved cells), format_change (re-link after extension change), make_standalone (fully dereference all externals). Returns cured workbook bytes + receipt.
+- `xlsx_healer_diagnose` — produce a structured diagnostic report of external references that are broken or at risk in a workbook. Returns five classes of finding: (1) external-workbook references that can't resolve, (2) defined-name external refs, (3) Power Query connections with embedded credentials, (4) #REF! propagation maps from upstream breakage, (5) multi-hop chains (workbook → workbook → workbook). Findings carry reference_id keys that downstream cure operations key on.
+- `xlsx_healer_intent` — Goal-driven healing. Caller declares an INTENT (`make-it-work`, `make-standalone`, or `migrate`) instead of a specific cure operation; Healer plans the operation sequence + applies it. make-it-work: minimum surgery to clear errors. make-standalone: fully de-externalize (snapshot every external dep). migrate: rewrite all references against a from/to prefix pair. Returns the planned operations, cured bytes, and an unactionable list.
+- `xlsx_healer_simulate` — simulate recipient-side accessibility of a workbook's external references. Given a list of paths the recipient CAN see (`accessible_paths`), returns which references will still resolve at the recipient end and which will break (and why). Read-only; produces no output workbook.
+- `xlsx_receipt` — Attach an AI-generation receipt to a LOCAL .xlsx file — a cryptographic attestation embedded in docProps/custom.xml that says "this file was generated by THIS agent, at THIS time, against THESE inputs." Returns the receipted workbook as base64 in _meta.file_b64; pass out_path to write to disk.
+- `xlsx_stamp` — Sign a LOCAL .xlsx file with a "workbook integrity verification" stamp — a cryptographic attestation embedded in docProps/custom.xml that says "this file was generated by these tools, passed these N specific checks, signed at this time, and hasn't been tampered with since." Factual claims only (never an opinion-shaped seal of approval). Returns the stamped workbook as base64 in _meta.file_b64; pass out_path to write to disk.
+- `xlsx_verify_receipt` — verify a workbook's embedded AI-generation receipt. Returns whether the signature is valid, whether the recomputed content hash matches the hash IN the receipt, and the full caller-declared claims (agent identity, generation timestamp, source-file hashes, prompt hash, MCP tools called, description).
+- `xlsx_verify_stamp` — verify a workbook's embedded integrity-verification stamp. Returns whether the cryptographic signature is valid, whether the workbook bytes match what was signed (recomputed hash vs hash IN the stamp), and the full check-result content of the stamp.
+
+**Integrations**
+
+- `xlsx_post_slack` — upload a local .xlsx file to a Slack channel as a file attachment, with an optional accompanying message.
+- `xlsx_post_teams` — Upload a local .xlsx file to a Microsoft Teams channel as a file attachment, with an optional accompanying message.
+
+**Session**
+
+- `xlsx_session_set_validations` — configure per-session data-validation rules the server will apply to subsequent calls in the same session (e.g., reject rows missing required columns, enforce enum values on a category column, range-bound numeric inputs). Stateful — affects this session only.
+
+**One-call capstone**
+
+- `xlsx_doctor` — ONE-CALL workbook health report for a LOCAL .xlsx file. Scans for macros, external workbook references, hidden / veryHidden sheets, missing creator metadata, large embedded images, and surfaces interesting feature flags (LAMBDA, dynamic arrays, pivot cache, slicers, threaded comments). Findings ranked HIGH / MEDIUM / LOW. Plus quick_facts: sheet count, formulas, named ranges, merges, hyperlinks, validations, images, file size.
+
+---
+
+## Functions
+
+`xlsx_eval` recalculates formulas with [HyperFormula](https://hyperformula.handsontable.com) v3.2.0 — **382 Excel functions** across these categories:
+
+- **Math & trig** (101) — ABS, ACOS, ACOSH, ACOT, ACOTH, ARABIC, ASIN, ASINH, ATAN, ATAN2, ATANH, AVERAGE, AVERAGEA, AVERAGEIF, CEILING, CEILING.MATH, CEILING.PRECISE, COMBIN, COMBINA, COS, COSH, COT, COTH, COUNT, COUNTA, COUNTBLANK, COUNTIF, COUNTIFS, COUNTUNIQUE, CSC, CSCH, DEGREES, EVEN, EXP, FACT, FACTDOUBLE, FLOOR, FLOOR.MATH, FLOOR.PRECISE, GCD, INT, ISO.CEILING, LCM, LN, LOG, LOG10, MAX, MAXA, MAXIFS, MIN, MINA, MINIFS, MOD, MROUND, MULTINOMIAL, ODD, PI, POWER, PRODUCT, QUOTIENT, RADIANS, RAND, RANDBETWEEN, ROMAN, ROUND, ROUNDDOWN, ROUNDUP, SEC, SECH, SERIESSUM, SIGN, SIN, SINH, SQRT, SQRTPI, STDEV, STDEV.P, STDEV.S, STDEVA, STDEVP, STDEVPA, STDEVS, SUBTOTAL, SUM, SUMIF, SUMIFS, SUMPRODUCT, SUMSQ, SUMX2MY2, SUMX2PY2, SUMXMY2, TAN, TANH, TRUNC, VAR, VAR.P, VAR.S, VARA, VARP, VARPA, VARS
+- **Statistical** (108) — AVEDEV, BESSELI, BESSELJ, BESSELK, BESSELY, BETA.DIST, BETA.INV, BETADIST, BETAINV, BINOM.DIST, BINOM.INV, BINOMDIST, CHIDIST, CHIDISTRT, CHIINV, CHIINVRT, CHISQ.DIST, CHISQ.DIST.RT, CHISQ.INV, CHISQ.INV.RT, CHISQ.TEST, CHITEST, CONFIDENCE, CONFIDENCE.NORM, CONFIDENCE.T, CORREL, COVAR, COVARIANCE.P, COVARIANCE.S, COVARIANCEP, COVARIANCES, CRITBINOM, DEVSQ, ERF, ERFC, EXPON.DIST, EXPONDIST, F.DIST, F.DIST.RT, F.INV, F.INV.RT, F.TEST, FDIST, FDISTRT, FINV, FINVRT, FISHER, FISHERINV, FTEST, GAMMA, GAMMA.DIST, GAMMA.INV, GAMMADIST, GAMMAINV, GAMMALN, GAMMALN.PRECISE, GAUSS, GEOMEAN, HARMEAN, HYPGEOM.DIST, HYPGEOMDIST, LARGE, LOGINV, LOGNORM.DIST, LOGNORM.INV, LOGNORMDIST, LOGNORMINV, MEDIAN, NEGBINOM.DIST, NEGBINOMDIST, NORM.DIST, NORM.INV, NORM.S.DIST, NORM.S.INV, NORMDIST, NORMINV, NORMSDIST, NORMSINV, PEARSON, PHI, POISSON, POISSON.DIST, POISSONDIST, RSQ, SKEW, SKEW.P, SKEWP, SLOPE, SMALL, STANDARDIZE, STEYX, T.DIST, T.DIST.2T, T.DIST.RT, T.INV, T.INV.2T, T.TEST, TDIST, TDIST2T, TDISTRT, TINV, TINV2T, TTEST, WEIBULL, WEIBULL.DIST, WEIBULLDIST, Z.TEST, ZTEST
+- **Financial** (28) — CUMIPMT, CUMPRINC, DB, DDB, DOLLARDE, DOLLARFR, EFFECT, FV, FVSCHEDULE, IPMT, IRR, ISPMT, MIRR, NOMINAL, NPER, NPV, PDURATION, PMT, PPMT, PV, RATE, RRI, SLN, SYD, TBILLEQ, TBILLPRICE, TBILLYIELD, XNPV
+- **Date & time** (27) — DATE, DATEDIF, DATEVALUE, DAY, DAYS, DAYS360, EDATE, EOMONTH, HOUR, INTERVAL, ISOWEEKNUM, MINUTE, MONTH, NETWORKDAYS, NETWORKDAYS.INTL, NOW, SECOND, TEXT, TIME, TIMEVALUE, TODAY, WEEKDAY, WEEKNUM, WORKDAY, WORKDAY.INTL, YEAR, YEARFRAC
+- **Text** (26) — CHAR, CLEAN, CODE, CONCATENATE, EXACT, FIND, FORMULATEXT, HYPERLINK, LEFT, LEN, LOWER, MID, N, PROPER, REPLACE, REPT, RIGHT, SEARCH, SPLIT, SUBSTITUTE, T, TRIM, UNICHAR, UNICODE, UPPER, VALUE
+- **Logical** (12) — AND, CHOOSE, FALSE, IF, IFERROR, IFNA, IFS, NOT, OR, SWITCH, TRUE, XOR
+- **Lookup & reference** (13) — ADDRESS, ARRAYFORMULA, ARRAY_CONSTRAIN, FILTER, HLOOKUP, MATCH, MAXPOOL, MEDIANPOOL, MMULT, OFFSET, TRANSPOSE, VLOOKUP, XLOOKUP
+- **Information** (21) — COLUMN, COLUMNS, INDEX, ISBINARY, ISBLANK, ISERR, ISERROR, ISEVEN, ISFORMULA, ISLOGICAL, ISNA, ISNONTEXT, ISNUMBER, ISODD, ISREF, ISTEXT, NA, ROW, ROWS, SHEET, SHEETS
+- **Engineering** (46) — BASE, BIN2DEC, BIN2HEX, BIN2OCT, BITAND, BITLSHIFT, BITOR, BITRSHIFT, BITXOR, COMPLEX, DEC2BIN, DEC2HEX, DEC2OCT, DECIMAL, DELTA, HEX2BIN, HEX2DEC, HEX2OCT, IMABS, IMAGINARY, IMARGUMENT, IMCONJUGATE, IMCOS, IMCOSH, IMCOT, IMCSC, IMCSCH, IMDIV, IMEXP, IMLN, IMLOG10, IMLOG2, IMPOWER, IMPRODUCT, IMREAL, IMSEC, IMSECH, IMSIN, IMSINH, IMSQRT, IMSUB, IMSUM, IMTAN, OCT2BIN, OCT2DEC, OCT2HEX
+
+The engine has no `INDIRECT`, `WEBSERVICE`, `RTD`, `DDE` — there is no dynamic-reference, network, or external-data function in the set, so a recalc can't reach off-workbook. The absent functions are the sandbox boundary.
+
+---
+
 ## FP&A workflows
 
 xlsx-for-ai is built for agents working on real financial spreadsheets. Common workflows:
