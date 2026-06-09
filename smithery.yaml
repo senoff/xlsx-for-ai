@@ -1,0 +1,13 @@
+# Smithery configuration file: https://smithery.ai/docs/config#smitheryyaml
+
+startCommand:
+  type: stdio
+  configSchema:
+    # No configuration required — the server is fully usable with zero config.
+    type: object
+    properties: {}
+  commandFunction:
+    # Smithery clones this repo and runs the stdio MCP entrypoint directly.
+    |-
+    (config) => ({ command: 'node', args: ['mcp.js'] })
+  exampleConfig: {}
