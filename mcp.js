@@ -2226,6 +2226,15 @@ async function main() {
   upgradeCatalogInBackground(server, (next) => {
     liveTools = next;
   });
+
+  // Self-upgrade of the globally-installed CLI — detached, throttled to once
+  // per 24h, stderr-only, opt-out via XFA_NO_AUTO_UPDATE=1. Never awaited; a
+  // failure here must never touch the live MCP session.
+  try {
+    require('./lib/auto-upgrade').checkForUpgrade({
+      currentVersion: require('./package.json').version,
+    });
+  } catch (_) { /* never let an upgrade check break startup */ }
 }
 
 async function withTimeout(promise, ms, label) {
@@ -2303,6 +2312,11 @@ async function upgradeCatalogInBackground(server, swap) {
 
 // Guard: don't auto-start when required by tests
 if (require.main === module) {
+  // `xlsx-for-ai-mcp setup ...` wires Claude Code instead of starting the
+  // stdio server — intercept before main() opens the transport.
+  if (process.argv[2] === 'setup') {
+    process.exit(require('./lib/setup').runSetup(process.argv.slice(3)));
+  }
   main().catch((err) => {
     process.stderr.write(`xlsx-for-ai MCP fatal: ${err.message}\n`);
     process.exit(1);
