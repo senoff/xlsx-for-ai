@@ -185,8 +185,7 @@ function friendlyCliError(prefix, err) {
       case 'FILE_TOO_LARGE':        return `${prefix}: file exceeds the XFA_MAX_FILE_MB cap (default 50 MB).`;
       case 'FILE_NOT_FOUND':        return `${prefix}: file not found.`;
       case 'MISSING_TOKEN':         return `${prefix}: required token env var is not set.`;
-      case 'RATE_LIMITED':          return `${prefix}: free-tier monthly cap reached — see xlsx-for-ai.dev/pricing.`;
-      case 'TIER_UPGRADE_REQUIRED': return `${prefix}: this capability requires a paid tier.`;
+      case 'RATE_LIMITED':          return `${prefix}: monthly request cap reached — resets next month.`;
       case 'FALLBACK_ENGINE_MISSING': return `${prefix}: local fallback engine not installed (\`npm install @protobi/exceljs\`).`;
       default:                      return `${prefix}: request failed${code ? ` (code=${code})` : ''}.`;
     }

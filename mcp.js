@@ -224,7 +224,7 @@ const TOOLS = [
   //   - preserves merged cells, named ranges, conditional formatting
   //   - reads workbooks with cross-engine validation (some tools)
   //   - dtype inference reports confidence per column instead of guessing
-  // All free-tier; the 10k/month cap is the throttle, not tier-gating.
+  // All free; the 10k/month cap is the throttle, not gating.
   // -------------------------------------------------------------------------
 
   {
@@ -1495,10 +1495,8 @@ function friendlyErrorMessage(toolName, err) {
       return `${toolName}: required token env var is not set (see tool docs for which one).`;
     case 'API_UNREACHABLE':
       return `${toolName}: API is unreachable — check network connectivity.`;
-    case 'TIER_UPGRADE_REQUIRED':
-      return `${toolName}: this capability requires a paid tier.`;
     case 'RATE_LIMITED':
-      return `${toolName}: free-tier monthly cap reached — see xlsx-for-ai.dev/pricing.`;
+      return `${toolName}: monthly request cap reached — resets next month.`;
     case 'FALLBACK_ENGINE_MISSING':
       return `${toolName}: local fallback engine not installed (\`npm install @protobi/exceljs\`).`;
     case 'BASE64_MISREAD':
@@ -1531,10 +1529,12 @@ function friendlyErrorMessage(toolName, err) {
   // short curated text:
   if (code === 'API_CLIENT_ERROR') {
     if (status === 429) {
-      return `${toolName}: free-tier monthly cap reached — see xlsx-for-ai.dev/pricing.`;
+      return `${toolName}: monthly request cap reached — resets next month.`;
     }
     if (status === 402) {
-      return `${toolName}: this capability requires a paid tier.`;
+      // Server emits 402 only on the not-yet-active full_bytes capture-consent
+      // path; neutralize so its subscription wording never reaches the user.
+      return `${toolName}: that capture mode is not available.`;
     }
     // Generic 4xx: surface the server message. Prefer the structured
     // shape, fall through to the flat message, fall through to the

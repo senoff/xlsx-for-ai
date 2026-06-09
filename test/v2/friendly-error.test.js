@@ -14,9 +14,9 @@
 //     no `[object Object]`), tool name present.
 //   - 5xx stays generic (discriminating case — proves we didn't
 //     over-open the boundary).
-//   - Known 4xx HTTP statuses (429 rate limit, 402 tier upgrade) keep
-//     their specific friendly text — the new branch is the DEFAULT for
-//     4xx, ordered after the specific statuses.
+//   - Known 4xx HTTP statuses (429 rate limit) keep their specific
+//     friendly text — the new branch is the DEFAULT for 4xx, ordered
+//     after the specific statuses.
 //   - Pre-existing client-side codes (FILE_NOT_FOUND, etc.) still match
 //     their dedicated cases.
 
@@ -100,20 +100,10 @@ test('429 rate-limit keeps its specific friendly text (ordering check)', () => {
     payload: { error: { code: 'rate_limit_exceeded', message: 'monthly limit reached' } },
   });
   const out = friendlyErrorMessage('xlsx_read', err);
-  assert.ok(out.includes('free-tier monthly cap'),
+  assert.ok(out.includes('monthly request cap reached'),
     `429 should map to RATE_LIMITED friendly text; got ${out}`);
-  assert.ok(out.includes('pricing'),
-    `429 friendly text should reference pricing; got ${out}`);
-});
-
-test('402 tier-upgrade keeps its specific friendly text (ordering check)', () => {
-  const err = buildClientErr({
-    status: 402,
-    payload: { error: { code: 'tier_upgrade_required', message: 'feature requires paid tier' } },
-  });
-  const out = friendlyErrorMessage('xlsx_validate', err);
-  assert.ok(out.includes('paid tier'),
-    `402 should map to TIER_UPGRADE friendly text; got ${out}`);
+  assert.ok(!out.includes('pricing'),
+    `429 friendly text must NOT reference pricing; got ${out}`);
 });
 
 test('pre-existing client-side codes still hit their dedicated case', () => {
