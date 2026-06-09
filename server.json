@@ -1,17 +1,17 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.senoff/xlsx-for-ai",
-  "description": "MCP server for production-grade Excel/.xlsx tooling. Read, write, diff, redact. Free tier.",
+  "description": "50 spreadsheet tools for .xlsx: recalc formulas, repair broken refs, read/write, diff, audit.",
   "repository": {
     "url": "https://github.com/senoff/xlsx-for-ai",
     "source": "github"
   },
-  "version": "2.0.0",
+  "version": "3.1.4",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "xlsx-for-ai",
-      "version": "2.0.0",
+      "version": "3.1.4",
       "transport": {
         "type": "stdio"
       }

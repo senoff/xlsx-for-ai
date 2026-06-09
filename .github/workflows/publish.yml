@@ -127,6 +127,28 @@ jobs:
         run: |
           git push --follow-tags
 
+      # Keep the Official MCP Registry listing (io.github.senoff/xlsx-for-ai) in
+      # sync on every release. Auth is GitHub Actions OIDC — the id-token:write
+      # permission above lets mcp-publisher mint a token for the io.github.senoff/*
+      # namespace with no stored secret and no interactive login. server.json's
+      # version is force-synced to package.json just before publish so the
+      # registry never drifts behind npm. continue-on-error: a registry hiccup
+      # (or a same-version re-publish rejection) must never fail the npm release.
+      - name: Sync server.json version to package.json
+        if: github.event_name == 'push' || inputs.dry_run == false
+        run: |
+          node -e "const fs=require('fs');const pkg=require('./package.json');const s=JSON.parse(fs.readFileSync('server.json','utf8'));s.version=pkg.version;s.packages[0].version=pkg.version;fs.writeFileSync('server.json',JSON.stringify(s,null,2)+'\n');"
+          echo "server.json synced to $(node -p "require('./package.json').version")"
+
+      - name: Publish to MCP Registry (OIDC)
+        if: github.event_name == 'push' || inputs.dry_run == false
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          curl -sSL --max-time 60 https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz | tar xz mcp-publisher
+          timeout 60s ./mcp-publisher login github-oidc
+          timeout 60s ./mcp-publisher publish
+
       - name: Summary
         if: always()
         run: |
