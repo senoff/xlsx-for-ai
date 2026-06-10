@@ -10,7 +10,7 @@ This document covers how xlsx-for-ai handles your data. It is written for develo
 
 xlsx-for-ai is a thin npm client over a hosted API. When your agent calls a tool (e.g., `xlsx_read`), the client reads the file from disk, encodes it as base64, and sends it to the xlsx-for-ai API over HTTPS. Processing happens in memory on the server. The result is returned to your agent.
 
-This means: **workbook bytes leave your machine and travel to our server for every non-fallback tool call.** If that is not acceptable for your threat model, use the offline fallback described below.
+This means: **workbook bytes leave your machine and travel to our server for every tool call.** They are processed in memory and not retained beyond the request, but if any workbook data leaving your machine is unacceptable for your threat model, xlsx-for-ai is not the right fit for those files.
 
 ---
 
@@ -45,14 +45,6 @@ This capture feature is **not currently enabled**. We will document the activati
 Captures are never used to train language models, never shared with third parties, and never used for any purpose other than diagnosing production errors.
 
 **Audit log:** we log the following per request: timestamp, client_id, endpoint, file size (bytes), sheet count, structural fingerprints (formula count, sheet dimensions, feature flags like "uses_LAMBDA"), error class (if any), latency, and which hardening checks ran. We do not log cell values, formula text, row data, or any representation of workbook content.
-
----
-
-## Local fallback
-
-`xlsx_read` includes a local fallback path. If the API is unreachable (network down, server error, timeout), the client reads the file using a locally installed engine (`@protobi/exceljs`, an optional dependency). In this case, nothing leaves your machine. The fallback is automatic and transparent; you can observe it in the client's stderr output.
-
-All other tools (`xlsx_diff`, `xlsx_write`, `xlsx_redact`) require API connectivity and have no local fallback.
 
 ---
 

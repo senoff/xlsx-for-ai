@@ -399,12 +399,6 @@ agent (Claude Code / Cursor / Continue / Zed / Windsurf / custom)
                     └── server-side engine (ExcelJS, formula eval, schema inference, redaction)
 ```
 
-**Offline fallback:** `xlsx_read` falls back to a local engine if the API is unreachable. All other tools require API connectivity. Install `@protobi/exceljs` as an optional dependency if you need offline read:
-
-```bash
-npm install @protobi/exceljs
-```
-
 **Requirements:** Node.js 22+. 1.5.x line stays maintained on `main` for users who cannot upgrade.
 
 ---
@@ -456,7 +450,7 @@ rm ~/.xlsx-for-ai/config.json
 
 | Was | Now |
 |---|---|
-| All rendering local | Rendering server-side; local engine is optional fallback for `xlsx_read` only |
+| All rendering local | All rendering server-side |
 | `xlsx-for-ai <file>` CLI | Same — still works |
 | `cursor-reads-xlsx` | Still works — back-compat alias |
 | `--list-sheets`, `--schema`, `--diff`, etc. | Moved to MCP tools (`xlsx_list_sheets`, `xlsx_schema`, `xlsx_diff`) |
