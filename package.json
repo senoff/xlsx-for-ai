@@ -33,11 +33,9 @@
   "scripts": {
     "test": "node --test test/v2/*.test.js",
     "build-manifests": "node scripts/build-manifests.js",
-    "check-manifests": "node scripts/build-manifests.js --check",
     "check-publish-allowlist": "node scripts/check-publish-allowlist.js",
-    "prepublishOnly": "node scripts/check-publish-allowlist.js && node scripts/build-manifests.js --check",
-    "postinstall": "node scripts/postinstall.js",
-    "prepare": "husky"
+    "prepublishOnly": "node scripts/check-publish-allowlist.js",
+    "postinstall": "node scripts/postinstall.js"
   },
   "keywords": [
     "xlsx",
@@ -72,9 +70,6 @@
   },
   "optionalDependencies": {
     "@protobi/exceljs": "^4.4.0-protobi.9"
-  },
-  "devDependencies": {
-    "husky": "^9.1.7"
   },
   "overrides": {
     "tmp": ">=0.2.6"

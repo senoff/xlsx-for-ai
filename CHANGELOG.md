@@ -7,6 +7,23 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 
 ---
 
+## [Unreleased]
+
+### Removed
+
+- **Retired the DXT / `.mcpb` Desktop Extension surface.** Deleted
+  `manifest.json` (DXT bundle manifest), `scripts/build-mcpb.sh` (the `.mcpb`
+  bundler), and `.github/workflows/manifest-check.yml` (CI drift gate whose
+  sole job was guarding the DXT manifest). Claude Desktop installs via the MCP
+  server (`xlsx-for-ai-mcp`), not a bundled extension; the DXT path was retired
+  fleet-wide on 2026-06-08. `scripts/build-manifests.js` now generates only the
+  on-demand `dist/mcp-tools.json` snapshot (MSFT plugin manifest 2.4 ref).
+  `prepublishOnly` no longer runs a manifest drift check, and the Husky
+  pre-commit hook (whose sole job was that check) plus the `husky` devDependency
+  are removed — there are no remaining git hooks.
+
+---
+
 ## [3.1.0] - 2026-06-08
 
 Demo-funnel release. Bundles runnable sample workbooks, adds a one-command
