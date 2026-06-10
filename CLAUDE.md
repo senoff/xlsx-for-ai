@@ -27,7 +27,7 @@ CRITICAL and HIGH findings must be resolved before the change lands. MEDIUM find
 ## Repo posture
 
 - Solo repo. Direct push to `main` is allowed within Bob's normal autonomy. PRs are encouraged for any change touching the review-gate risk areas above — eat your own cooking.
-- All commits include `Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>`.
+- Commits do **not** include a `Co-Authored-By: Claude` trailer (Bob 2026-06-10 — forward-only; existing trailered commits stay).
 - No `--no-verify`, no `--amend` after the fact, no force-push. Append a new commit to fix things.
 - Releases happen via the GitHub Actions `publish.yml` workflow, not local `npm publish`.
 - **Publishing (2026-06-03 — superseded the prior manual gate):** `xlsx-for-ai` publishes follow the fleet-wide "publish-on-own-judgment if Grace-clean" rule per `~/CLAUDE.md`. Per-commit `grace-autofix-loop` clean + any blocking CRITICALs resolved → publish + mention what shipped in summary; don't ask first. The prior "Do not publish without Bob's explicit go" rule has been retired in favor of the Grace gate stack carrying the confidence. Pre-Grace builds still route through Grace first.
