@@ -7,7 +7,7 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 
 ---
 
-## [3.2.0] - 2026-06-10
+## [3.2.1] - 2026-06-10
 
 Thin-client consolidation: completes the move to a hosted-API-only client and
 standardizes the install on one canonical gesture.
