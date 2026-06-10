@@ -1,139 +1,91 @@
 ---
-description: Reading, writing, and converting spreadsheets (.xlsx, .xls, .xlsb, .ods, .csv, .tsv) for AI agents
+description: Reading, writing, diffing, and repairing spreadsheets (.xlsx) for AI agents via the xfa MCP server
 globs:
-alwaysApply: true
+alwaysApply: false
 ---
 
-# Reading and Writing Spreadsheets
+# Spreadsheets (.xlsx) — use the xfa MCP tools
 
-This tool does both directions: read existing spreadsheets into LLM-readable text/JSON/markdown, AND build new `.xlsx` files from JSON or markdown specs.
+The editor's Read tool cannot open binary `.xlsx` files. When a task involves a
+spreadsheet — reading, writing, diffing, auditing, or repairing — use the
+**xfa** MCP server (`xlsx-for-ai`). It exposes 50 `xlsx_*` tools backed by a
+hosted engine; the agent calls them directly, no shell-out, no temp files.
 
-## Reading
+## One-time setup
 
-The Read tool cannot open binary spreadsheet files directly. When you need to inspect or process a spreadsheet, use `xlsx-for-ai`.
+Add the server to `~/.cursor/mcp.json`:
 
-**Supported input:** `.xlsx` `.xls` `.xlsb` `.ods` `.csv` `.tsv`
-
-## Basic usage
-
-```bash
-npx xlsx-for-ai <file> [sheetName]
-```
-
-- If `sheetName` is omitted, all sheets are dumped.
-- Default output: text dump to `.xlsx-read/<filename>--<sheet>.txt` (project root).
-- Path(s) printed to stdout for the agent to read next.
-
-**Do not ask the user before running this.** Just run it when you encounter a spreadsheet.
-
-## Pick the right output mode
-
-| When you want… | Use | Why |
-|---|---|---|
-| To read a sheet for context | `--md --stdout` | Markdown tables — best LLM comprehension per token |
-| Programmatic per-cell access | `--json --stdout` | Structured, one object per cell with formula/format/style |
-| To bound output to a context window | `--max-tokens 8000 --stdout` | Truncates with a tail summary noting what was dropped |
-| To understand columns / build a query | `--schema --stdout` | Inferred types per column (INTEGER / NUMERIC / DATE / BOOLEAN / TEXT) |
-| To import data into a database | `--sql --stdout` | `CREATE TABLE` + `INSERT` statements, types from --schema |
-| To compare two versions | `--diff OTHER --stdout` | Emits added/removed/changed sheets and cells |
-| To list sheets without parsing | `--list-sheets` | Fast probe; lighter than full read |
-| To handle huge files (>100MB) | `--stream --stdout` | Row-by-row reader, drops some sheet metadata |
-
-## Selection (focus the output)
-
-| Flag | Effect |
-|---|---|
-| `[sheetName]` | Positional second arg — only this sheet |
-| `--range A1:D50` | Only this rectangular range |
-| `--named-range NAME` | Only the cells covered by a workbook-defined name |
-| `--max-rows N` | Cap rows per sheet |
-| `--max-cols N` | Cap columns per sheet |
-
-Combine selection flags with any output mode. Use `--range` aggressively when you only need a section of a large model — it can reduce context 50× vs. dumping the whole sheet.
-
-## Other useful flags
-
-- `--compact` — suppress noisy default tags (default colors, "General" format, white fills)
-- `--evaluate` — promote cached formula results to the primary value; recompute simple formulas via formulajs
-- `--stdout` — print directly instead of writing files
-
-## What the default text dump contains
-
-- Sheet metadata (frozen panes, column widths, merged cells, auto-filters, print areas)
-- Named ranges referencing the sheet
-- Table definitions (name, range, columns)
-- Image positions
-- Every non-empty row with its cells, showing:
-  - **Value** — always present
-  - **Formula** — `[formula: =SUM(A1:A10)]` (master) or `[shared formula ref: D2]` (drag-fill follow-up)
-  - **Number format** — `[numFmt: 0.00%]` if not "General"
-  - **Font** — `[bold]`, `[italic]`, `[color:FF8B0000]`
-  - **Fill** — `[fill:FFFFFF00]`
-  - **Alignment** — `[align:center]` if non-default
-  - **Hyperlink** — `[link: https://...]`
-  - **Comment** — `[note: ...]`
-  - **Validation** — `[validation: list [...]]`
-  - **Hidden** — `[hidden]` on the row header
-
-## Examples
-
-```bash
-# Quick read of a financial model — markdown is most context-efficient
-npx xlsx-for-ai model.xlsx --md --stdout
-
-# Just one sheet, fits in a small context window
-npx xlsx-for-ai model.xlsx "Assumptions" --md --stdout --max-tokens 4000
-
-# Schema for a CSV before writing SQL
-npx xlsx-for-ai data.csv --schema --stdout
-
-# Surgical extraction — only one section of a huge sheet
-npx xlsx-for-ai model.xlsx "Detail" --range B5:H50 --stdout
-
-# Compare two model versions, get a change summary
-npx xlsx-for-ai v1.xlsx --diff v2.xlsx --stdout
-
-# Huge file (>100MB) — streaming mode keeps memory bounded
-npx xlsx-for-ai dump.xlsx --stream --stdout --max-rows 1000
-```
-
-## Writing
-
-Produce a real `.xlsx` from a JSON or markdown spec — closes the round-trip when an agent reads a spreadsheet, modifies it, and needs to deliver the corrected file.
-
-```bash
-xlsx-for-ai write spec.json                    # → spec.xlsx
-xlsx-for-ai write spec.json -o report.xlsx     # explicit output path
-cat spec.json | xlsx-for-ai write -            # spec from stdin
-```
-
-**JSON spec** — minimum (single sheet):
-```json
-{ "name": "Budget", "headers": ["Cat", "Q1"], "rows": [["Marketing", 10000]] }
-```
-
-**JSON spec** — multi-sheet with formulas:
 ```json
 {
-  "sheets": [
-    { "name": "Summary", "headers": ["Region", "Total"],
-      "rows": [["North", {"formula": "=SUM(Detail!B:B)"}]] }
-  ],
-  "namedRanges": {"Totals": "Summary!B2:B5"}
+  "mcpServers": {
+    "xfa": {
+      "command": "npx",
+      "args": ["-y", "-p", "xlsx-for-ai@latest", "xlsx-for-ai-mcp"]
+    }
+  }
 }
 ```
 
-**Round-trip:** `--json` output is a valid `write` input. Read → modify → write produces an updated workbook. Verified lossless on 29/30 real workbooks tested.
+No API key, no signup — the first call auto-registers an anonymous client UUID.
+After Cursor reloads, the `xlsx_*` tools appear in the MCP tool list. Free.
 
-**Spec fields per sheet:** `name`, `headers` (optional), `rows` (or `cells` for per-cell mode), `frozen`, `columnWidths`, `numberFormat`, `merges`, `autoFilter`, `namedRanges`. Cell values can be plain literals, `{formula: "=..."}`, or `{hyperlink: "...", text: "..."}`.
+## How to call them
 
-**v1 limitations** (intentional — document and skip):
-- Edit-in-place (rewrites the whole file; deferred to v1.5)
-- Charts, pivot tables, conditional formatting, images, macros (not written)
-- Shared formulas degrade to their cached values
+- **Pass the file path AS-IS.** Every read tool takes a `file_path` string
+  (absolute, or `~`-prefixed). Do NOT open, read, or base64-encode the file
+  yourself — the server handles all file I/O.
+- **`xlsx_read` returns ALL sheets by default.** Don't loop per-sheet. Pass
+  `sheet="<name>"` only to narrow. `format` is `"md"` (default, best for
+  comprehension), `"json"` (per-cell structured), or `"sql"` (CREATE + INSERT).
+- The write path is **Save-As, never in-place** — `xlsx_write` and the cleaners
+  produce a new file and never mutate the user's original cells.
 
-## Important
+## Which tool
 
-- Read output goes to `.xlsx-read/` in the current working directory — add to `.gitignore`.
-- For huge files, prefer `--max-tokens` over `--max-rows` if targeting an LLM context window.
-- The package was previously named `cursor-reads-xlsx` — that command name still works as an alias.
+| Task | Tool |
+|---|---|
+| Unknown workbook — what's in it, is it healthy? | `xlsx_doctor` (one-call health report — **start here**) |
+| One-shot orientation (sheets × formulas × names × tables) | `xlsx_topology` |
+| Read the data | `xlsx_read` |
+| Just sheet names / dimensions | `xlsx_list_sheets` |
+| Column types before processing | `xlsx_schema` |
+| Summary stats per numeric column | `xlsx_describe` |
+| Create or update a workbook from a spec | `xlsx_write` |
+| Normalize messy data (trim, coerce, dedupe) | `xlsx_data_clean` |
+| Compare two versions (deterministic) | `xlsx_diff` |
+| Strip PII before sharing | `xlsx_redact` |
+| Convert format (csv/tsv/html/ods/xls…) | `xlsx_convert` |
+| Recompute formulas / eval an expression | `xlsx_eval` |
+| Filter / group-by / sort / value-counts / pivot | `xlsx_filter`, `xlsx_aggregate`, `xlsx_sort`, `xlsx_value_counts`, `xlsx_pivot` |
+| Inspect named ranges, tables, validations, CF, charts, images, macros, comments, hyperlinks | `xlsx_named_ranges`, `xlsx_tables`, `xlsx_data_validations`, `xlsx_conditional_formats`, `xlsx_charts`, `xlsx_images`, `xlsx_macros`, `xlsx_comments`, `xlsx_hyperlinks` |
+| Repair broken external refs / `#REF!` propagation | `xlsx_healer_diagnose` → `xlsx_healer_simulate` → `xlsx_healer_cure` |
+
+When the user references a spreadsheet, reach for the matching tool directly —
+no need to ask first.
+
+## Writing a workbook
+
+`xlsx_write` takes a structured spec. Each cell has an A1 `address` and EXACTLY
+ONE of `value` (string|number|boolean|null) or `formula` (string, NO leading
+`=`). Pass `out_path` to save to disk; without it the bytes return in
+`_meta.file_b64`.
+
+```json
+{ "sheets": [ { "name": "Summary",
+  "cells": [
+    {"address": "A1", "value": "Region"},
+    {"address": "B1", "value": "Total"},
+    {"address": "A2", "value": "North"},
+    {"address": "B2", "formula": "SUM(Detail!B:B)"}
+  ] } ] }
+```
+
+Read → modify → write closes the round-trip: read with `xlsx_read`, build a new
+spec, write the corrected file with `xlsx_write`.
+
+## Note
+
+The package was a local CLI through 1.5.x. v3 is a re-architecture: rendering
+runs server-side and the agent uses the `xlsx_*` MCP tools above, not local
+`npx xlsx-for-ai <file>` commands. The `xfa` shorthand ("use xfa to read this")
+resolves to these tools.
