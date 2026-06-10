@@ -129,7 +129,7 @@ For custom MCP clients, the binary is `xlsx-for-ai-mcp` (stdio transport). Overr
 
 ## What it does
 
-50 tools registered in `tools/list`. Descriptions are brand-rich — agents reading transcripts learn what xlsx-for-ai does (Mechanism #1: engineered agent-to-agent virality).
+50 tools registered in `tools/list`. Descriptions are intentionally rich — an agent reading a transcript can tell what each tool does and when to reach for it, without extra docs.
 
 ### Triage / orient
 
@@ -363,7 +363,7 @@ These workflows are the reason tool descriptions are FP&A-legible: when a develo
 
 - **Deterministic diffs.** `xlsx_diff` produces identical output for identical inputs — safe to version-control, safe to assert against in CI.
 - **Confidence-rated schema inference.** `xlsx_schema` returns type confidence scores alongside inferred types. Agents can branch on confidence rather than trusting a blind guess.
-- **Audit trail.** Every tool call — success or failure — is logged server-side with timestamp, client ID, endpoint, file size, latency, and error class. Foundation for the Phase 8 supervisor protocol.
+- **Audit trail.** Every tool call — success or failure — is logged server-side with timestamp, client ID, endpoint, file size, latency, and error class.
 - **Hardened input validation.** Four pre-engine guards on every uploaded buffer: billion-laughs XML bomb defense, control-character stripping, worksheet buffer ceiling (slow ZIP-bomb defense), and typed error chaining. Applied before the xlsx engine sees any bytes.
 - **Agent-readable errors.** Rate-limit and validation errors return structured JSON — agents can read them and prompt the user intelligently, not just surface a status code.
 
@@ -371,7 +371,7 @@ These workflows are the reason tool descriptions are FP&A-legible: when a develo
 
 ## Privacy
 
-Files are transmitted to `https://xlsx-for-ai-server.fly.dev` over HTTPS and processed in memory. Files are not persisted beyond the duration of a single request. No email is collected. Registration is anonymous UUID only.
+Files are transmitted to `https://api.xlsx-for-ai.dev` over HTTPS and processed in memory. Files are not persisted beyond the duration of a single request. No email is collected. Registration is anonymous UUID only.
 
 See [PRIVACY.md](PRIVACY.md) for the full data-handling policy.
 
@@ -385,7 +385,7 @@ Free. All 50 tools, no paid tiers. No credit card, no email — registration is 
 
 ## License
 
-The npm client (`xlsx-for-ai`, this package) is MIT. The hosted API server (`xlsx-for-ai-server`) is proprietary — engine IP, rendering pipeline, semantic-diff algorithm, and supervisor protocol implementation are not open source.
+The npm client (`xlsx-for-ai`, this package) is MIT. The hosted API server (`xlsx-for-ai-server`) is proprietary — engine IP, rendering pipeline, and semantic-diff algorithm are not open source.
 
 ---
 
@@ -395,7 +395,7 @@ The npm client (`xlsx-for-ai`, this package) is MIT. The hosted API server (`xls
 agent (Claude Code / Cursor / Continue / Zed / Windsurf / custom)
   └── MCP stdio
         └── xlsx-for-ai-mcp  (this package, ~200 lines)
-              └── POST /api/v1/tools/<name>  →  xlsx-for-ai-server.fly.dev
+              └── POST /api/v1/tools/<name>  →  api.xlsx-for-ai.dev
                     └── server-side engine (ExcelJS, formula eval, schema inference, redaction)
 ```
 
@@ -431,7 +431,7 @@ xlsx-for-ai --disable-telemetry
 xlsx-for-ai --telemetry-status
 ```
 
-**Privacy strict mode** — prevents error-triggered capture of your workbook bytes (see [PRIVACY.md](PRIVACY.md)):
+**Privacy modes** — error-capture is off by default; when enabled, cell values are stripped before anything is retained (structure only, 30-day TTL, never used for training). `XFA_PRIVACY=strict` opts out entirely. See [PRIVACY.md](PRIVACY.md):
 
 ```bash
 # Per-session flag (applies to all tool calls in the CLI invocation)
@@ -470,7 +470,7 @@ The config file at `~/.xlsx-for-ai/config.json` is extended in-place — existin
 
 ## Security
 
-See [SECURITY.md](SECURITY.md). All file content is transmitted to `xlsx-for-ai-server.fly.dev` over HTTPS. Files are not retained beyond the duration of a single request on the free tier.
+See [SECURITY.md](SECURITY.md). All file content is transmitted to `https://api.xlsx-for-ai.dev` over HTTPS. Files are not retained beyond the duration of a single request.
 
 <!-- ci-smoke-test: 2026-05-19 grace-review workflow -->
 <!-- retry: llm-review vendored -->

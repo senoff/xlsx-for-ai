@@ -100,13 +100,8 @@ Authenticated clients can change their consent level via `PATCH /api/v1/clients/
 
 | Level | Description | Who can set it |
 |---|---|---|
-| `redacted_only` | Default. Auto-redact before any capture. | Everyone |
+| `redacted_only` | Default. Auto-redact before any capture (cell values stripped, structure preserved). | Everyone |
 | `none` | Opt out of all captures entirely. Equivalent to always sending `X-XFA-Privacy: strict`. | Everyone |
-| `full_bytes` | Capture raw (non-redacted) bytes. Richer test fixtures; real cell values included. | Pro/Ultra tier (Phase 5) |
-
-**`full_bytes` is not yet activatable** — the Pro tier is not available until Phase 5. The endpoint wiring exists now so that when tiers ship, consent activates immediately. Any request to set `full_bytes` before Phase 5 returns HTTP 402 with `tier_upgrade_required`.
-
-Full-bytes captures carry the same privacy guarantees as redacted captures: 30-day TTL, no training use, no third-party sharing.
 
 To change your consent level:
 

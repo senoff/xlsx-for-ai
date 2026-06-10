@@ -9,7 +9,7 @@ the entry point.
 
 Please do **not** open a public GitHub issue for security reports.
 
-Email the maintainer at `bobsenoff@gmail.com` with:
+Email the maintainer at `support@xlsx-for-ai.dev` with:
 
 - a description of the issue and its impact;
 - a minimal reproducer (a workbook, command, or version pinning is ideal);
