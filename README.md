@@ -18,7 +18,7 @@ npm install -g xlsx-for-ai
 
 ## MCP configuration
 
-Add `xlsx-for-ai` as a tool server in your agent runtime. First invocation auto-registers an anonymous client UUID — no email, no signup, no friction.
+Add the server to your agent runtime under the name **`xfa`** (so "use xfa to read this" resolves). First invocation auto-registers an anonymous client UUID — no email, no signup, no friction.
 
 ### Claude Code
 
@@ -26,7 +26,7 @@ Install globally, then register the MCP server with one command:
 
 ```bash
 npm install -g xlsx-for-ai
-claude mcp add xlsx-for-ai -- xlsx-for-ai-mcp
+claude mcp add xfa -- xlsx-for-ai-mcp
 ```
 
 Verify: in a new Claude Code session, ask "what MCP tools do you have?" — 50 `xlsx_*` tools should appear, including `xlsx_doctor` (one-call health report — try it first on any unknown workbook).
@@ -40,7 +40,7 @@ Config file: `~/.cursor/mcp.json`
 ```json
 {
   "mcpServers": {
-    "xlsx-for-ai": {
+    "xfa": {
       "command": "npx",
       "args": ["-y", "-p", "xlsx-for-ai@latest", "xlsx-for-ai-mcp"]
     }
@@ -48,7 +48,7 @@ Config file: `~/.cursor/mcp.json`
 }
 ```
 
-Verify: open Cursor settings → MCP → confirm `xlsx-for-ai` shows 50 `xlsx_*` tools.
+Verify: open Cursor settings → MCP → confirm `xfa` shows 50 `xlsx_*` tools.
 
 ### Continue
 
@@ -58,7 +58,7 @@ Config file: `~/.continue/config.json`
 {
   "mcpServers": [
     {
-      "name": "xlsx-for-ai",
+      "name": "xfa",
       "command": "npx",
       "args": ["-y", "-p", "xlsx-for-ai@latest", "xlsx-for-ai-mcp"]
     }
@@ -75,7 +75,7 @@ Pass `--mcp-server` on the command line, or add to your Codex config:
 ```json
 {
   "mcpServers": {
-    "xlsx-for-ai": {
+    "xfa": {
       "command": "npx",
       "args": ["-y", "-p", "xlsx-for-ai@latest", "xlsx-for-ai-mcp"]
     }
@@ -92,7 +92,7 @@ Config file: `~/.config/zed/settings.json`
 ```json
 {
   "context_servers": {
-    "xlsx-for-ai": {
+    "xfa": {
       "command": {
         "path": "npx",
         "args": ["-y", "-p", "xlsx-for-ai@latest", "xlsx-for-ai-mcp"]
@@ -111,7 +111,7 @@ Config file: `~/.codeium/windsurf/mcp_config.json`
 ```json
 {
   "mcpServers": {
-    "xlsx-for-ai": {
+    "xfa": {
       "command": "npx",
       "args": ["-y", "-p", "xlsx-for-ai@latest", "xlsx-for-ai-mcp"]
     }
@@ -119,7 +119,7 @@ Config file: `~/.codeium/windsurf/mcp_config.json`
 }
 ```
 
-Verify: open Windsurf → Cascade → settings, confirm `xlsx-for-ai` is listed as an active MCP server.
+Verify: open Windsurf → Cascade → settings, confirm `xfa` is listed as an active MCP server.
 
 ### Custom agents / API
 
