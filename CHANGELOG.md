@@ -7,7 +7,25 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 
 ---
 
-## [Unreleased]
+## [3.2.0] - 2026-06-10
+
+Thin-client consolidation: completes the move to a hosted-API-only client and
+standardizes the install on one canonical gesture.
+
+### Changed
+
+- **One canonical install gesture: the global bin, not npx.** The README MCP
+  configs (Cursor, Continue, Codex CLI, Zed, Windsurf) and the top-of-file
+  framing pointed at `npx -y xlsx-for-ai@latest` on every client launch;
+  `lib/mcp-register.js` already treated npx entries as stale by design (the
+  per-launch network/cache-staleness class we're removing). All configs now
+  point at the installed `xlsx-for-ai-mcp` binary — pinned, fast, offline-capable.
+- **MCP server registers under `xfa`, not `xlsx-for-ai`.** A plain
+  `npm install -g xlsx-for-ai` now auto-wires the same server name the docs,
+  website, and `claude mcp add` use — the `--ignore-scripts` workaround is gone.
+  Registering `xfa` performs a one-time dupe migration: any lingering legacy
+  `xlsx-for-ai` entry is removed in the same write, so an install never carries
+  both. Uninstall removes both keys.
 
 ### Removed
 
