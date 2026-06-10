@@ -13,7 +13,13 @@ hosted engine; the agent calls them directly, no shell-out, no temp files.
 
 ## One-time setup
 
-Add the server to `~/.cursor/mcp.json`:
+Install the client globally so the `xlsx-for-ai-mcp` binary is on your PATH:
+
+```bash
+npm install -g xlsx-for-ai
+```
+
+Then add the server to `~/.cursor/mcp.json`:
 
 ```json
 {
