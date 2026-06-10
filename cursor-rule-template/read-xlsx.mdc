@@ -19,8 +19,7 @@ Add the server to `~/.cursor/mcp.json`:
 {
   "mcpServers": {
     "xfa": {
-      "command": "npx",
-      "args": ["-y", "-p", "xlsx-for-ai@latest", "xlsx-for-ai-mcp"]
+      "command": "xlsx-for-ai-mcp"
     }
   }
 }

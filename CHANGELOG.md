@@ -18,8 +18,10 @@ standardizes the install on one canonical gesture.
   configs (Cursor, Continue, Codex CLI, Zed, Windsurf) and the top-of-file
   framing pointed at `npx -y xlsx-for-ai@latest` on every client launch;
   `lib/mcp-register.js` already treated npx entries as stale by design (the
-  per-launch network/cache-staleness class we're removing). All configs now
-  point at the installed `xlsx-for-ai-mcp` binary — pinned, fast, offline-capable.
+  per-launch network/cache-staleness class we're removing). All configs —
+  the README client snippets, the repo-level `.mcp.json`, and the
+  `cursor-rule-template` — now point at the installed `xlsx-for-ai-mcp`
+  binary under the `xfa` key — pinned, fast, offline-capable.
 - **MCP server registers under `xfa`, not `xlsx-for-ai`.** A plain
   `npm install -g xlsx-for-ai` now auto-wires the same server name the docs,
   website, and `claude mcp add` use — the `--ignore-scripts` workaround is gone.

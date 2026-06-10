@@ -1,8 +1,7 @@
 {
   "mcpServers": {
-    "xlsx-for-ai": {
-      "command": "npx",
-      "args": ["-y", "xlsx-for-ai-mcp"]
+    "xfa": {
+      "command": "xlsx-for-ai-mcp"
     }
   }
 }

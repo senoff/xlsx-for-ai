@@ -26,12 +26,13 @@ disclosure expectations in your first message.
 ## Supported versions
 
 The latest published `3.x` minor on npm receives security fixes. Older
-minors do not. Today that is `3.1.x`. If a fix requires a breaking change,
+minors do not. Today that is `3.2.x`. If a fix requires a breaking change,
 it is shipped as the next `3.x` minor and the prior minor is deprecated on npm.
 
 | Version  | Status      | Security fixes |
 |----------|-------------|----------------|
-| 3.1.x    | current     | yes            |
+| 3.2.x    | current     | yes            |
+| 3.1.x    | superseded  | no             |
 | 3.0.x    | superseded  | no             |
 | 2.x      | superseded  | no             |
 | 1.5.x    | frozen      | no             |
