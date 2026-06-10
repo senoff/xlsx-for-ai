@@ -43,7 +43,7 @@ test('net-new: creates ~/.claude.json with minimal stdio entry', () => {
     assert.equal(res.ok, true);
     assert.equal(res.changed, true);
     const obj = JSON.parse(fs.readFileSync(cfg, 'utf8'));
-    assert.deepEqual(obj.mcpServers['xlsx-for-ai'], { type: 'stdio', command: BIN, args: [], env: {} });
+    assert.deepEqual(obj.mcpServers['xfa'], { type: 'stdio', command: BIN, args: [], env: {} });
   });
 });
 
@@ -61,14 +61,31 @@ test('preserves other servers and other top-level keys', () => {
     const obj = JSON.parse(fs.readFileSync(cfg, 'utf8'));
     assert.equal(obj.someTopLevel, 'keep-me');
     assert.deepEqual(obj.mcpServers['slack-mcp'], { type: 'stdio', command: '/opt/slack', env: { TOKEN: 'secret' } });
-    assert.equal(obj.mcpServers['xlsx-for-ai'].command, BIN);
+    assert.equal(obj.mcpServers['xfa'].command, BIN);
   });
 });
 
-test('repoints a stale npx entry to the global bin', () => {
+test('repoints a stale xfa npx entry to the global bin', () => {
   const { cfg } = sandbox();
   fs.writeFileSync(cfg, JSON.stringify({
     mcpServers: {
+      'xfa': { type: 'stdio', command: 'npx', args: ['-y', 'xlsx-for-ai-mcp'] },
+    },
+  }));
+  withEnv(cfg, () => {
+    const { registerMcpServer } = load();
+    const res = registerMcpServer({ mode: 'cli', log: noLog });
+    assert.equal(res.changed, true);
+    const obj = JSON.parse(fs.readFileSync(cfg, 'utf8'));
+    assert.deepEqual(obj.mcpServers['xfa'], { type: 'stdio', command: BIN, args: [], env: {} });
+  });
+});
+
+test('dupe migration: registering xfa removes the legacy xlsx-for-ai key', () => {
+  const { cfg } = sandbox();
+  fs.writeFileSync(cfg, JSON.stringify({
+    mcpServers: {
+      'slack-mcp': { command: '/opt/slack' },
       'xlsx-for-ai': { type: 'stdio', command: 'npx', args: ['-y', 'xlsx-for-ai-mcp'] },
     },
   }));
@@ -77,7 +94,27 @@ test('repoints a stale npx entry to the global bin', () => {
     const res = registerMcpServer({ mode: 'cli', log: noLog });
     assert.equal(res.changed, true);
     const obj = JSON.parse(fs.readFileSync(cfg, 'utf8'));
-    assert.deepEqual(obj.mcpServers['xlsx-for-ai'], { type: 'stdio', command: BIN, args: [], env: {} });
+    assert.equal(obj.mcpServers['xlsx-for-ai'], undefined, 'legacy key must be gone');
+    assert.deepEqual(obj.mcpServers['xfa'], { type: 'stdio', command: BIN, args: [], env: {} });
+    assert.deepEqual(obj.mcpServers['slack-mcp'], { command: '/opt/slack' });
+  });
+});
+
+test('dupe migration fires even when xfa is already current', () => {
+  const { cfg } = sandbox();
+  fs.writeFileSync(cfg, JSON.stringify({
+    mcpServers: {
+      'xfa': { type: 'stdio', command: BIN, args: [], env: {} },
+      'xlsx-for-ai': { type: 'stdio', command: BIN },
+    },
+  }));
+  withEnv(cfg, () => {
+    const { registerMcpServer } = load();
+    const res = registerMcpServer({ mode: 'cli', log: noLog });
+    assert.equal(res.changed, true, 'removing the legacy dupe is a change');
+    const obj = JSON.parse(fs.readFileSync(cfg, 'utf8'));
+    assert.equal(obj.mcpServers['xlsx-for-ai'], undefined, 'legacy key must be gone');
+    assert.deepEqual(obj.mcpServers['xfa'], { type: 'stdio', command: BIN, args: [], env: {} });
   });
 });
 
@@ -148,11 +185,12 @@ test('missing global bin: cli mode throws, postinstall mode skips', () => {
   }
 });
 
-test('uninstall removes only the xlsx-for-ai entry and is idempotent', () => {
+test('uninstall removes the xfa entry (and any legacy key) and is idempotent', () => {
   const { cfg } = sandbox();
   fs.writeFileSync(cfg, JSON.stringify({
     mcpServers: {
       'slack-mcp': { command: '/opt/slack' },
+      'xfa': { type: 'stdio', command: BIN },
       'xlsx-for-ai': { type: 'stdio', command: BIN },
     },
   }));
@@ -161,6 +199,7 @@ test('uninstall removes only the xlsx-for-ai entry and is idempotent', () => {
     const r1 = unregisterMcpServer({ log: noLog });
     assert.equal(r1.changed, true);
     const obj = JSON.parse(fs.readFileSync(cfg, 'utf8'));
+    assert.ok(!obj.mcpServers['xfa']);
     assert.ok(!obj.mcpServers['xlsx-for-ai']);
     assert.deepEqual(obj.mcpServers['slack-mcp'], { command: '/opt/slack' });
     const r2 = unregisterMcpServer({ log: noLog });
@@ -176,7 +215,7 @@ test('never widens ~/.claude.json perms (0600 on create, preserved on update)', 
     registerMcpServer({ mode: 'cli', log: noLog });
     assert.equal(fs.statSync(cfg).mode & 0o777, 0o600);
     // Tighten further, then update via a stale->repoint and confirm not widened.
-    fs.writeFileSync(cfg, JSON.stringify({ mcpServers: { 'xlsx-for-ai': { command: 'npx' } } }), { mode: 0o600 });
+    fs.writeFileSync(cfg, JSON.stringify({ mcpServers: { 'xfa': { command: 'npx' } } }), { mode: 0o600 });
     fs.chmodSync(cfg, 0o600);
     registerMcpServer({ mode: 'cli', log: noLog });
     assert.equal(fs.statSync(cfg).mode & 0o777, 0o600);
@@ -188,7 +227,7 @@ test('backup file does not widen perms beyond the source (~/.claude.json holds t
   withEnv(cfg, () => {
     const { registerMcpServer } = load();
     // Seed a stale entry at 0o600 so the next register backs it up before mutating.
-    fs.writeFileSync(cfg, JSON.stringify({ mcpServers: { 'xlsx-for-ai': { command: 'npx' } } }));
+    fs.writeFileSync(cfg, JSON.stringify({ mcpServers: { 'xfa': { command: 'npx' } } }));
     fs.chmodSync(cfg, 0o600);
     registerMcpServer({ mode: 'cli', log: noLog });
     const baks = fs.readdirSync(dir).filter((f) => f.includes('.bak-'));

@@ -22,10 +22,15 @@ Add the server to your agent runtime under the name **`xfa`** (so "use xfa to re
 
 ### Claude Code
 
-Install globally, then register the MCP server with one command:
+The global install auto-registers the `xfa` MCP server in `~/.claude.json` — no extra step:
 
 ```bash
 npm install -g xlsx-for-ai
+```
+
+If your environment skips install scripts (`--ignore-scripts`, CI, or a sudo install), register it manually:
+
+```bash
 claude mcp add xfa -- xlsx-for-ai-mcp
 ```
 
