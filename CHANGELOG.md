@@ -28,6 +28,17 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
   dropped the `@protobi/exceljs` optional dependency, and removed the
   `FALLBACK_ENGINE_MISSING` error path from the CLI and MCP server. The
   cross-engine `xlsx_validate` check is unaffected — it runs server-side.
+- **Retired the v2 local-engine supply-chain apparatus.** With parsing now
+  fully server-side, the client's only runtime dependency is
+  `@modelcontextprotocol/sdk`. Deleted `FORK_READINESS.md` (the
+  `@protobi/exceljs` npm-account-compromise runbook — premise no longer
+  applies), stripped the `exceljs-family` / `workbook-engines` / `tooling`
+  Dependabot groups (none of those packages ship in the client anymore), and
+  rewrote `docs/INTEGRITY_PINNING.md` + `SECURITY.md` to describe the thin-client
+  threat model. The integrity-pinning CI (lockfile-as-source-of-truth, signed
+  installs, silent-republish guard, audit allowlist) is unchanged — it now
+  guards the SDK tree. The cross-engine parser supply-chain concern moved to the
+  server repo, which owns that surveillance.
 
 ---
 

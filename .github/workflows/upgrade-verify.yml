@@ -169,7 +169,7 @@ jobs:
               "Before merging:",
               "1. Read `docs/INTEGRITY_PINNING.md` — section *Reacting to a verification failure*.",
               "2. Confirm the new version is actually a legitimate publish from the maintainer (Slack/email, GitHub release, etc.).",
-              "3. If anything looks off, see `FORK_READINESS.md` for the protobi fallback path.",
+              "3. If anything looks off, do not merge — pin back to the last-verified version and open a `security`-tagged issue describing what was observed.",
             ].join("\n");
             github.rest.issues.createComment({
               owner: context.repo.owner,

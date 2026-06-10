@@ -1,10 +1,13 @@
 # Integrity-hash pinning convention
 
-`xlsx-for-ai` ships as a CLI that runs on end users' machines and parses
-untrusted `.xlsx` input. The dependency closure under `exceljs` (XML parsers,
-ZIP decoders, CSV parsers, formula engine) is therefore part of our security
-boundary. A silent re-publish of any of those packages reaches our users on
-their next `npm install`.
+`xlsx-for-ai` ships as a thin client: it reads local `.xlsx` bytes and relays
+them to the hosted API, which does all parsing and rendering server-side. The
+only runtime dependency is `@modelcontextprotocol/sdk`, so the published
+client's supply-chain surface is that package plus its transitive closure —
+everything that reaches end users on `npm install`. A silent re-publish of any
+of those packages would run on our users' machines, which is what this contract
+exists to detect. (The spreadsheet engines that parse untrusted workbook bytes
+now live in the server repo; their supply-chain surveillance lives there too.)
 
 This document is the contract this project follows to keep that boundary
 tight. The CI workflows `.github/workflows/audit.yml` and
@@ -36,10 +39,9 @@ tight. The CI workflows `.github/workflows/audit.yml` and
    least one package in the tree no longer has a valid registry signature
    or the registry served different bytes than what we have pinned.
 
-6. **Major version bumps of `exceljs` and its parser stack get a manual
-   review.** Dependabot is configured to ship majors as their own PR (no
-   grouping). The reviewer reads the upstream changelog and runs the
-   round-trip corpus before approving.
+6. **Major version bumps get a manual review.** Dependabot ships majors as
+   their own PR (no grouping). The reviewer reads the upstream changelog and
+   confirms the publish is legitimate before approving.
 
 7. **Lockfile drift detection runs daily, in two layers.** `audit.yml` at
    11:17 UTC re-runs `npm ci` against the committed lockfile (catches
@@ -54,7 +56,8 @@ tight. The CI workflows `.github/workflows/audit.yml` and
    entry is a policy change that goes through PR review, every entry has a
    `reassess` date, and the workflow auto-fails once an entry is past its
    reassess date. The allowlist exists for genuinely unfixable advisories
-   (e.g. `xlsx` since SheetJS left npm) — not as a way to silence noise.
+   in the dependency tree — not as a way to silence noise. (It is empty
+   today; the thin-client tree carries no triaged advisories.)
 
 ## What "verification" actually checks
 
@@ -104,15 +107,12 @@ When `upgrade-verify` fails on a PR:
      (pinned issue, deleted release, force-pushed tag);
    - check `https://socket.dev/npm/package/<name>` for any new risk
      signals on this version.
-3. If the failure is on `exceljs` or any package in the `exceljs-family`
-   group and the cause is not a benign signing-key rotation:
-   - **stop the upgrade**;
-   - open `FORK_READINESS.md` and follow the protobi fallback path;
+3. If the cause is not a benign signing-key rotation:
+   - **stop the upgrade** and pin back to the last-verified version;
    - file an issue on this repo tagged `security` describing what was
      observed.
-4. If the failure is on a non-engine dep (tooling, CSV-only path) and the
-   evidence supports a benign cause (key rotation, regional CDN flap),
-   re-run the workflow once. If it persists, escalate as in (3).
+4. If the evidence supports a benign cause (key rotation, regional CDN
+   flap), re-run the workflow once. If it persists, escalate as in (3).
 
 ## When the lockfile *should* change
 

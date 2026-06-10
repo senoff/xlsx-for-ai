@@ -11,8 +11,7 @@ xlsx-for-ai is a CLI that converts `.xlsx` files into rich text or JSON dumps fo
 
 ## Load on relevance
 
-- **`FORK_READINESS.md`** — engine-seam context (we ship `@protobi/exceljs`; alternative engines vetted and rejected).
-- **`docs/`** — design notes for individual subsystems (telemetry, redactor, region autodetect).
+- **`docs/`** — design notes for individual subsystems (telemetry, redactor, region autodetect, integrity pinning).
 
 ## Review gate (mandatory unless explicitly skipped)
 

@@ -2,15 +2,17 @@ version: 2
 
 # xlsx-for-ai dependency surveillance.
 #
-# Primary concern: ExcelJS and its transitive XML/zip/CSV stack — that is the
-# code path that touches untrusted .xlsx input from end users. Any compromise
-# upstream of `exceljs` or its parsers reaches our users on `npm install`.
+# The published client is a thin relay: it reads local .xlsx bytes and sends
+# them to the hosted API, which does all parsing and rendering server-side.
+# The only runtime dependency is `@modelcontextprotocol/sdk` plus its
+# transitive closure — that is the entire supply-chain surface that reaches
+# users on `npm install`. (The spreadsheet engines — exceljs, @protobi/exceljs,
+# xlsx, papaparse, formulajs — now live in the server repo, which owns their
+# surveillance.)
 #
-# Strategy:
-#   1. Direct production deps are watched individually so we see each bump.
-#   2. The exceljs-family transitives are grouped so a coordinated upgrade
-#      (e.g. archiver + zip-stream) lands as one PR instead of N noisy ones.
-#   3. GitHub Actions are pinned and watched separately.
+# Strategy: watch npm and GitHub Actions weekly. Direct dependency bumps land
+# as reviewable PRs labelled for security review; transitives change only via a
+# direct bump or a security advisory Dependabot raises against them.
 
 updates:
   - package-ecosystem: "npm"
@@ -28,49 +30,8 @@ updates:
     commit-message:
       prefix: "deps"
       include: "scope"
-    groups:
-      # ExcelJS itself + the spreadsheet/XML/CSV stack it pulls in.
-      # Anything that parses untrusted bytes from a workbook lives here.
-      # @protobi/exceljs is the soft fork we may adopt; grouping it now means
-      # the first bump after adoption is reviewed alongside the rest of the
-      # parser stack rather than landing as a lone PR.
-      exceljs-family:
-        patterns:
-          - "exceljs"
-          - "@protobi/exceljs"
-          - "@fast-csv/*"
-          - "fast-csv"
-          - "archiver"
-          - "archiver-utils"
-          - "zip-stream"
-          - "compress-commons"
-          - "unzipper"
-          - "saxes"
-          - "xmlbuilder"
-          - "xmlbuilder2"
-          - "readable-stream"
-          - "buffer"
-        update-types:
-          - "minor"
-          - "patch"
-      # Other workbook engines and parsers we ship as direct deps.
-      workbook-engines:
-        patterns:
-          - "xlsx"
-          - "@formulajs/formulajs"
-          - "papaparse"
-        update-types:
-          - "minor"
-          - "patch"
-      # Tokenizer and other utility deps.
-      tooling:
-        patterns:
-          - "gpt-tokenizer"
-        update-types:
-          - "minor"
-          - "patch"
-    # Major bumps get their own PR per package — never grouped — because they
-    # are likely to break the round-trip / write path and need a manual look.
+    # Major bumps get their own PR per package — never grouped — so a
+    # potentially breaking change gets a manual look.
     ignore: []
 
   - package-ecosystem: "github-actions"
