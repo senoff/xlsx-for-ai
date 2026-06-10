@@ -94,4 +94,6 @@ It's a small tool. It just happens to fix the one thing standing between AI assi
 
 ## Privacy contract
 
-We never auto-send workbook data. Anonymous crash telemetry is opt-in via `xlsx-for-ai --enable-telemetry`; even then, we receive only error type, error message (sanitized — paths scrubbed, capped at 200 chars), and tool/Node/OS version — no paths, no cell values, no identifiers. Nothing leaves your machine unless you choose to enable it.
+The tool is a thin client over a hosted API, so the workbook you point it at is transmitted to `https://api.xlsx-for-ai.dev` over HTTPS to be processed — that's how the rendering and analysis happen. Files are processed in memory and are **not** persisted beyond the duration of a single request. No email, no signup — registration is an anonymous client UUID created on first call.
+
+Telemetry is off by default. When you opt in with `xlsx-for-ai --enable-telemetry`, we capture only aggregate usage signals — call counts, error rates, file-size distributions tied to your anonymous client UUID — never workbook content. `XFA_PRIVACY=strict` opts out of error-triggered capture entirely. See [PRIVACY.md](PRIVACY.md) for the full data-handling policy.
