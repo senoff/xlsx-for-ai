@@ -10,7 +10,7 @@ A thin npm client over a hosted API. Install once, add to your agent config, and
 npm install -g xlsx-for-ai
 ```
 
-**Or — recommended for MCP use:** the canonical configs below use `npx -y xlsx-for-ai@latest`, which fetches and runs the latest version on every client restart. Self-heals across releases without a manual global re-install when a new version ships.
+The global install puts the `xlsx-for-ai-mcp` binary on your PATH — that's what the canonical configs below point at. A pinned global install launches fast and works offline; upgrade with `npm install -g xlsx-for-ai@latest` when a new version ships.
 
 > **Upgrading from 1.5.x?** This is a re-architecture, not a feature bump: the heavy local engine is gone from the npm package. All rendering happens server-side. The `cursor-reads-xlsx` alias still works. See [Migration](#migration-from-15x) below.
 
@@ -41,8 +41,7 @@ Config file: `~/.cursor/mcp.json`
 {
   "mcpServers": {
     "xfa": {
-      "command": "npx",
-      "args": ["-y", "-p", "xlsx-for-ai@latest", "xlsx-for-ai-mcp"]
+      "command": "xlsx-for-ai-mcp"
     }
   }
 }
@@ -59,8 +58,7 @@ Config file: `~/.continue/config.json`
   "mcpServers": [
     {
       "name": "xfa",
-      "command": "npx",
-      "args": ["-y", "-p", "xlsx-for-ai@latest", "xlsx-for-ai-mcp"]
+      "command": "xlsx-for-ai-mcp"
     }
   ]
 }
@@ -76,8 +74,7 @@ Pass `--mcp-server` on the command line, or add to your Codex config:
 {
   "mcpServers": {
     "xfa": {
-      "command": "npx",
-      "args": ["-y", "-p", "xlsx-for-ai@latest", "xlsx-for-ai-mcp"]
+      "command": "xlsx-for-ai-mcp"
     }
   }
 }
@@ -94,8 +91,7 @@ Config file: `~/.config/zed/settings.json`
   "context_servers": {
     "xfa": {
       "command": {
-        "path": "npx",
-        "args": ["-y", "-p", "xlsx-for-ai@latest", "xlsx-for-ai-mcp"]
+        "path": "xlsx-for-ai-mcp"
       }
     }
   }
@@ -112,8 +108,7 @@ Config file: `~/.codeium/windsurf/mcp_config.json`
 {
   "mcpServers": {
     "xfa": {
-      "command": "npx",
-      "args": ["-y", "-p", "xlsx-for-ai@latest", "xlsx-for-ai-mcp"]
+      "command": "xlsx-for-ai-mcp"
     }
   }
 }
