@@ -5,8 +5,8 @@
  * xlsx-for-ai MCP stdio server (2.0)
  *
  * Registers 18 tools and relays each tools/call to the hosted API.
- * xlsx_read falls back to local engine if API is unreachable (5xx / timeout).
- * All other tools fail with a clear "needs API connectivity" error.
+ * Every tool requires API connectivity; when the API is unreachable or
+ * returns 5xx, the tool fails with a clear "needs API connectivity" error.
  */
 
 const { Server }            = require('@modelcontextprotocol/sdk/server/index.js');
@@ -15,7 +15,6 @@ const { CallToolRequestSchema, ListToolsRequestSchema } = require('@modelcontext
 
 const { ensureRegistered } = require('./lib/register');
 const { callTool, setMcpClientInfo } = require('./lib/client');
-const { fallbackRead }     = require('./lib/fallback-read');
 const { resolveCatalog }   = require('./lib/discover');
 const { applyAnnotations, sanitizeForMcp } = require('./lib/annotations');
 const fs                   = require('fs');
@@ -1497,8 +1496,6 @@ function friendlyErrorMessage(toolName, err) {
       return `${toolName}: API is unreachable — check network connectivity.`;
     case 'RATE_LIMITED':
       return `${toolName}: monthly request cap reached — resets next month.`;
-    case 'FALLBACK_ENGINE_MISSING':
-      return `${toolName}: local fallback engine not installed (\`npm install @protobi/exceljs\`).`;
     case 'BASE64_MISREAD':
       // SPM SPEC base64-defensive-error-and-suggested-next-call — turn the
       // base64-bash-hang class into a one-turn recovery. The error names
@@ -1716,20 +1713,13 @@ async function dispatchTool(name, args) {
   // failure or a base64-bash-hang.
   validateToolArgs(name, args);
 
-  // xlsx_read: relay to API; fallback to local on unreachable / 5xx
+  // xlsx_read: relay to API (like every other tool).
   if (name === 'xlsx_read') {
     const body = {
       file_b64: fileToB64(args.file_path),
       options: { format: args.format, sheet: args.sheet, evaluate: args.evaluate },
     };
-    try {
-      return await callTool('xlsx_read', body);
-    } catch (err) {
-      if (err.code === 'API_UNREACHABLE' || err.code === 'API_SERVER_ERROR') {
-        return fallbackRead(args.file_path, args);
-      }
-      throw err;
-    }
+    return callTool('xlsx_read', body);
   }
 
   // xlsx_diff: two files

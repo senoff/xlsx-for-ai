@@ -21,7 +21,6 @@ const path = require('path');
 
 const { ensureRegistered } = require('./lib/register');
 const { callTool }         = require('./lib/client');
-const { fallbackRead }     = require('./lib/fallback-read');
 const {
   telemetryStatus,
   enableTelemetry,
@@ -186,7 +185,6 @@ function friendlyCliError(prefix, err) {
       case 'FILE_NOT_FOUND':        return `${prefix}: file not found.`;
       case 'MISSING_TOKEN':         return `${prefix}: required token env var is not set.`;
       case 'RATE_LIMITED':          return `${prefix}: monthly request cap reached — resets next month.`;
-      case 'FALLBACK_ENGINE_MISSING': return `${prefix}: local fallback engine not installed (\`npm install @protobi/exceljs\`).`;
       default:                      return `${prefix}: request failed${code ? ` (code=${code})` : ''}.`;
     }
   })();
@@ -670,12 +668,8 @@ async function main() {
   try {
     result = await callTool('xlsx_read', body);
   } catch (err) {
-    if (err.code === 'API_UNREACHABLE' || err.code === 'API_SERVER_ERROR') {
-      result = await fallbackRead(absPath, opts);
-    } else {
-      process.stderr.write(friendlyCliError('xlsx-for-ai', err) + '\n');
-      process.exit(1);
-    }
+    process.stderr.write(friendlyCliError('xlsx-for-ai', err) + '\n');
+    process.exit(err.code === 'API_UNREACHABLE' || err.code === 'API_SERVER_ERROR' ? 3 : 1);
   }
 
   const text = (result.content || []).map((c) => c.text).join('\n');

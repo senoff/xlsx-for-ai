@@ -21,6 +21,13 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
   `prepublishOnly` no longer runs a manifest drift check, and the Husky
   pre-commit hook (whose sole job was that check) plus the `husky` devDependency
   are removed — there are no remaining git hooks.
+- **Retired the offline local-read fallback.** `xlsx_read` no longer falls back
+  to a local engine when the hosted API is unreachable or returns 5xx — every
+  tool now requires API connectivity and fails with a clear, actionable error
+  instead of silently degrading to local output. Deleted `lib/fallback-read.js`,
+  dropped the `@protobi/exceljs` optional dependency, and removed the
+  `FALLBACK_ENGINE_MISSING` error path from the CLI and MCP server. The
+  cross-engine `xlsx_validate` check is unaffected — it runs server-side.
 
 ---
 

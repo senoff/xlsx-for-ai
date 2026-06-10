@@ -4,8 +4,8 @@
  * v2 thin-client tests.
  *
  * Boots a minimal in-process HTTP server that simulates the xlsx-for-ai hosted
- * API, then exercises: registration, auth header, tool relay, xlsx_read fallback,
- * non-read tool failure, MCP tools/list, back-compat bin alias.
+ * API, then exercises: registration, auth header, tool relay, clean-error
+ * surfacing on API failure, MCP tools/list, back-compat bin alias.
  */
 
 const { test, before, after } = require('node:test');
@@ -72,8 +72,8 @@ function startMockServer() {
         if (req.url.startsWith('/api/v1/tools/') && req.method === 'POST') {
           const tool = req.url.replace('/api/v1/tools/', '');
 
-          // Simulate 5xx for fallback test
-          if (tool === 'xlsx_read' && parsed.options && parsed.options._force_5xx) {
+          // Simulate a 5xx so we can assert tools surface a clean error
+          if (parsed.options && parsed.options._force_5xx) {
             res.statusCode = 500;
             res.end(JSON.stringify({ error: 'internal server error' }));
             return;
@@ -198,107 +198,21 @@ test('xlsx_read relays and response passes through unmodified', async () => {
 });
 
 // ---------------------------------------------------------------------------
-// Test: xlsx_read fallback on 5xx
+// Test: xlsx_read surfaces a clean server error on 5xx (no local fallback)
+// The offline local-read fallback was retired — every tool now requires API
+// connectivity and fails with an actionable error rather than silently
+// degrading to a local engine.
 // ---------------------------------------------------------------------------
 
-test('xlsx_read falls back to local engine on 5xx', async (t) => {
-  // Create a minimal real .xlsx fixture using @protobi/exceljs
-  let ExcelJS;
+test('xlsx_read surfaces a clean server error on 5xx (no local fallback)', async () => {
+  const { callTool } = freshRequire('../../lib/client');
+
   try {
-    ExcelJS = require('@protobi/exceljs');
-  } catch (_) {
-    return t.skip('@protobi/exceljs not installed');
+    await callTool('xlsx_read', { file_b64: 'dGVzdA==', options: { _force_5xx: true } });
+    assert.fail('expected error');
+  } catch (err) {
+    assert.equal(err.code, 'API_SERVER_ERROR');
   }
-
-  const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet('TestSheet');
-  ws.addRow(['Name', 'Value']);
-  ws.addRow(['Alpha', 42]);
-  const fixturePath = path.join(tmpDir, 'fixture.xlsx');
-  await wb.xlsx.writeFile(fixturePath);
-
-  // Spy on callTool to inject _force_5xx
-  const { post } = freshRequire('../../lib/client');
-  const { fallbackRead } = freshRequire('../../lib/fallback-read');
-
-  // Directly call fallbackRead (the fallback path after 5xx)
-  const result = await fallbackRead(fixturePath, {});
-  assert.ok(result.content[0].text.includes('TestSheet'));
-  assert.equal(result._meta.source, 'local-fallback');
-  // Visible warning so the agent knows it's looking at fallback output, not API output
-  assert.match(result.content[0].text, /local fallback active/i);
-  assert.deepEqual(result._meta.ignored_options, []);
-});
-
-// ---------------------------------------------------------------------------
-// Test: fallbackRead honors options.sheet + flags ignored options
-// ---------------------------------------------------------------------------
-
-test('fallbackRead filters to options.sheet and surfaces ignored options', async (t) => {
-  let ExcelJS;
-  try {
-    ExcelJS = require('@protobi/exceljs');
-  } catch (_) {
-    return t.skip('@protobi/exceljs not installed');
-  }
-
-  const wb = new ExcelJS.Workbook();
-  wb.addWorksheet('Alpha').addRow(['alpha-only', 1]);
-  wb.addWorksheet('Beta').addRow(['beta-only', 2]);
-  wb.addWorksheet('Gamma').addRow(['gamma-only', 3]);
-  const fixturePath = path.join(tmpDir, 'multi-sheet.xlsx');
-  await wb.xlsx.writeFile(fixturePath);
-
-  const { fallbackRead } = freshRequire('../../lib/fallback-read');
-
-  // Sheet filter + ignored options (format, evaluate)
-  const filtered = await fallbackRead(fixturePath, {
-    sheet: 'Beta',
-    format: 'json',
-    evaluate: true,
-  });
-  assert.ok(filtered.content[0].text.includes('beta-only'), 'requested sheet rendered');
-  assert.ok(!filtered.content[0].text.includes('alpha-only'), 'other sheet excluded');
-  assert.ok(!filtered.content[0].text.includes('gamma-only'), 'other sheet excluded');
-  assert.equal(filtered._meta.sheet_filter, 'Beta');
-  assert.deepEqual(filtered._meta.ignored_options.sort(), ['evaluate', 'format']);
-  assert.match(filtered.content[0].text, /Options not honored.*format.*evaluate|Options not honored.*evaluate.*format/);
-
-  // Unknown sheet → no silent surprise; surface available sheets
-  const missing = await fallbackRead(fixturePath, { sheet: 'Delta' });
-  assert.match(missing.content[0].text, /no sheet named "Delta"/);
-  assert.match(missing.content[0].text, /Alpha.*Beta.*Gamma/);
-});
-
-// ---------------------------------------------------------------------------
-// Test: fallbackRead survives merge cells with null master value
-// (Repro: SEC XBRL→xlsx converters leave merge regions with the master cell
-//  set to null. @protobi/exceljs's cell.text getter throws on the slave
-//  cells. Pre-fix: one such cell crashed the entire dump.)
-// ---------------------------------------------------------------------------
-
-test('fallbackRead survives merge cells with null master value', async (t) => {
-  let ExcelJS;
-  try {
-    ExcelJS = require('@protobi/exceljs');
-  } catch (_) {
-    return t.skip('@protobi/exceljs not installed');
-  }
-
-  const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet('NullMerge');
-  ws.mergeCells('A1:C1');           // merge a 3-cell region
-  ws.getCell('A1').value = null;    // master deliberately null (the SEC shape)
-  ws.addRow(['real', 'data', 'here']);
-  const fixturePath = path.join(tmpDir, 'null-merge.xlsx');
-  await wb.xlsx.writeFile(fixturePath);
-
-  const { fallbackRead } = freshRequire('../../lib/fallback-read');
-
-  // Pre-fix this throws "Cannot read properties of null (reading 'toString')"
-  const result = await fallbackRead(fixturePath, {});
-  assert.ok(result.content[0].text.includes('NullMerge'), 'sheet header rendered');
-  assert.ok(result.content[0].text.includes('real\tdata\there'), 'second row rendered');
 });
 
 // ---------------------------------------------------------------------------
