@@ -1,5 +1,7 @@
 # xlsx-for-ai
 
+[![xlsx-for-ai MCP server](https://glama.ai/mcp/servers/senoff/xlsx-for-ai/badges/score.svg)](https://glama.ai/mcp/servers/senoff/xlsx-for-ai)
+
 *Short name: **xfa** — a real CLI command (`xfa <file>`, `xfa samples`, `xfa --version`) and the prompt shorthand (e.g. "use xfa to read this file"). Same entrypoint as `xlsx-for-ai`; matches the internal `xfa_*` / `XFA_*` brand surface.*
 
 **The missing reliability layer that makes spreadsheet reasoning production-grade for LLMs.**
