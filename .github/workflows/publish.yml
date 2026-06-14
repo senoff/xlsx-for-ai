@@ -117,13 +117,13 @@ jobs:
           echo "Clean install verified: tarball installs and CLI runs."
 
       - name: Publish to npm
-        if: env.ALREADY_PUBLISHED != 'true' && (github.event_name == 'push' || inputs.dry_run == false)
+        if: env.ALREADY_PUBLISHED != 'true' && (github.event_name == 'push' || inputs.dry_run == 'false')
         run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.XLSX_NPM }}
 
       - name: Push version-bump commit + tag
-        if: github.event_name == 'workflow_dispatch' && inputs.version_bump != 'none' && inputs.dry_run == false
+        if: github.event_name == 'workflow_dispatch' && inputs.version_bump != 'none' && inputs.dry_run == 'false'
         run: |
           git push --follow-tags
 
@@ -135,13 +135,13 @@ jobs:
       # registry never drifts behind npm. continue-on-error: a registry hiccup
       # (or a same-version re-publish rejection) must never fail the npm release.
       - name: Sync server.json version to package.json
-        if: github.event_name == 'push' || inputs.dry_run == false
+        if: github.event_name == 'push' || inputs.dry_run == 'false'
         run: |
           node -e "const fs=require('fs');const pkg=require('./package.json');const s=JSON.parse(fs.readFileSync('server.json','utf8'));s.version=pkg.version;s.packages[0].version=pkg.version;fs.writeFileSync('server.json',JSON.stringify(s,null,2)+'\n');"
           echo "server.json synced to $(node -p "require('./package.json').version")"
 
       - name: Publish to MCP Registry (OIDC)
-        if: github.event_name == 'push' || inputs.dry_run == false
+        if: github.event_name == 'push' || inputs.dry_run == 'false'
         continue-on-error: true
         env:
           # Pinned to a released tag + SRI hash so a republished or
@@ -152,13 +152,25 @@ jobs:
           MCP_PUBLISHER_SHA256: ab128162b0616090b47cf245afe0a23f3ef08936fdce19074f5ba0a4469281ac
         run: |
           set -euo pipefail
-          curl -fsSL --max-time 60 -o mcp-publisher.tar.gz \
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 --max-time 60 -o mcp-publisher.tar.gz \
             "https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_TAG}/mcp-publisher_linux_amd64.tar.gz"
           echo "Verifying mcp-publisher ${MCP_PUBLISHER_TAG} against pinned SHA-256..."
           echo "${MCP_PUBLISHER_SHA256}  mcp-publisher.tar.gz" | sha256sum -c -
           tar xzf mcp-publisher.tar.gz mcp-publisher
-          timeout 60s ./mcp-publisher login github-oidc
-          timeout 60s ./mcp-publisher publish
+          publish_ok=false
+          for attempt in 1 2 3; do
+            if timeout 60s ./mcp-publisher login github-oidc && timeout 60s ./mcp-publisher publish; then
+              publish_ok=true
+              echo "mcp-publisher publish succeeded (attempt $attempt)"
+              break
+            fi
+            echo "mcp-publisher attempt $attempt failed." >&2
+            [ "$attempt" -lt 3 ] && sleep $((attempt * 2))
+          done
+          if [ "$publish_ok" != true ]; then
+            echo "::warning::mcp-publisher failed after 3 attempts (registry sync skipped; npm publish unaffected)"
+            exit 1
+          fi
 
       - name: Summary
         if: always()
