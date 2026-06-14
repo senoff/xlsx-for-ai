@@ -90,6 +90,24 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Publishing $NAME@$VERSION"
 
+      # Normalize dry_run to an unambiguous string output. workflow_dispatch
+      # boolean inputs are reported inconsistently across the inputs vs
+      # github.event.inputs contexts (string vs real boolean, runner-dependent),
+      # so a literal `inputs.dry_run == false` / `== 'false'` compare in an `if:`
+      # is fragile either way. Inside a shell step both a boolean and a string
+      # render identically, so resolve here once and gate on this output.
+      - name: Resolve dry-run flag
+        id: flags
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DRY_RUN_INPUT: ${{ inputs.dry_run }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$DRY_RUN_INPUT" = "true" ]; then
+            echo "dry_run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "dry_run=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Guard against republishing existing version
         run: |
           if npm view "${{ steps.pkg.outputs.name }}@${{ steps.pkg.outputs.version }}" version 2>/dev/null; then
@@ -117,13 +135,13 @@ jobs:
           echo "Clean install verified: tarball installs and CLI runs."
 
       - name: Publish to npm
-        if: env.ALREADY_PUBLISHED != 'true' && (github.event_name == 'push' || inputs.dry_run == 'false')
+        if: env.ALREADY_PUBLISHED != 'true' && steps.flags.outputs.dry_run == 'false'
         run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.XLSX_NPM }}
 
       - name: Push version-bump commit + tag
-        if: github.event_name == 'workflow_dispatch' && inputs.version_bump != 'none' && inputs.dry_run == 'false'
+        if: github.event_name == 'workflow_dispatch' && inputs.version_bump != 'none' && steps.flags.outputs.dry_run == 'false'
         run: |
           git push --follow-tags
 
@@ -135,13 +153,13 @@ jobs:
       # registry never drifts behind npm. continue-on-error: a registry hiccup
       # (or a same-version re-publish rejection) must never fail the npm release.
       - name: Sync server.json version to package.json
-        if: github.event_name == 'push' || inputs.dry_run == 'false'
+        if: steps.flags.outputs.dry_run == 'false'
         run: |
           node -e "const fs=require('fs');const pkg=require('./package.json');const s=JSON.parse(fs.readFileSync('server.json','utf8'));s.version=pkg.version;s.packages[0].version=pkg.version;fs.writeFileSync('server.json',JSON.stringify(s,null,2)+'\n');"
           echo "server.json synced to $(node -p "require('./package.json').version")"
 
       - name: Publish to MCP Registry (OIDC)
-        if: github.event_name == 'push' || inputs.dry_run == 'false'
+        if: steps.flags.outputs.dry_run == 'false'
         continue-on-error: true
         env:
           # Pinned to a released tag + SRI hash so a republished or
