@@ -442,7 +442,7 @@ const TOOLS = [
         agg:       { type: 'string', enum: ['sum', 'mean', 'min', 'max', 'count', 'count_distinct'], description: 'Aggregation function (default sum).' },
         sheet:      { type: 'string', description: 'Sheet name (default: first sheet).' },
         header_row: { type: 'integer', minimum: 0, description: 'Header row (1-based). 0 = treat row 1 as data, no header.' },
-        fill_value: { description: 'Value (number or string) to use for missing index×column cells. Default empty string.' },
+        fill_value: { type: ['number', 'string'], description: 'Value (number or string) to use for missing index×column cells. Default empty string.' },
       },
       required: ['file_path', 'index', 'values'],
     },
