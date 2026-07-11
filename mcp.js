@@ -2096,10 +2096,27 @@ async function dispatchTool(name, args) {
   if (args.sheet !== undefined) opts.sheet = args.sheet;
   if (args.limit !== undefined) opts.limit = args.limit;
   if (args.detailed !== undefined) opts.detailed = args.detailed;
+
+  // A relayed tool advertises ONE of two input contracts, and the relay has to honor
+  // the one the CATALOG actually declares:
+  //
+  //   file_path — a path the client reads and encodes (the xlsx_* workhorses), or
+  //   file_b64  — bytes the caller already holds (every shopify_* tool; their schemas
+  //               declare `file_b64` + `filename` and NO `file_path` at all).
+  //
+  // Assuming `file_path` broke the entire second class: `fileToB64(undefined)` threw
+  // `path.resolve(undefined)` at the MCP boundary, where the sanitizer collapsed it to
+  // an opaque "tool failed" — so the request never left the machine and the error named
+  // nothing the caller could act on. The live catalog ADVERTISED those tools the whole
+  // time. A tool the catalog offers and the relay can never dispatch is the same defect
+  // in product form: it looks present, it cannot work, and nothing announces it.
   const body = {
-    file_b64: fileToB64(args.file_path),
-    options: opts,
+    file_b64: args.file_b64 !== undefined ? args.file_b64 : fileToB64(args.file_path),
+    options: { ...(args.options || {}), ...opts },
   };
+  // Bytes-in tools carry the original name for their prose/_meta; a path-in tool has no
+  // `filename` arg, so this is a no-op there rather than a new key on every relay.
+  if (args.filename !== undefined) body.filename = args.filename;
   const result = await callTool(name, body);
 
   // Triage tools that mention follow-on tools in their findings get a
