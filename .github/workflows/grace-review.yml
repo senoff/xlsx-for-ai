@@ -95,9 +95,13 @@ env:
   # this pin, in every repo that runs the gate, and watch a real panel come back.
   # "Pushed" is not "deployed".
   #
-  # These are deliberately NOT valid SHAs. A template that ships with a plausible-looking
-  # SHA is a template that gets copied and run against whatever that SHA happened to be —
-  # silently, and probably months stale. Fail to clone loudly instead.
+  # Replacing the two pins below is adoption's only edit to this file. The TEMPLATE ships
+  # them as SET-ME-TO-A-REAL-*-SHA, which cannot resolve, on purpose: a template that ships
+  # a plausible-looking SHA is a template that gets copied and run against whatever that SHA
+  # happened to be — silently, and probably months stale. Fail to clone loudly instead.
+  #
+  # Every claim in this file is copied verbatim into every adopter, so it must be scoped to
+  # the tense it is true in. Why that rule exists, and what it cost: senoff/grace ci/ADOPTING.md.
   GRACE_SHA: 26ede1fd2a20252bc1343628d691ede3bae77c13
   MAX_SHA:   9c42b002557b8e5755a29e588a73979b3857ccb5
 
