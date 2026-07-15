@@ -102,7 +102,7 @@ env:
   #
   # Every claim in this file is copied verbatim into every adopter, so it must be scoped to
   # the tense it is true in. Why that rule exists, and what it cost: senoff/grace ci/ADOPTING.md.
-  GRACE_SHA: 26ede1fd2a20252bc1343628d691ede3bae77c13
+  GRACE_SHA: 204f22b7c9971d170d28549efee4667358adf7aa
   MAX_SHA:   9c42b002557b8e5755a29e588a73979b3857ccb5
 
   # OUT_DIR lives INSIDE the workspace, and every `upload-artifact` path below is written
@@ -144,6 +144,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      actions: read          # the receipt carry below reads this run's artifacts; a PRIVATE repo 403s without it
       pull-requests: write
     timeout-minutes: 15
     steps:
@@ -209,7 +210,18 @@ jobs:
                   | [.html_url, (.body | gsub("\n"; " "))] | @tsv' > /tmp/comments.tsv
 
           LINE=$(grep -F "grace-review-marker: diff-id=${ID} " /tmp/comments.tsv | tail -1 || true)
-          [ -z "$LINE" ] && { echo "no bot-authored review of ${ID} — running the panel."; exit 0; }
+          # Name the surface actually searched: issues/{n}/comments, NOT pulls/{n}/reviews.
+          # The prior wording called this a PR *review*; a reader verifying the early-exit went
+          # to pulls/{n}/reviews (always empty — we never post there), found nothing, and nearly
+          # reported this predicate as false. A log line naming the wrong endpoint hands its
+          # reader a false disproof of a true mechanism.
+          #
+          # Deliberately NOT quoting the old text here: Actions echoes this script's SOURCE,
+          # comments included, into every log. Any evidence-shaped literal in a comment is
+          # grep-able as if it were runtime output, so quoting the string we tell people to
+          # grep for would make a run that never early-exited look like one that did. State
+          # the shape, never the literal. Discriminate on the INTERPOLATED diff-id instead.
+          [ -z "$LINE" ] && { echo "no grace-review-marker comment for diff-id=${ID} among bot-authored issue comments (repos/${REPO}/issues/${PR_NUM}/comments) — running the panel."; exit 0; }
 
           VERDICT=$(printf '%s' "$LINE" | sed -n 's/.*grace-review-marker: diff-id=[^ ]* verdict=\([a-z]*\) .*/\1/p')
           PSHA=$(printf '%s' "$LINE" | sed -n 's/.*grace-review-marker: diff-id=[^ ]* verdict=[a-z]* sha=\([0-9a-f]*\).*/\1/p')
@@ -236,11 +248,27 @@ jobs:
           PNAME="grace-receipt-${PSHA}"
           AID=$(gh api "repos/${REPO}/actions/artifacts?name=${PNAME}&per_page=100" \
                   --jq "[.artifacts[] | select(.expired == false) | select(.name == \"${PNAME}\")]
-                        | sort_by(.created_at) | last | .id // empty" || true)
-          if [ -z "$AID" ]; then
-            echo "::warning::verdict for ${ID} is carryable but its receipt (${PNAME}) is gone — running the panel to mint a fresh one."
-            exit 0
-          fi
+                        | sort_by(.created_at) | last | .id // empty" 2>/dev/null || true)
+          # An artifact id or NOTHING — never "whatever gh printed". On an API error gh emits the
+          # error BODY on stdout and `|| true` eats the exit code, so `$AID` becomes the error
+          # JSON (a `message`/`status` object naming the permission failure). That is non-empty,
+          # so an emptiness test passes it straight through and the zip URL below interpolates a
+          # URL-encoded JSON blob into the path: `unsupported protocol scheme ""`, job dead.
+          #
+          # The error text is described, not quoted, on purpose: Actions echoes this script's
+          # SOURCE into every log, so a literal here is indistinguishable from a real failure to
+          # anyone grepping the log — this comment made a CLEAN run report a 403 that never
+          # happened (grace-gate-fixture#3 arm 3). Discriminate on gh's own emitted line, which
+          # carries a `gh: ` prefix and an `(HTTP 403)` suffix that no comment reproduces.
+          # A guard written to fail OPEN then fails CLOSED, which is the worst direction available
+          # (GPM-288, measured on srv#171 job 87277016102). The permission fix above stops the 403
+          # at the source; this stops ANY unreadable response from being mistaken for an id.
+          case "$AID" in
+            '' | *[!0-9]*)
+              echo "::warning::verdict for ${ID} is carryable but its receipt (${PNAME}) could not be read — running the panel to mint a fresh one."
+              exit 0
+              ;;
+          esac
           gh api "repos/${REPO}/actions/artifacts/${AID}/zip" > /tmp/prior.zip
           unzip -o -q /tmp/prior.zip -d "$OUT_DIR"
           python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$OUT_DIR/override-receipt.json"
