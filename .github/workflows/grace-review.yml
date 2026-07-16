@@ -102,7 +102,7 @@ env:
   #
   # Every claim in this file is copied verbatim into every adopter, so it must be scoped to
   # the tense it is true in. Why that rule exists, and what it cost: senoff/grace ci/ADOPTING.md.
-  GRACE_SHA: b40bd25608e029a11efcae41378c4c9c57a82509
+  GRACE_SHA: ad39f7c3279b478623e31394e7d5d9f702bab31f
   MAX_SHA:   9c42b002557b8e5755a29e588a73979b3857ccb5
 
   # OUT_DIR lives INSIDE the workspace, and every `upload-artifact` path below is written
