@@ -3,14 +3,26 @@ name: publish
 # Publishes xlsx-for-ai to npm. Two trigger modes:
 #
 #   1. workflow_dispatch — fire from any terminal:
-#        gh workflow run publish.yml --ref main \
-#          -f version_bump=patch \
-#          -f dry_run=false
-#      Bumps package.json, commits, tags, pushes, publishes.
+#        gh workflow run publish.yml --ref main -f version_bump=none -f dry_run=false
+#      Publishes the version main already carries. It does NOT bump, commit, tag or
+#      push: this workflow never mutates main.
 #
 #   2. push of a v* tag — for "tag, then publish":
-#        npm version patch && git push --follow-tags
 #      Just publishes whatever's at the tag; no bump.
+#
+# THE BUMP IS NOT THIS WORKFLOW'S JOB, AND CANNOT BE (XLS-542, 2026-07-16).
+# It used to `npm version` + `git push --follow-tags` straight at main. main is a
+# PROTECTED branch, so that push is rejected GH006 — and it ran AFTER `npm publish`,
+# which is irreversible. Measured result: 3.2.5 went live on npm while main stayed at
+# 3.2.4, the tag survived as an orphan, and the MCP Registry served the API-key-
+# destroying 3.2.4 for ~42 hours. The publish succeeded; the record of it never landed.
+#
+# Protection is not the villain — it is why this surfaced, and it stays. An irreversible
+# step must never run before a step that can fail. So the bump lands on main FIRST, as a
+# reviewed PR through the door, and this workflow publishes what main already carries:
+#
+#   1. PR the version bump -> land it (main now carries the new version)
+#   2. dispatch this workflow with version_bump=none
 #
 # Setup prereqs (one-time, can't be automated — needs the package owner):
 #   - npm: account 2FA = "Authorization only" (not "Authorization and writes")
@@ -26,14 +38,11 @@ on:
   workflow_dispatch:
     inputs:
       version_bump:
-        description: "How to bump the version. Use 'none' to publish current package.json verbatim."
+        description: "MUST be 'none'. Bumping here cannot work: the push to protected main is rejected GH006, and it would run AFTER the irreversible npm publish. Bump via PR first, then dispatch this."
         required: true
         type: choice
-        default: patch
+        default: none
         options:
-          - patch
-          - minor
-          - major
           - none
       dry_run:
         description: "Run npm pack + clean-install verification but skip the actual publish."
@@ -45,17 +54,36 @@ on:
       - "v*"
 
 permissions:
-  contents: write   # needed to commit the version bump + push the tag
+  contents: read    # this workflow no longer commits or pushes anything. It reads main
+                    # and publishes what main carries; the bump arrives as a reviewed PR.
   id-token: write   # for npm provenance (free supply-chain signal)
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
+      # FIRST, and before anything irreversible. The rule this enforces is the one the
+      # old order broke: a step that CAN fail must never run after a step that CANNOT be
+      # undone. `npm publish` cannot be undone; a push to protected main always fails.
+      - name: Refuse the dead bump path
+        if: github.event_name == 'workflow_dispatch' && inputs.version_bump != 'none'
+        run: |
+          echo "::error::version_bump=${{ inputs.version_bump }} cannot work and will not be attempted."
+          echo "Bumping here means pushing a commit to main. main is PROTECTED, so that push is"
+          echo "rejected GH006 — and it would run AFTER 'npm publish', which is irreversible."
+          echo "That is exactly how 3.2.5 went live on npm while main stayed at 3.2.4 and the MCP"
+          echo "Registry served the API-key-destroying 3.2.4 for ~42h (XLS-542)."
+          echo ""
+          echo "The path that works, and is proven:"
+          echo "  1. PR the version bump -> land it through the door (main now carries the version)"
+          echo "  2. gh workflow run publish.yml --ref main -f version_bump=none -f dry_run=false"
+          exit 1
+
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          # Need full history so npm version can create a tag without complaints
+          # Full history is no longer needed for tagging (this workflow does not tag).
+          # Kept so `npm publish --provenance` can attest against real history.
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -70,16 +98,6 @@ jobs:
 
       - name: Test
         run: npm test --if-present
-
-      - name: Configure git identity
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-      - name: Bump version (workflow_dispatch only)
-        if: github.event_name == 'workflow_dispatch' && inputs.version_bump != 'none'
-        run: |
-          npm version "${{ inputs.version_bump }}" -m "release: %s [skip ci]"
 
       - name: Read package metadata
         id: pkg
@@ -139,11 +157,6 @@ jobs:
         run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.XLSX_NPM }}
-
-      - name: Push version-bump commit + tag
-        if: github.event_name == 'workflow_dispatch' && inputs.version_bump != 'none' && steps.flags.outputs.dry_run == 'false'
-        run: |
-          git push --follow-tags
 
       # Keep the Official MCP Registry listing (io.github.senoff/xlsx-for-ai) in
       # sync on every release. Auth is GitHub Actions OIDC — the id-token:write
