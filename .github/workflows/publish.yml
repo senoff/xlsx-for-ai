@@ -65,6 +65,25 @@ jobs:
       # FIRST, and before anything irreversible. The rule this enforces is the one the
       # old order broke: a step that CAN fail must never run after a step that CANNOT be
       # undone. `npm publish` cannot be undone; a push to protected main always fails.
+      # THE PROPERTY THIS WHOLE FILE CLAIMS, NOW ENFORCED INSTEAD OF ASSERTED.
+      # The header says "publishes what main already carries". Nothing checked it: a
+      # `workflow_dispatch --ref <any-branch-or-sha>` published THAT ref. npm publish is
+      # irreversible, so an accidental dispatch from a feature branch ships code that never
+      # landed — the exact class this PR exists to remove, left live in the fix for it.
+      # Tag events are exempt by design: they publish the tagged commit, and the tag/version
+      # agreement is enforced below.
+      - name: Enforce main-only for manual dispatch
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::publish.yml must be dispatched against main (got: $GITHUB_REF)."
+            echo "This workflow publishes what main carries. Publishing another ref would ship"
+            echo "code that never landed — and npm publish cannot be undone."
+            echo "  gh workflow run publish.yml --ref main -f version_bump=none -f dry_run=false"
+            exit 1
+          fi
+          echo "Dispatch ref is main."
+
       - name: Refuse the dead bump path
         if: github.event_name == 'workflow_dispatch' && inputs.version_bump != 'none'
         run: |
@@ -81,11 +100,12 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v6
-        with:
-          # Full history is no longer needed for tagging (this workflow does not tag).
-          # Kept so `npm publish --provenance` can attest against real history.
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+        # Default depth. The old `fetch-depth: 0` existed so `npm version` could tag; nothing
+        # here tags any more. I first kept it with a comment claiming provenance needed full
+        # history — I had not measured that, and it was the same invented-justification defect
+        # this PR removes elsewhere. Provenance attests the repo/ref/SHA, all present at depth 1;
+        # and if that is wrong it fails CLOSED, because a provenance failure aborts the publish
+        # rather than shipping unattested. The `token:` was for pushing, which is gone.
 
       - name: Setup Node
         uses: actions/setup-node@v6
@@ -98,6 +118,24 @@ jobs:
 
       - name: Test
         run: npm test --if-present
+
+      # A v* tag publishes the tagged commit. Nothing asserted the tag NAME matched the
+      # version in package.json AT that commit, so a mistyped tag (v3.2.6 on a 3.2.5 tree)
+      # would ship 3.2.5 while every human-readable trace says 3.2.6 — or collide with an
+      # already-published version and fail confusingly at the irreversible step. This runs
+      # before pack/publish, so a mismatch costs a red run and nothing else.
+      - name: Validate tag matches package.json version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Tag v${TAG_VERSION} does not match package.json version ${PKG_VERSION}."
+            echo "The tag names one version and the tree carries another; publishing would ship"
+            echo "${PKG_VERSION} under a v${TAG_VERSION} tag. Retag the correct commit."
+            exit 1
+          fi
+          echo "Tag v${TAG_VERSION} matches package.json ${PKG_VERSION}."
 
       - name: Read package metadata
         id: pkg
