@@ -84,28 +84,15 @@ jobs:
           fi
           echo "Dispatch ref is main."
 
-      - name: Refuse the dead bump path
-        if: github.event_name == 'workflow_dispatch' && inputs.version_bump != 'none'
-        run: |
-          echo "::error::version_bump=${{ inputs.version_bump }} cannot work and will not be attempted."
-          echo "Bumping here means pushing a commit to main. main is PROTECTED, so that push is"
-          echo "rejected GH006 — and it would run AFTER 'npm publish', which is irreversible."
-          echo "That is exactly how 3.2.5 went live on npm while main stayed at 3.2.4 and the MCP"
-          echo "Registry served the API-key-destroying 3.2.4 for ~42h (XLS-542)."
-          echo ""
-          echo "The path that works, and is proven:"
-          echo "  1. PR the version bump -> land it through the door (main now carries the version)"
-          echo "  2. gh workflow run publish.yml --ref main -f version_bump=none -f dry_run=false"
-          exit 1
-
       - name: Checkout
         uses: actions/checkout@v6
-        # Default depth. The old `fetch-depth: 0` existed so `npm version` could tag; nothing
-        # here tags any more. I first kept it with a comment claiming provenance needed full
-        # history — I had not measured that, and it was the same invented-justification defect
-        # this PR removes elsewhere. Provenance attests the repo/ref/SHA, all present at depth 1;
-        # and if that is wrong it fails CLOSED, because a provenance failure aborts the publish
-        # rather than shipping unattested. The `token:` was for pushing, which is gone.
+        with:
+          # Full history: the release-commit pin guard below runs `git log -1 -- package.json`
+          # to find the commit that last set the version, and needs history to walk to it.
+          # (I first removed this citing provenance — an invented reason I never measured.
+          # The real consumer is the pin guard; this is a measured need.) The `token:` is gone
+          # with the push it served.
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v6
@@ -113,17 +100,33 @@ jobs:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
 
-      - name: Install
-        run: npm ci
+      # BOTH validations run here — after node, BEFORE install/test/pack. A doomed run dies
+      # in seconds, not after a full install, and always before anything irreversible.
 
-      - name: Test
-        run: npm test --if-present
+      # DISPATCH pin (the moving-HEAD hole). "Publish what main carries" is only honest if
+      # main's tip IS the release commit. If code lands on main after the bump PR merges, a
+      # dispatch would ship those commits under the already-bumped version, un-announced —
+      # and npm publish cannot be undone. So refuse unless HEAD is the commit that last set
+      # the version. Drift -> tag the intended commit and publish via the tag path instead.
+      - name: Pin dispatch to the release commit
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          LAST_VER_COMMIT="$(git log -1 --format=%H -- package.json)"
+          HEAD_COMMIT="$(git rev-parse HEAD)"
+          if [ "$LAST_VER_COMMIT" != "$HEAD_COMMIT" ]; then
+            echo "::error::main has moved past the release commit."
+            echo "HEAD is ${HEAD_COMMIT}, but the last commit to touch package.json is"
+            echo "${LAST_VER_COMMIT}. Publishing now would ship commits that landed after the"
+            echo "version was set, under that version. Tag ${LAST_VER_COMMIT} and publish via"
+            echo "the v* tag path, or land the intended tree as its own versioned release."
+            exit 1
+          fi
+          echo "HEAD is the release commit ${HEAD_COMMIT}."
 
-      # A v* tag publishes the tagged commit. Nothing asserted the tag NAME matched the
-      # version in package.json AT that commit, so a mistyped tag (v3.2.6 on a 3.2.5 tree)
-      # would ship 3.2.5 while every human-readable trace says 3.2.6 — or collide with an
-      # already-published version and fail confusingly at the irreversible step. This runs
-      # before pack/publish, so a mismatch costs a red run and nothing else.
+      # TAG validation: a v* tag publishes the tagged commit; assert the tag NAME matches the
+      # version in package.json AT that commit. A mistyped tag (v3.2.6 on a 3.2.5 tree) would
+      # ship 3.2.5 under a v3.2.6 tag, or collide with a published version and fail confusingly
+      # at the irreversible step.
       - name: Validate tag matches package.json version
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
@@ -136,6 +139,12 @@ jobs:
             exit 1
           fi
           echo "Tag v${TAG_VERSION} matches package.json ${PKG_VERSION}."
+
+      - name: Install
+        run: npm ci
+
+      - name: Test
+        run: npm test --if-present
 
       - name: Read package metadata
         id: pkg
