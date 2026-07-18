@@ -1,182 +1,678 @@
+# grace-review — THE CANONICAL WORKFLOW. Copy this file; do not hand-roll it.
+#
+# Four repos hand-rolled this wiring and all four drifted apart (GPM-147/150). The
+# DECISION logic already got consolidated into `bin/grace-ci-gate` for exactly that
+# reason. This file is the other half: the WIRING, in one place, so the next repo
+# copies instead of reinventing.
+#
+# Install:
+#   cp ~/grace/ci/grace-review.yml <repo>/.github/workflows/grace-review.yml
+#   # then set GRACE_SHA / MAX_SHA below to the SHAs you intend to run.
+#
+# ---------------------------------------------------------------------------------
+# WHY `edited` IS IN THE TRIGGER LIST (GPM-168) — read before you remove it
+# ---------------------------------------------------------------------------------
+# `grace-override:` lives in the PR description, and the description is editable
+# forever. The gate graded it ONCE. So:
+#
+#     add `grace-override: <reason>` -> re-run -> GREEN
+#     delete the line from the description
+#     THE CHECK IS STILL GREEN
+#
+# Measured on xlsx-supervisor#94. Nothing in GitHub re-runs a check when a description
+# is edited, and nobody re-runs CI by hand after editing prose — so the stale green is
+# the DEFAULT behaviour, not a race. The waive goes invisible while the green stands.
+#
+# `edited` is the event that fires when the description changes. It is the ONLY input
+# that can invalidate an override, so watching it is complete coverage. The `guard` job
+# below re-derives the merge decision from the receipt the panel left plus a FRESH read
+# of the description. It runs no models and computes no diff: one `gh pr view`, ~20s.
+#
+# Bonus, and it is a real one: adding an override now works by EDITING the description.
+# Previously the only path from a RED override-able HIGH to green was re-running the
+# entire panel via the `grace-recheck` label. The guard re-grades on the edit itself.
+# ---------------------------------------------------------------------------------
+
 name: grace-review
 
 on:
   pull_request:
-    # Fire only when the PR is at a reviewable boundary, NOT on every commit:
-    #  - opened (non-draft): PR is born ready
-    #  - ready_for_review: draft → ready transition (the feature-commits-inside
-    #    workflow we use opens drafts, shapes through many commits, then marks
-    #    ready when done; this fires once at that moment)
-    #  - reopened: re-fire if a closed PR comes back
-    # Synchronize (every push) intentionally OMITTED to avoid token burn on
-    # mid-feature commits. Bob 2026-05-19: feature-PR-with-many-commits-inside
-    # means we'd run Grace 5-15 times per PR otherwise.
-    types: [opened, ready_for_review, reopened]
+    #  - opened (non-draft) / ready_for_review / reopened
+    #  - labeled: an EXPLICIT re-verify (`grace-recheck`).
+    #  - edited: the override guard. See the header. This does NOT run the panel.
+    #  - synchronize: every push. See below — this line was OMITTED and that was a bug.
+    #
+    # -----------------------------------------------------------------------------
+    # WHY `synchronize` IS HERE NOW (it was omitted, and that froze five PRs)
+    # -----------------------------------------------------------------------------
+    # The omission was reasoned, and the reasoning was sound FOR AN ADVISORY CHECK:
+    # "don't run the panel 5-15 times per feature PR." Under branch protection it is
+    # catastrophic, and the difference is not a matter of degree:
+    #
+    #     AN ADVISORY CHECK MAY FIRE SELECTIVELY. A REQUIRED CHECK MAY NOT.
+    #
+    # A required check that does not fire on the new head is not `skipped` and it is not
+    # `stale` — to branch protection it is ABSENT, and required-but-absent blocks merge
+    # FOREVER with nothing red to click on. The author sees a grey pending row for a run
+    # that will never be queued. Five PRs sat frozen exactly this way.
+    #
+    # The re-run paths that made omission survivable for an advisory check do not rescue a
+    # required one: `labeled` needs someone to know the label exists, and `edited` runs the
+    # guard, not the panel. Both are humans-remembering-to-do-something. Branch protection
+    # is a machine that never forgets. You cannot pair them.
+    #
+    # THE COST ARGUMENT IS ANSWERED, NOT IGNORED — by the carry-forward below, which is
+    # what makes `synchronize` affordable rather than merely correct. A push that does not
+    # change the PR's NET DIFF (a rebase, a merge from main, an empty commit, a force-push
+    # of the same tree) has the same `git patch-id`, matches the marker from the prior
+    # review, and costs ZERO LLM calls. The panel re-runs when the diff actually changed —
+    # which is precisely when you wanted it to.
+    #
+    # If you are tempted to drop `synchronize` again: first check whether this check is
+    # required (`gh api repos/<r>/branches/main/protection --jq .required_status_checks`).
+    # If it is, dropping it is a merge freeze, not a cost saving.
+    # -----------------------------------------------------------------------------
+    types: [opened, ready_for_review, reopened, labeled, edited, synchronize]
 
-# Run only one instance per PR.
 concurrency:
-  group: grace-review-${{ github.event.pull_request.number }}
+  # The guard MUST NOT share the panel's group. `cancel-in-progress` is on, and editing
+  # the description while CI churns is exactly what people do — so a shared group means
+  # an `edited` event CANCELS the running panel, and the PR is left with no review at
+  # all. Separate groups: an edit can never kill a review.
+  group: grace-${{ github.event.pull_request.number }}-${{ github.event.action == 'edited' && 'guard' || 'panel' }}
   cancel-in-progress: true
 
+env:
+  # Pinned to SHAs (not branch HEAD) so a force-push to senoff/grace or senoff/max cannot
+  # immediately execute in CI with our secrets.
+  #
+  # The pin is a supply-chain control and it is correct. It also means A FIX TO GRACE DOES
+  # NOT REACH CI UNTIL SOMEONE BUMPS IT HERE. This pin once sat on a May commit for two
+  # months while llm-review was fixed repeatedly on main; CI ran the May copy the whole
+  # time, with two real bugs live in the gate the whole fleet trusts.
+  #
+  # If you fix grace, you are not done when you push grace. You are done when you bump
+  # this pin, in every repo that runs the gate, and watch a real panel come back.
+  # "Pushed" is not "deployed".
+  #
+  # Replacing the two pins below is adoption's only edit to this file. The TEMPLATE ships
+  # them as SET-ME-TO-A-REAL-*-SHA, which cannot resolve, on purpose: a template that ships
+  # a plausible-looking SHA is a template that gets copied and run against whatever that SHA
+  # happened to be — silently, and probably months stale. Fail to clone loudly instead.
+  #
+  # Every claim in this file is copied verbatim into every adopter, so it must be scoped to
+  # the tense it is true in. Why that rule exists, and what it cost: senoff/grace ci/ADOPTING.md.
+  GRACE_SHA: 5fc8d164ba49f2989beef261dca76affb54ad4f0
+  MAX_SHA:   9c42b002557b8e5755a29e588a73979b3857ccb5
+
+  # OUT_DIR lives INSIDE the workspace, and every `upload-artifact` path below is written
+  # RELATIVE to it. Both halves of that sentence are load-bearing, and the second one is
+  # why this variable exists at all.
+  #
+  # `actions/upload-artifact` does not expand `~`. No shell processes `path:` — the input
+  # goes straight to the action, which globs it literally. So this, which is what shipped:
+  #
+  #     path: ~/grace-out/override-receipt.json      # matches NOTHING, forever
+  #     if-no-files-found: warn                      # ...and says so in grey, and moves on
+  #
+  # uploaded no receipt on any run in any repo, from the day the guard shipped. The guard
+  # below then found no artifact on every single edit — and a guard that can never read a
+  # receipt can never void a green. GPM-168's entire mechanism was dead on arrival, and
+  # nothing was red, because the only thing that ever noticed was a warning annotation
+  # nobody reads.
+  #
+  # `${{ github.workspace }}` is the one form Actions resolves without a shell. The
+  # workspace is fresh per run, which `grace-ci-gate`'s docstring already requires of
+  # OUT_DIR, so this is the same contract by a path that actually resolves.
+  #
+  # THE ARM: `Prove the receipt is uploadable` below fails the job if the receipt is not
+  # on disk where the upload step is about to look for it. The guard's whole contract
+  # depends on that file existing, and until now NOTHING tested that it did.
+  OUT_DIR: ${{ github.workspace }}/grace-out
+
 jobs:
+  # =================================================================================
+  # THE PANEL. Runs the models, grades the diff, leaves a receipt.
+  # =================================================================================
   review:
     name: Multi-LLM diff defect review
-    # Skip draft PRs (the "opened" trigger fires on draft creation; ready_for_review
-    # is the one we actually want for draft→ready transitions). Also skip forks
-    # since secrets (GRACE_DEPLOY_TOKEN, ANTHROPIC/OPENAI/GEMINI_API_KEY) aren't
-    # exposed to fork-based PRs and the job would fail noisily.
-    if: github.event.pull_request.draft == false && github.event.pull_request.head.repo.fork == false
+    if: >-
+      github.event.action != 'edited'
+      && github.event.pull_request.draft == false
+      && github.event.pull_request.head.repo.fork == false
+      && (github.event.action != 'labeled' || github.event.label.name == 'grace-recheck')
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: write   # to post the comment
+      actions: read          # the receipt carry below reads this run's artifacts; a PRIVATE repo 403s without it
+      pull-requests: write
     timeout-minutes: 15
     steps:
-      - name: Checkout PR (with full history for diff)
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
 
-      - name: Clone senoff/grace + senoff/max + multi-review tool
-        env:
-          GRACE_DEPLOY_TOKEN: ${{ secrets.GRACE_DEPLOY_TOKEN }}
-          # Pinned to specific SHAs (not branch HEAD) so a force-push or
-          # malicious commit to senoff/grace or senoff/max can't immediately
-          # execute in CI with our secrets. Bump these intentionally when
-          # upstream changes warrant.
-          GRACE_SHA: 4892e932ceea59f364836100d0c00e83751a17f7
-          MAX_SHA:   9c42b002557b8e5755a29e588a73979b3857ccb5
-        run: |
-          set -e
-          git clone "https://x-access-token:${GRACE_DEPLOY_TOKEN}@github.com/senoff/grace.git" "$HOME/grace"
-          git -C "$HOME/grace" checkout "$GRACE_SHA"
-          git clone "https://x-access-token:${GRACE_DEPLOY_TOKEN}@github.com/senoff/max.git" "$HOME/max"
-          git -C "$HOME/max" checkout "$MAX_SHA"
-          # multi-review + llm-review live in Bob's ~/bin and grace-review
-          # hardcodes "$HOME/bin/llm-review" (doesn't go through PATH). Vendor
-          # both into $HOME/bin so the script's hardcoded paths work.
-          mkdir -p "$HOME/bin"
-          for tool in multi-review llm-review; do
-            if [ -f "$HOME/grace/bin/$tool" ]; then
-              cp "$HOME/grace/bin/$tool" "$HOME/bin/$tool"
-              chmod +x "$HOME/bin/$tool"
-            else
-              echo "::warning::$tool not vendored in senoff/grace — review will likely fail"
-            fi
-          done
-          echo "$HOME/bin" >> "$GITHUB_PATH"
-          echo "$HOME/grace/bin" >> "$GITHUB_PATH"
-
-      - name: Set up Python (for grace-review's LLM calls)
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install runtime dependencies
-        run: |
-          set -e
-          # multi-review uses curl + jq + python's json/urllib — all standard
-          # If grace-review or multi-review uses anything else, add here.
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq jq
-          # Fail-fast on pip install errors — silent suppression masked failures
-          # and produced opaque downstream errors. If a provider is genuinely
-          # unavailable, the workflow should fail visibly so it's fixed.
-          pip install --quiet anthropic openai google-generativeai
-
-      - name: Compute diff (PR base...head)
+      - name: Compute diff + diff-identity
         id: diff
         run: |
           set -e
+          mkdir -p "$OUT_DIR"
           BASE_SHA="${{ github.event.pull_request.base.sha }}"
-          # Fetch the exact base SHA — depth=1 of the base branch tip can miss
-          # BASE_SHA if the base branch advanced between event creation and the
-          # fetch, producing "fatal: bad object" diff errors.
+          # Fetch the exact base SHA — a depth-1 fetch of the base branch tip can miss it
+          # if the branch advanced between event creation and here ("fatal: bad object").
           git fetch --no-tags origin "$BASE_SHA"
-          # Three-dot diff = "changes on PR branch since divergence" (the GitHub PR view).
-          # We diff against HEAD (not the head.sha string) because the checkout
-          # step above already checked out head.sha with fetch-depth: 0, so HEAD
-          # is the PR tip and guaranteed to be locally available.
           git diff "${BASE_SHA}...HEAD" > /tmp/pr.diff
-          echo "diff_lines=$(wc -l < /tmp/pr.diff | tr -d ' ')" >> "$GITHUB_OUTPUT"
-          echo "Diff is $(wc -l < /tmp/pr.diff) lines"
+          # `git patch-id --stable` is a content hash of the DIFF ITSELF: independent of
+          # commit SHA, author, date and message, and stable across reordering. Two heads
+          # proposing the same net change against base therefore share an identity — which
+          # is exactly what a rebase, a merge-in from main, or an empty commit produces.
+          #
+          # THIS is what licenses a carry-forward, and nothing else does. Not the head SHA
+          # (it moved — that IS the event we are handling). Not the check-run history (it
+          # went absent — that is the freeze we are fixing).
+          PID=$(git patch-id --stable < /tmp/pr.diff | awk '{print $1}')
+          echo "id=${PID:-none}" >> "$GITHUB_OUTPUT"
+          echo "diff-identity ${PID:-none} over $(wc -l < /tmp/pr.diff) lines"
 
-      - name: Run grace-review on the diff
+      - name: Clone senoff/grace + senoff/max
+        env:
+          GRACE_DEPLOY_TOKEN: ${{ secrets.GRACE_DEPLOY_TOKEN }}
+        run: |
+          set -e
+          # The token reaches git through a credential helper that reads it from the
+          # ENVIRONMENT, and never through the clone URL. A `https://user:token@host`
+          # URL is persisted VERBATIM by git into $HOME/grace/.git/config, so the
+          # credential outlives the command that used it. Passing it in argv instead
+          # (`git -c http.extraheader=...`) is worse, not better: argv is readable by
+          # any process on the runner via ps — the same leak the panel caught in
+          # llm-review (xlsx3, 2026-07-10).
+          #
+          # The helper string below names the VARIABLE; it never holds the VALUE. Git
+          # runs it as a shell command at clone time and it resolves from env then, so
+          # the secret is in neither the config file nor any process's arguments.
+          #
+          # It is also HOST-GATED, and that is not belt-and-braces. A --global helper
+          # is consulted for every https host git touches for the rest of the job, and
+          # git names the host on stdin. A helper that ignores stdin answers ANY host
+          # that asks -- so one later fetch/submodule/redirect to a non-GitHub host
+          # hands it GRACE_DEPLOY_TOKEN. Keeping the token out of the URL and out of
+          # argv while handing it to any asker is not a fix; it just moves the leak.
+          # Reads the credential protocol, answers only host=github.com, only on `get`
+          # (never `store`/`erase`), and stays silent otherwise -- silence fails the
+          # clone closed rather than paying an unknown host.
+          git config --global credential.helper \
+            '!f() { [ "$1" = get ] || exit 0; h=""; while IFS="=" read -r k v; do [ "$k" = host ] && h="$v"; done; [ "$h" = github.com ] || exit 0; printf "username=x-access-token\npassword=%s\n" "$GRACE_DEPLOY_TOKEN"; }; f'
+          git clone "https://github.com/senoff/grace.git" "$HOME/grace"
+          git -C "$HOME/grace" checkout "$GRACE_SHA"
+          git clone "https://github.com/senoff/max.git" "$HOME/max"
+          git -C "$HOME/max" checkout "$MAX_SHA"
+          # grace-review hardcodes "$HOME/bin/llm-review" (it does not go through PATH).
+          mkdir -p "$HOME/bin"
+          for tool in multi-review llm-review; do
+            cp "$HOME/grace/bin/$tool" "$HOME/bin/$tool"
+            chmod +x "$HOME/bin/$tool"
+          done
+          echo "$HOME/bin"     >> "$GITHUB_PATH"
+          echo "$HOME/grace/bin" >> "$GITHUB_PATH"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Has this exact diff already been reviewed?
+        id: carry
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          ID="${{ steps.diff.outputs.id }}"
+          REPO="${{ github.repository }}"
+          PR_NUM="${{ github.event.pull_request.number }}"
+          # `hit` is written ONLY on a fully-confirmed carry. Every early exit below leaves
+          # it unset, and unset is not 'true' — so every path that cannot PROVE this exact
+          # diff was already reviewed falls through to the panel. The default is to REVIEW.
+          # Skipping is what has to be earned.
+          [ "$ID" = none ] && { echo "empty diff — the panel decides."; exit 0; }
+
+          # ------------------------------------------------------------------------
+          # AUTHENTICATE THE MARKER. This filter is the whole security of the carry.
+          # ------------------------------------------------------------------------
+          # The marker is a COMMENT, and on a public repo anyone can post a comment. An
+          # unauthenticated read of the comment list means any drive-by account can post
+          #
+          #     grace-review-marker: diff-id=<id> verdict=pass sha=<sha>
+          #
+          # and the gate will believe its own forged receipt and skip the panel entirely.
+          # That is not a stale green, it is a FORGEABLE one — a total bypass of the gate,
+          # available to anyone with a GitHub account.
+          #
+          # So we select on `.user.login` and `.user.type` and require the marker to come
+          # from the bot that actually posts them. A marker from anyone else is not a weaker
+          # signal, it is NO signal: it is dropped before parsing, and the panel runs.
+          gh api "repos/${REPO}/issues/${PR_NUM}/comments" --paginate \
+            --jq '.[] | select(.user.login == "github-actions[bot]") | select(.user.type == "Bot")
+                  | [.html_url, (.body | gsub("\n"; " "))] | @tsv' > /tmp/comments.tsv
+
+          LINE=$(grep -F "grace-review-marker: diff-id=${ID} " /tmp/comments.tsv | tail -1 || true)
+          # Name the surface actually searched: issues/{n}/comments, NOT pulls/{n}/reviews.
+          # The prior wording called this a PR *review*; a reader verifying the early-exit went
+          # to pulls/{n}/reviews (always empty — we never post there), found nothing, and nearly
+          # reported this predicate as false. A log line naming the wrong endpoint hands its
+          # reader a false disproof of a true mechanism.
+          #
+          # Deliberately NOT quoting the old text here: Actions echoes this script's SOURCE,
+          # comments included, into every log. Any evidence-shaped literal in a comment is
+          # grep-able as if it were runtime output, so quoting the string we tell people to
+          # grep for would make a run that never early-exited look like one that did. State
+          # the shape, never the literal. Discriminate on the INTERPOLATED diff-id instead.
+          [ -z "$LINE" ] && { echo "no grace-review-marker comment for diff-id=${ID} among bot-authored issue comments (repos/${REPO}/issues/${PR_NUM}/comments) — running the panel."; exit 0; }
+
+          VERDICT=$(printf '%s' "$LINE" | sed -n 's/.*grace-review-marker: diff-id=[^ ]* verdict=\([a-z]*\) .*/\1/p')
+          PSHA=$(printf '%s' "$LINE" | sed -n 's/.*grace-review-marker: diff-id=[^ ]* verdict=[a-z]* sha=\([0-9a-f]*\).*/\1/p')
+          # A marker we cannot fully parse is NOT a licence to skip. Fail OPEN — into the
+          # review, never out of it. An unreadable verdict is not a passing one.
+          if { [ "$VERDICT" != pass ] && [ "$VERDICT" != fail ]; } || [ -z "$PSHA" ]; then
+            echo "::warning::marker for ${ID} is unparseable — running the panel rather than guessing."
+            exit 0
+          fi
+
+          # ------------------------------------------------------------------------
+          # THE RECEIPT MUST CARRY WITH THE VERDICT, OR CLAUSE 3 SILENTLY BREAKS CLAUSE 2.
+          # ------------------------------------------------------------------------
+          # The guard looks the receipt up by HEAD SHA — and on a carry, the head SHA is
+          # NEW. Skip the panel without carrying the receipt and this head has a verdict
+          # and no receipt: the override guard then reads "no receipt" on every edit and
+          # is inert again, which is the exact bug this file is being repaired for.
+          #
+          # So the carry is only granted if the PRIOR receipt can actually be retrieved and
+          # re-anchored to this head. Cannot fetch it -> DO NOT CARRY -> run the panel,
+          # which mints a fresh one. That failure direction costs an LLM call. The other
+          # direction costs a silently-uneforceable gate. Not a close call.
+          sudo apt-get install -y -qq unzip >/dev/null 2>&1 || true
+          PNAME="grace-receipt-${PSHA}"
+          AID=$(gh api "repos/${REPO}/actions/artifacts?name=${PNAME}&per_page=100" \
+                  --jq "[.artifacts[] | select(.expired == false) | select(.name == \"${PNAME}\")]
+                        | sort_by(.created_at) | last | .id // empty" 2>/dev/null || true)
+          # An artifact id or NOTHING — never "whatever gh printed". On an API error gh emits the
+          # error BODY on stdout and `|| true` eats the exit code, so `$AID` becomes the error
+          # JSON (a `message`/`status` object naming the permission failure). That is non-empty,
+          # so an emptiness test passes it straight through and the zip URL below interpolates a
+          # URL-encoded JSON blob into the path: `unsupported protocol scheme ""`, job dead.
+          #
+          # The error text is described, not quoted, on purpose: Actions echoes this script's
+          # SOURCE into every log, so a literal here is indistinguishable from a real failure to
+          # anyone grepping the log — this comment made a CLEAN run report a 403 that never
+          # happened (grace-gate-fixture#3 arm 3). Discriminate on gh's own emitted line, which
+          # carries a `gh: ` prefix and an `(HTTP 403)` suffix that no comment reproduces.
+          # A guard written to fail OPEN then fails CLOSED, which is the worst direction available
+          # (GPM-288, measured on srv#171 job 87277016102). The permission fix above stops the 403
+          # at the source; this stops ANY unreadable response from being mistaken for an id.
+          case "$AID" in
+            '' | *[!0-9]*)
+              echo "::warning::verdict for ${ID} is carryable but its receipt (${PNAME}) could not be read — running the panel to mint a fresh one."
+              exit 0
+              ;;
+          esac
+          # Same rule as the `case` guard above: unreadable and undownloadable are the same
+          # event. Not `|| true` — that would carry a partial receipt.
+          if ! gh api "repos/${REPO}/actions/artifacts/${AID}/zip" > /tmp/prior.zip 2>/dev/null; then
+            echo "::warning::verdict for ${ID} is carryable but its receipt (${PNAME}) could not be downloaded — running the panel to mint a fresh one."
+            exit 0
+          fi
+          if ! unzip -o -q /tmp/prior.zip -d "$OUT_DIR"; then
+            echo "::warning::verdict for ${ID} is carryable but its receipt (${PNAME}) could not be extracted — running the panel to mint a fresh one."
+            exit 0
+          fi
+
+          # ========================================================================
+          # THE VERDICT IS RE-DERIVED FROM THE RECEIPT. THE COMMENT ONLY POINTS AT IT.
+          # ========================================================================
+          # Until now this step read `verdict=` out of the marker COMMENT and enforced it.
+          # That made a PR comment the authority on whether a diff may merge, and it is not
+          # one. Two ways it broke, and they are the same defect wearing two hats (GPM-290):
+          #
+          #   1. STALE (GPM-290 proper). The marker is genuine and never touched. Its verdict
+          #      was bought by a `grace-override:` that the author then DELETED from the PR
+          #      body. One empty commit later the carry re-asserts the string `pass`, and the
+          #      guard that would have caught it only runs on `edited` — a push is not an
+          #      edit. The override is gone and its green ships.
+          #   2. FORGED. A `github-actions[bot]` comment can be EDITED by anyone with write
+          #      access, and the edit PRESERVES `.user.login` and `.user.type` — measured on
+          #      grace-gate-fixture#3, where only `updated_at` moved. So `verdict=fail` ->
+          #      `verdict=pass` + an empty commit (same diff-id, new head) laundered a red
+          #      to green, and `CRITICAL is not overridable` — the invariant this whole file
+          #      exists to hold — was FALSE for anyone with write access.
+          #
+          # Note what does NOT fix this: filtering the marker harder. `select(.user.login ==
+          # "github-actions[bot]")` stops a drive-by POSTING one; it cannot see an EDIT. And
+          # `select(.created_at == .updated_at)` — which does spot the edit — is a TRAP: it
+          # closes (2) and leaves (1) wide open, because GPM-290's marker was never edited.
+          # Shipping it would read as "marker trust: fixed" and retire the alarm on the live
+          # half. A narrow fix that silences the alarm is worse than no fix.
+          #
+          # So the comment stops being an authority and goes back to being a POINTER: it
+          # names which prior receipt to fetch, and nothing else. The verdict is re-derived
+          # by the guard, from the receipt, against a FRESH read of the live PR body. That
+          # closes both — the deleted override is re-tested (1), and the edited `verdict=`
+          # string is inert because nothing reads it (2).
+          #
+          # --expect-* is the other half, and it is not optional. Re-deriving from the receipt
+          # fixes WHAT the answer says; it does not fix WHICH receipt answers, because PSHA
+          # is scraped from that same editable comment and chooses the artifact name. An
+          # edited `sha=` could aim this at a genuinely-passing receipt from another head and
+          # get a truthful answer to the wrong question. The receipt names its own subject
+          # under schema /2; the guard refuses (exit 4) any receipt that does not name THIS
+          # PR and THIS diff-identity.
+          #
+          # We call the REAL guard, not a copy of its logic. A second implementation of "what
+          # is an override" is a second answer, and the day they drift a PR is green on one
+          # and red on the other. That is why the clone step above no longer waits on this
+          # step's outcome: this step now depends on it.
+          set +e
+          python3 "$HOME/grace/bin/grace-override-guard" "$OUT_DIR" \
+            --pr "$PR_NUM" --repo "$REPO" \
+            --expect-pr "$PR_NUM" --expect-diff-id "$ID"
+          G=$?
+          set -e
+
+          # 0/1 are VERDICTS. Everything else is the absence of one, and the absence of a
+          # verdict is never a carry — it is a re-review. 4 (not my receipt) and 3 (broken /
+          # unknown schema, which is what every pre-/2 receipt now returns) both land here
+          # and both cost one panel run, which mints a fresh, bound receipt. Self-healing,
+          # and it fails INTO the review rather than out of it.
+          case "$G" in
+            0) CARRIED=pass ;;
+            1) CARRIED=fail ;;
+            4) echo "::warning::the receipt named by the marker for ${ID} does not answer for this PR/diff — running the panel."; exit 0 ;;
+            *) echo "::warning::the guard could not re-derive a verdict from the receipt for ${ID} (exit ${G}) — running the panel to mint a fresh one."; exit 0 ;;
+          esac
+
+          # THE TAMPER SIGNAL. The marker's own `verdict=` is no longer trusted, so it costs
+          # nothing to keep reading it — and comparing it to what the receipt actually says
+          # is free evidence. They can only disagree if the comment was edited or the receipt
+          # was swapped. It does not gate anything (the guard already decided, and it decided
+          # from the receipt); it is here so a tamper attempt leaves a line in the log instead
+          # of passing silently.
+          if [ "$VERDICT" != "$CARRIED" ]; then
+            echo "::warning::marker for ${ID} claims verdict=${VERDICT} but the receipt re-derives to ${CARRIED}. The receipt wins. A marker that disagrees with its own receipt was edited or is pointing at a receipt that is not its own."
+          fi
+
+          {
+            echo "hit=true"
+            echo "verdict=${CARRIED}"
+            echo "prior_sha=${PSHA}"
+          } >> "$GITHUB_OUTPUT"
+          echo "diff-identity ${ID} was reviewed at ${PSHA}; verdict RE-DERIVED from its receipt against the live body: ${CARRIED}."
+
+      - name: Install runtime dependencies
+        if: steps.carry.outputs.hit != 'true'
+        run: |
+          set -e
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq jq unzip
+          pip install --quiet anthropic openai google-generativeai
+
+      - name: Run grace-review
+        if: steps.carry.outputs.hit != 'true'
+        id: review
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          # The cost guard hard-aborts (exit 5) above $2.00 in any NON-INTERACTIVE context
+          # — which is every CI run by definition. That guard exists to stop a HUMAN
+          # burning $20 at a terminal. Here, reviewing the PR IS the job. Without this, a
+          # PR whose diff merely grew past the threshold got NO review, and the old gate
+          # then announced "CRITICAL findings" about a panel that never ran.
+          ALLOW_EXPENSIVE: "1"
         run: |
           set -e
-          PR_NUM="${{ github.event.pull_request.number }}"
-          REPO="${{ github.repository }}"
-          OUT_DIR="$HOME/grace-out"
           mkdir -p "$OUT_DIR"
-          # Pipe the diff in via stdin; tag context with the PR number.
-          # Don't use --pr/--post here — we read comment.md and post via the
-          # next step using the action's GITHUB_TOKEN (so the comment author is
-          # github-actions[bot] rather than the deploy-token user).
           cat /tmp/pr.diff | bash "$HOME/grace/bin/grace-review" \
-            -p diff-defect \
-            -c "PR #${PR_NUM}" \
-            -o "$OUT_DIR" \
-            || REVIEW_EXIT=$?
-          echo "grace-review exit: ${REVIEW_EXIT:-0}"
-          # Don't fail the job here; we want the comment posted even if grace
-          # found CRITICAL/HIGH (that's the whole point). Fail-check happens below.
-          ls -la "$OUT_DIR"
+            -p diff-defect -c "PR #${{ github.event.pull_request.number }}" \
+            -o "$OUT_DIR" || REVIEW_EXIT=$?
+          # Carry the exit code forward. It used to be computed and THROWN AWAY, which is
+          # why the old gate could not tell "found defects" from "never ran" — and
+          # announced defects either way.
+          echo "exit_code=${REVIEW_EXIT:-0}" >> "$GITHUB_OUTPUT"
 
-      - name: Post comment.md to the PR
+      - name: Gate on the verdict
+        id: gate
+        if: steps.carry.outputs.hit != 'true'
+        env:
+          # grace-ci-gate reads the PR description for the `grace-override:` escape hatch.
+          # Without a token gh is unauthenticated, the body comes back empty, and the
+          # override path silently never fires.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Runs BEFORE the comment, and does not fail the job here — because the comment
+          # must carry the VERDICT (the marker below is what licenses a carry-forward), and
+          # you cannot write down a verdict you have not computed yet. The job is failed at
+          # `Enforce the verdict`, two steps down. Nothing merges in between.
+          set +e
+          # --diff-id STAMPS THE RECEIPT WITH WHAT IT ANSWERS FOR. Without it the receipt is
+          # unbound, and an unbound receipt is refused by the carry path above (schema /2) —
+          # so a run that forgets this does not mint a silently-forgeable green, it mints a
+          # receipt that can never be carried. Fails into a re-review, which is the right
+          # direction, but pass it: the carry is the whole point.
+          python3 "$HOME/grace/bin/grace-ci-gate" "$OUT_DIR" \
+            --review-exit "${{ steps.review.outputs.exit_code }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --repo "${{ github.repository }}" \
+            --diff-id "${{ steps.diff.outputs.id }}"
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Post the review comment + carry-forward marker
+        if: steps.carry.outputs.hit != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GATE_EXIT: ${{ steps.gate.outputs.exit_code }}
+        run: |
+          set -e
+          # THE MARKER IS ONLY WRITTEN FOR A GRADED VERDICT.
+          #
+          # grace-ci-gate: 0 = may proceed, 1 = blocked by findings, 2/3 = BROKEN (it cannot
+          # state what it found, so it refuses to certify). 0 and 1 are verdicts. 2 and 3
+          # are the ABSENCE of one.
+          #
+          # A broken gate must leave NO marker. Record "fail" for a gate that never ran and
+          # the next push to the same diff carries that fail forward without re-running —
+          # a permanent RED minted by an infra blip, unclearable by fixing the code, because
+          # the code was never the problem. Record "pass" and it is worse in the other
+          # direction. No marker at all means the next push RE-REVIEWS, which is the only
+          # honest thing an ungraded diff can ask for.
+          case "$GATE_EXIT" in
+            0) VERDICT=pass ;;
+            1) VERDICT=fail ;;
+            *) VERDICT=""   ;;   # broken → no marker → the next push re-reviews
+          esac
+
+          C="$OUT_DIR/comment.md"
+          [ -s "$C" ] || { echo "::warning::no comment.md — skipping post"; exit 0; }
+          { echo "## 🤖 Grace review (multi-LLM, auto)"; echo; cat "$C"; } > /tmp/c.md
+          if [ -n "$VERDICT" ]; then
+            {
+              echo
+              echo "<!-- grace-review-marker: diff-id=${{ steps.diff.outputs.id }} verdict=${VERDICT} sha=${{ github.event.pull_request.head.sha }} -->"
+            } >> /tmp/c.md
+          else
+            echo "::warning::gate exited ${GATE_EXIT} (BROKEN) — no marker written, so the next push re-reviews."
+          fi
+          gh pr comment "${{ github.event.pull_request.number }}" \
+            --repo "${{ github.repository }}" --body-file /tmp/c.md
+
+      - name: Enforce the verdict
+        if: steps.carry.outputs.hit != 'true'
+        run: |
+          # The gate's decision, applied. Deferred to here only so the marker above could
+          # name it; nothing merges between that comment and this exit.
+          exit ${{ steps.gate.outputs.exit_code }}
+
+      - name: Re-assert the carried verdict
+        if: steps.carry.outputs.hit == 'true'
+        run: |
+          # The panel did not run — this diff was already reviewed under a different head.
+          # The verdict still has to be APPLIED to this head, or a carried `fail` would
+          # present as a green check, and the carry-forward would become a way to launder
+          # a red PR by pushing an empty commit.
+          #
+          # `steps.carry.outputs.verdict` is no longer a string lifted out of a PR comment.
+          # It is what grace-override-guard re-derived from the receipt bound to this PR and
+          # this diff-identity, graded against a fresh read of the live description. This
+          # line enforces a verdict that was COMPUTED, not one that was QUOTED.
+          V="${{ steps.carry.outputs.verdict }}"
+          echo "diff unchanged since ${{ steps.carry.outputs.prior_sha }} — carrying re-derived verdict: ${V}"
+          [ "$V" = pass ] || exit 1
+
+      - name: Prove the receipt is uploadable
+        # THE ARM. The guard cannot void a bought green without this file, and until now
+        # nothing checked that the file was ever there — the gate's own verdict is
+        # computed and returned whether or not the receipt lands.
+        #
+        # `write_receipt` is deliberately non-fatal ("bookkeeping must never be able to
+        # kill the thing it books"), which is right for the gate and precisely why the
+        # check belongs HERE: the one place whose only job is to say the receipt exists.
+        #
+        # It asserts the path the UPLOAD STEP will glob, not merely "a receipt exists
+        # somewhere" — the shipped bug was a receipt that existed on disk at a path the
+        # uploader could not see. A check that reads it through $OUT_DIR would have been
+        # green through the whole outage. Assert the failing surface, not a proxy for it.
+        #
+        # Fires only when a receipt was actually OWED: the gate ran, or a carry re-anchored
+        # one. Bare `always()` would also fire after an unrelated infra failure (a failed
+        # clone, a dead apt mirror) and bury the real cause under a receipt error — the
+        # loudest red would name the wrong broken thing.
+        if: always() && (steps.carry.outputs.hit == 'true' || steps.gate.outcome == 'success')
+        run: |
+          set -e
+          R="${{ github.workspace }}/grace-out/override-receipt.json"
+          if [ ! -s "$R" ]; then
+            echo "::error::No receipt at $R. The override guard reads this artifact to"
+            echo "::error::decide whether a green was EARNED or BOUGHT. Without it the"
+            echo "::error::guard is inert and a deleted override leaves a stale green."
+            ls -la "${{ github.workspace }}/grace-out" || true
+            exit 1
+          fi
+          python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$R"
+          echo "Receipt present and parseable: $(wc -c < "$R") bytes"
+
+      - name: Upload the override receipt
+        # Runs even when the job is RED — load-bearing, and the reason is the whole point
+        # of the receipt. A RED PR is exactly the one whose author is about to add an
+        # override to the description. Without the receipt uploaded, that edit cannot be
+        # graded and the guard fails closed on a PR that did nothing wrong.
+        #
+        # Same condition as the arm above: a receipt is uploaded exactly when one is owed.
+        if: always() && (steps.carry.outputs.hit == 'true' || steps.gate.outcome == 'success')
+        uses: actions/upload-artifact@v4
+        with:
+          name: grace-receipt-${{ github.event.pull_request.head.sha }}
+          path: grace-out/override-receipt.json    # workspace-relative. `~` DOES NOT EXPAND.
+          # `error`, not `warn`. This file is the guard's only input. `warn` is what let the
+          # mechanism ship dead: the upload matched nothing, said so in grey, and passed.
+          if-no-files-found: error
+          retention-days: 90
+
+  # =================================================================================
+  # THE GUARD. No models, no diff. Re-reads the live description and re-derives the
+  # decision from the receipt the panel left.
+  #
+  # SAME `name:` as the panel job ON PURPOSE — it emits a check-run with the same name,
+  # so it SUPERSEDES the panel's conclusion for this SHA and no branch-protection change
+  # is needed. (If your branch protection somehow keys on the older run, the fallback is
+  # to rename this job and add it as a second required check — an admin action.)
+  # =================================================================================
+  guard:
+    name: Multi-LLM diff defect review
+    # Deliberately NOT filtered on `github.event.changes.body` — a title-only edit would
+    # then SKIP this job, and a skipped job still emits a check-run with this name whose
+    # conclusion is `skipped`, which can knock out a legitimate green. Running the guard
+    # on every edit is idempotent and costs one `gh pr view`. Cheap beats clever.
+    if: >-
+      github.event.action == 'edited'
+      && github.event.pull_request.draft == false
+      && github.event.pull_request.head.repo.fork == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read          # to read the receipt artifact from the panel's run
+      pull-requests: read
+    timeout-minutes: 5
+    steps:
+      - name: Clone senoff/grace
+        env:
+          GRACE_DEPLOY_TOKEN: ${{ secrets.GRACE_DEPLOY_TOKEN }}
+        run: |
+          set -e
+          # Token via env-reading, HOST-GATED credential helper, never in the URL or
+          # argv. See the rationale on the "Clone senoff/grace + senoff/max" step above.
+          # This string must stay byte-identical to that one: it is the same belief in
+          # two places, and a gate that is only host-gated on one of them is not gated.
+          git config --global credential.helper \
+            '!f() { [ "$1" = get ] || exit 0; h=""; while IFS="=" read -r k v; do [ "$k" = host ] && h="$v"; done; [ "$h" = github.com ] || exit 0; printf "username=x-access-token\npassword=%s\n" "$GRACE_DEPLOY_TOKEN"; }; f'
+          git clone "https://github.com/senoff/grace.git" "$HOME/grace"
+          git -C "$HOME/grace" checkout "$GRACE_SHA"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Fetch the receipt the panel left for this SHA
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
-          PR_NUM="${{ github.event.pull_request.number }}"
-          REPO="${{ github.repository }}"
-          COMMENT_FILE="$HOME/grace-out/comment.md"
-          if [ ! -s "$COMMENT_FILE" ]; then
-            echo "::warning::no comment.md from grace-review — skipping post"
-            exit 0
+          # Bare, this killed the job before the guard ran — the workflow making policy by
+          # dying. Absent unzip -> OUT stays empty -> the guard decides, as designed.
+          sudo apt-get install -y -qq unzip >/dev/null 2>&1 || true
+          # Workspace-relative, same as the panel — so the re-upload below can actually
+          # glob it. This job runs no `actions/checkout`, but the runner creates the
+          # workspace directory regardless, so a relative `path:` still resolves.
+          OUT="$OUT_DIR"; mkdir -p "$OUT"
+          NAME="grace-receipt-${{ github.event.pull_request.head.sha }}"
+          # Newest non-expired artifact with this exact name.
+          #
+          # If there is none we deliberately leave OUT EMPTY and let the guard decide.
+          # THE WORKFLOW DOES NOT MAKE POLICY: a missing receipt means nobody can tell an
+          # EARNED green from a BOUGHT one, and deciding what that means is the guard's
+          # job, in one tested place. A `|| exit 0` here would quietly re-open the exact
+          # hole this workflow exists to close.
+          # `?name=` is a documented server-side filter, but the jq ALSO matches the name
+          # client-side. Not paranoia: the fleet has zero artifacts anywhere today, so
+          # there was no positive control available to prove the server honours the filter
+          # — and a filter that is silently ignored would hand this guard SOMEONE ELSE'S
+          # receipt, which is a wrong verdict rather than a missing one. The client-side
+          # select costs nothing and makes the answer not depend on that.
+          ID=$(gh api "repos/${{ github.repository }}/actions/artifacts?name=${NAME}&per_page=100" \
+                 --jq "[.artifacts[] | select(.expired == false) | select(.name == \"${NAME}\")] | sort_by(.created_at) | last | .id // empty" \
+               || true)
+          if [ -n "$ID" ]; then
+            gh api "repos/${{ github.repository }}/actions/artifacts/${ID}/zip" > /tmp/r.zip || true
+            unzip -o -q /tmp/r.zip -d "$OUT" || true
           fi
-          # Prefix the comment with a clear "Grace review (auto)" header so
-          # human reviewers know it's a CI-posted multi-LLM review.
-          {
-            echo "## 🤖 Grace review (multi-LLM, auto)"
-            echo ""
-            cat "$COMMENT_FILE"
-            echo ""
-            echo "---"
-            echo "_Posted automatically by \`.github/workflows/grace-review.yml\`. See [senoff/grace](https://github.com/senoff/grace) for the doctrine._"
-          } > /tmp/comment-with-header.md
-          gh pr comment "$PR_NUM" --repo "$REPO" --body-file /tmp/comment-with-header.md
+          ls -la "$OUT" || true
 
-      - name: Fail the check if HIGH or CRITICAL findings
+      - name: Re-read the live description and re-derive the verdict
         env:
-          # gh pr view (below) needs an authenticated token to read the PR
-          # description for the grace-override: escape hatch. Without this,
-          # gh is unauthenticated, DESC ends up empty, and the override path
-          # silently never fires.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -e
-          COMMENT_FILE="$HOME/grace-out/comment.md"
-          if [ ! -s "$COMMENT_FILE" ]; then
-            echo "no comment.md — failing closed"
-            exit 1
-          fi
-          if grep -qE "^##\s+CRITICAL|^### CRITICAL|^- \[CRITICAL\]" "$COMMENT_FILE"; then
-            echo "::error::Grace found CRITICAL findings in the diff. See PR comment for details."
-            exit 1
-          fi
-          if grep -qE "^##\s+HIGH|^### HIGH|^- \[HIGH\]" "$COMMENT_FILE"; then
-            echo "::error::Grace found HIGH-severity findings in the diff. Address them, or override by editing the PR description with 'grace-override: <reason>'."
-            # Honor an override line in the PR description for borderline cases.
-            DESC=$(gh pr view "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --json body --jq '.body' 2>/dev/null || echo "")
-            if echo "$DESC" | grep -qE "grace-override:"; then
-              echo "::warning::HIGH findings present BUT 'grace-override:' line found in PR description — passing the check."
-              exit 0
-            fi
-            exit 1
-          fi
-          echo "Grace review clean (no HIGH/CRITICAL). Check passed."
+          python3 "$HOME/grace/bin/grace-override-guard" "$OUT_DIR" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --repo "${{ github.repository }}"
+
+      - name: Re-upload the receipt
+        # The guard rewrites the receipt when it finds the override was reworded, so the
+        # audit trail follows the description instead of drifting from it.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: grace-receipt-${{ github.event.pull_request.head.sha }}
+          path: grace-out/override-receipt.json    # workspace-relative. `~` DOES NOT EXPAND.
+          # `ignore`, not `error`, and ONLY here: this job legitimately runs when the panel
+          # left no receipt (an old PR, an expired artifact), and the guard's job is to
+          # DECIDE what that means. Failing the upload would pre-empt the decision with an
+          # infra error. The panel's upload has no such excuse — hence `error` there.
+          if-no-files-found: ignore
+          overwrite: true
+          retention-days: 90
