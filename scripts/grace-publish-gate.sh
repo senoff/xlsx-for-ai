@@ -53,19 +53,22 @@ need() { command -v "$1" >/dev/null 2>&1 || { echo "::error::required tool '$1' 
 # times with backoff; a persistent failure still fails closed (the caller refuses). A
 # per-call timeout (where `timeout` exists) stops a hung call from stalling the publish.
 gh_api() {  # gh_api <api-path> [jq...] — echoes stdout, returns gh's rc on final attempt
-  local attempt rc=1 out to=""
-  command -v timeout >/dev/null 2>&1 && to="timeout 60"
+  # Every call is GUARANTEED-bounded by `timeout 60` — live mode requires `timeout`
+  # (need timeout, below), so a hung gh api call is killed and retried rather than
+  # stalling the publish job indefinitely. An unbounded network call is the one thing an
+  # enforcement gate on an irreversible publish must not do.
+  local attempt rc=1 out
   for attempt in 1 2 3 4; do
     if [ "$attempt" -lt 4 ]; then
       # retry attempts: suppress transient stderr (404/5xx/rate-limit noise on a call
       # we are about to repeat) so the log carries only the failure that actually sticks.
-      if out="$($to gh api "$@" 2>/dev/null)"; then printf '%s' "$out"; return 0; fi
+      if out="$(timeout 60 gh api "$@" 2>/dev/null)"; then printf '%s' "$out"; return 0; fi
       rc=$?; sleep $((attempt * 2))
     else
       # FINAL attempt: let stderr through. A persistent failure (auth 403, rate-limit,
       # a real 5xx) must show its HTTP detail in the job log — the caller then fails
       # closed, and an operator can see WHY without re-running blind.
-      if out="$($to gh api "$@")"; then printf '%s' "$out"; return 0; fi
+      if out="$(timeout 60 gh api "$@")"; then printf '%s' "$out"; return 0; fi
       rc=$?
     fi
   done
@@ -103,7 +106,11 @@ decide() {  # decide <path-to-override-receipt.json> [expected-pr-number]
     UNKNOWN)
       echo "::error::grace verdict is UNKNOWN — the gate could not read its own CRITICAL section (unread is not clean). Refusing to publish."
       exit 1 ;;
-    NONE|HIGH)
+    NONE|LOW|MEDIUM|HIGH)
+      # This card scopes the publish refusal to a KEPT CRITICAL. Everything below CRITICAL
+      # is adjudicated at the merge gate (HIGH is the overridable tier). NONE/LOW/MEDIUM
+      # are listed explicitly so a minor receipt-schema revision that emits a sub-CRITICAL
+      # tier proceeds rather than tripping the fail-closed `*)` on a non-blocking severity.
       echo "grace verdict severity=${sev} (receipt PR ${rpr:-n/a}) — no kept CRITICAL. Publish may proceed."
       exit 0 ;;
     *)
@@ -120,7 +127,10 @@ if [ "${1:-}" = "--receipt-file" ]; then
 fi
 
 # ---- live mode: locate the AUTHENTIC receipt for the commit being published ---------
-need gh; need jq; need unzip
+# `timeout` is REQUIRED, not best-effort: it is the guaranteed bound on every gh api
+# call (see gh_api). A runner without it fails closed here with an actionable message
+# rather than risking an indefinite hang mid-publish.
+need gh; need jq; need unzip; need timeout
 REPO="${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required in live mode}"
 SHA="${GITHUB_SHA:?GITHUB_SHA is required in live mode}"
 export GH_TOKEN="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
@@ -181,9 +191,17 @@ if ! gh_api "repos/${REPO}/actions/artifacts/${AID}/zip" > "${TMP}/receipt.zip";
   echo "::error::failed to download grace receipt artifact ${AID} (after retries). Refusing to publish (fail closed)."
   exit 1
 fi
-if ! unzip -o -q "${TMP}/receipt.zip" -d "${TMP}"; then
+if ! unzip -o -q "${TMP}/receipt.zip" -d "${TMP}/x"; then
   echo "::error::failed to extract grace receipt artifact ${AID} (corrupt zip or no disk). Refusing to publish (fail closed)."
   exit 1
 fi
+# Do NOT assume override-receipt.json sits at the zip root: an artifact zip can nest its
+# files under a top-level folder (often the artifact name). Locate it by search — a valid
+# receipt one directory down must not read as "missing" and fail a legitimate publish.
+RECEIPT="$(find "${TMP}/x" -type f -name 'override-receipt.json' -print 2>/dev/null | head -n1)"
+if [ -z "$RECEIPT" ]; then
+  echo "::error::grace receipt artifact ${AID} extracted but contains no override-receipt.json. Refusing to publish (fail closed)."
+  exit 1
+fi
 echo "grace receipt grace-receipt-${HEAD_SHA} (artifact ${AID}, grace-review run ${RUN_ID}) fetched for release commit ${SHA} (PR #${PR_NUM})."
-decide "${TMP}/override-receipt.json" "${PR_NUM}"
+decide "$RECEIPT" "${PR_NUM}"
