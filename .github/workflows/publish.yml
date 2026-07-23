@@ -58,8 +58,8 @@ permissions:
                     # and publishes what main carries; the bump arrives as a reviewed PR.
   id-token: write   # for npm provenance (free supply-chain signal)
   actions: read     # XLS-615: read the grace receipt artifact (gh api .../actions/artifacts).
-                    # A private repo 403s the artifact list without this — same reason
-                    # grace-review.yml grants actions:read to carry a receipt forward.
+                    # A private repo 403s the artifact list without this — the same read
+                    # scope grace-review.yml grants to carry a receipt forward.
   pull-requests: read  # XLS-615: map the release commit on main back to its PR + head sha
                     # (GET /commits/{sha}/pulls) so the head-sha-keyed receipt is findable.
 

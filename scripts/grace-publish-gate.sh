@@ -56,9 +56,18 @@ gh_api() {  # gh_api <api-path> [jq...] — echoes stdout, returns gh's rc on fi
   local attempt rc=1 out to=""
   command -v timeout >/dev/null 2>&1 && to="timeout 60"
   for attempt in 1 2 3 4; do
-    if out="$($to gh api "$@" 2>/dev/null)"; then printf '%s' "$out"; return 0; fi
-    rc=$?
-    [ "$attempt" -lt 4 ] && sleep $((attempt * 2))
+    if [ "$attempt" -lt 4 ]; then
+      # retry attempts: suppress transient stderr (404/5xx/rate-limit noise on a call
+      # we are about to repeat) so the log carries only the failure that actually sticks.
+      if out="$($to gh api "$@" 2>/dev/null)"; then printf '%s' "$out"; return 0; fi
+      rc=$?; sleep $((attempt * 2))
+    else
+      # FINAL attempt: let stderr through. A persistent failure (auth 403, rate-limit,
+      # a real 5xx) must show its HTTP detail in the job log — the caller then fails
+      # closed, and an operator can see WHY without re-running blind.
+      if out="$($to gh api "$@")"; then printf '%s' "$out"; return 0; fi
+      rc=$?
+    fi
   done
   return "$rc"
 }
@@ -172,6 +181,9 @@ if ! gh_api "repos/${REPO}/actions/artifacts/${AID}/zip" > "${TMP}/receipt.zip";
   echo "::error::failed to download grace receipt artifact ${AID} (after retries). Refusing to publish (fail closed)."
   exit 1
 fi
-unzip -o -q "${TMP}/receipt.zip" -d "${TMP}"
+if ! unzip -o -q "${TMP}/receipt.zip" -d "${TMP}"; then
+  echo "::error::failed to extract grace receipt artifact ${AID} (corrupt zip or no disk). Refusing to publish (fail closed)."
+  exit 1
+fi
 echo "grace receipt grace-receipt-${HEAD_SHA} (artifact ${AID}, grace-review run ${RUN_ID}) fetched for release commit ${SHA} (PR #${PR_NUM})."
 decide "${TMP}/override-receipt.json" "${PR_NUM}"
