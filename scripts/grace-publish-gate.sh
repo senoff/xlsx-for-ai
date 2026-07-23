@@ -124,7 +124,11 @@ decide() {  # decide <path-to-override-receipt.json> [expected-pr-number]
   case "$sev" in
     CRITICAL)
       echo "::error::grace KEPT a CRITICAL (receipt severity=CRITICAL, non-overridable) — refusing to publish."
-      jq -c '{schema,severity,criticals,highs,would_have_blocked,pr,diff_id}' "$f" 2>/dev/null || true
+      # Emit COUNTS only. criticals/highs/would_have_blocked are integer tallies and
+      # schema grace-override-receipt/2 carries no finding text, snippets, or code
+      # fragments — so this cannot leak secrets/PII into the (public) Actions log. Print
+      # as explicit scalar key=value pairs, never the raw JSON object, to keep that plain.
+      echo "  receipt: schema=$(jq -r '.schema // "?"' "$f" 2>/dev/null) severity=$(jq -r '.severity // "?"' "$f" 2>/dev/null) criticals=$(jq -r '.criticals // "?"' "$f" 2>/dev/null) highs=$(jq -r '.highs // "?"' "$f" 2>/dev/null) would_have_blocked=$(jq -r '.would_have_blocked // "?"' "$f" 2>/dev/null) pr=$(jq -r '.pr // "?"' "$f" 2>/dev/null)"
       exit 1 ;;
     UNKNOWN)
       echo "::error::grace verdict is UNKNOWN — the gate could not read its own CRITICAL section (unread is not clean). Refusing to publish."
