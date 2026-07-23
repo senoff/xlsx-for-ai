@@ -45,13 +45,18 @@ set -euo pipefail
 
 WORKFLOW_PATH=".github/workflows/grace-review.yml"
 
-# ---- gh api with bounded retry/backoff ---------------------------------------------
+# ---- required CLIs — fail with an actionable error, not an opaque one ---------------
+need() { command -v "$1" >/dev/null 2>&1 || { echo "::error::required tool '$1' not found on the runner. Refusing to publish (fail closed)."; exit 1; }; }
+
+# ---- gh api with bounded retry/backoff + a per-call timeout -------------------------
 # A transient network/API hiccup must not fail-closed a legitimate publish. Retry a few
-# times with backoff; a persistent failure still fails closed (the caller refuses).
+# times with backoff; a persistent failure still fails closed (the caller refuses). A
+# per-call timeout (where `timeout` exists) stops a hung call from stalling the publish.
 gh_api() {  # gh_api <api-path> [jq...] — echoes stdout, returns gh's rc on final attempt
-  local attempt rc=1 out
+  local attempt rc=1 out to=""
+  command -v timeout >/dev/null 2>&1 && to="timeout 60"
   for attempt in 1 2 3 4; do
-    if out="$(gh api "$@" 2>/dev/null)"; then printf '%s' "$out"; return 0; fi
+    if out="$($to gh api "$@" 2>/dev/null)"; then printf '%s' "$out"; return 0; fi
     rc=$?
     [ "$attempt" -lt 4 ] && sleep $((attempt * 2))
   done
@@ -101,10 +106,12 @@ decide() {  # decide <path-to-override-receipt.json> [expected-pr-number]
 # ---- arg parse ----------------------------------------------------------------------
 if [ "${1:-}" = "--receipt-file" ]; then
   [ -n "${2:-}" ] || { echo "usage: $0 --receipt-file <override-receipt.json>" >&2; exit 2; }
+  need jq
   decide "$2"
 fi
 
 # ---- live mode: locate the AUTHENTIC receipt for the commit being published ---------
+need gh; need jq; need unzip
 REPO="${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required in live mode}"
 SHA="${GITHUB_SHA:?GITHUB_SHA is required in live mode}"
 export GH_TOKEN="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
@@ -129,26 +136,33 @@ fi
 
 # Bind to grace-review.yml's own workflow run for this head sha. Only the repo's review
 # CI produces these; a forged same-named artifact from any other workflow is not here.
-WF_ID="$(gh_api "repos/${REPO}/actions/workflows" \
-           --jq ".workflows[] | select(.path == \"${WORKFLOW_PATH}\") | .id" | head -n1 || true)"
+# Look the workflow up DIRECTLY by filename (the API accepts the basename as the id):
+# listing /actions/workflows is paginated at 30, so a repo with >30 workflows could omit
+# grace-review.yml and yield a false "not found" that fails a legitimate publish closed.
+WF_JSON="$(gh_api "repos/${REPO}/actions/workflows/$(basename "$WORKFLOW_PATH")" || true)"
+WF_ID="$(printf '%s' "$WF_JSON" | jq -r '.id // empty' 2>/dev/null || echo "")"
 if [ -z "$WF_ID" ]; then
-  echo "::error::grace-review workflow (${WORKFLOW_PATH}) not found in ${REPO}. Refusing to publish (fail closed)."
+  echo "::error::grace-review workflow ($(basename "$WORKFLOW_PATH")) not found in ${REPO}. Refusing to publish (fail closed)."
   exit 1
 fi
-RUN_ID="$(gh_api "repos/${REPO}/actions/workflows/${WF_ID}/runs?head_sha=${HEAD_SHA}&per_page=100" \
-            --jq '[.workflow_runs[]] | sort_by(.created_at) | last | .id // empty' || true)"
-if [ -z "$RUN_ID" ]; then
-  echo "::error::no grace-review run found for PR #${PR_NUM} head ${HEAD_SHA}. The gate never ran"
-  echo "on this commit, so there is no authentic verdict to read. Re-run grace-review (add the"
-  echo "'grace-recheck' label) and republish. Refusing to publish (fail closed)."
-  exit 1
-fi
-AID="$(gh_api "repos/${REPO}/actions/runs/${RUN_ID}/artifacts" \
-         --jq "[.artifacts[] | select(.name == \"grace-receipt-${HEAD_SHA}\") | select(.expired == false)] | sort_by(.created_at) | last | .id // empty" || true)"
-if [ -z "$AID" ]; then
-  echo "::error::grace receipt grace-receipt-${HEAD_SHA} not found (or expired) on grace-review run ${RUN_ID}."
-  echo "Artifacts retain 90 days; re-run grace-review (label 'grace-recheck') to mint a fresh receipt,"
-  echo "then republish. A gate whose correctness depends on retention refuses rather than assumes."
+
+# A head sha can have several grace-review runs (a rerun, a canceled attempt, an earlier
+# green). The NEWEST run is not necessarily the one carrying the receipt — a canceled or
+# failed rerun would have none. Walk the runs newest->oldest and take the first that
+# actually holds a non-expired grace-receipt-<headsha>; refuse only if NONE do. This
+# stops a later runless attempt from masking an earlier valid receipt (false fail-closed).
+RUN_ID=""; AID=""
+while IFS= read -r rid; do
+  [ -n "$rid" ] || continue
+  cand="$(gh_api "repos/${REPO}/actions/runs/${rid}/artifacts?per_page=100" \
+            --jq "[.artifacts[] | select(.name == \"grace-receipt-${HEAD_SHA}\") | select(.expired == false)] | sort_by(.created_at) | last | .id // empty" || true)"
+  if [ -n "$cand" ]; then RUN_ID="$rid"; AID="$cand"; break; fi
+done < <(gh_api "repos/${REPO}/actions/workflows/${WF_ID}/runs?head_sha=${HEAD_SHA}&per_page=100" \
+           --jq '.workflow_runs | sort_by(.created_at) | reverse | .[].id' || true)
+if [ -z "$RUN_ID" ] || [ -z "$AID" ]; then
+  echo "::error::no grace-review run for PR #${PR_NUM} head ${HEAD_SHA} carries a non-expired grace-receipt-${HEAD_SHA}."
+  echo "The gate never ran on this commit, or its receipt expired (90d retention). Re-run grace-review"
+  echo "(add the 'grace-recheck' label) to mint a fresh receipt, then republish. Refusing to publish (fail closed)."
   exit 1
 fi
 
