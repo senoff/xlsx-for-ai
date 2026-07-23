@@ -1,0 +1,82 @@
+# .grace-refutes.yml — CANONICAL SEED for repos adopting ci/grace-review.yml.
+#
+# The canonical workflow (ci/grace-review.yml) contains three constructs the panel
+# reliably flags CRITICAL on first read of an adoption PR — a host-gated credential
+# helper that names a token, a concurrency group built from a ternary, and a case
+# guard that pattern-matches an artifact id. Each is CORRECT and each is defended by
+# a comment the panel does not weight. Left unrefuted, every adopter's very first
+# grace-review is red on its own boilerplate, and the only lever is a blanket waiver —
+# which re-opens exactly the "add the lines, collect the green" hole grace exists to close.
+#
+# So each construct gets a REGION-BOUND EXECUTABLE refute instead of a waiver:
+#   - region: a {file, lines, hash} anchor. The hash is a content hash of the flagged
+#     lines (bin/grace_region.py). grace-verdict clears a CRITICAL only if the finding's
+#     cited line falls in [first,last] AND the current bytes there hash to this anchor.
+#     Change the construct and the anchor stops matching — the refute self-expires and
+#     the panel re-reviews (STALE), the same void-on-change that guards a GPM-168 disproof.
+#   - run: (must exit 0) PROVES the safe property by executing it.
+#   - must_fail: (must exit non-zero) reconstructs the BROKEN variant and asserts the
+#     same property FAILS against it — so the refute cannot pass vacuously (GPM-192).
+#
+# Only the NAMED construct clears; a real CRITICAL beside it still blocks. This is a
+# proof the construct is correct, not permission to ignore the panel.
+#
+# INSTALL: cp this file to <repo>/.grace-refutes.yml alongside the workflow. The regions
+# below name `.github/workflows/grace-review.yml` — the path the canonical lands at.
+# Re-author an anchor with: python3 ~/grace/bin/grace_region.py <file> <lines>
+schema: grace-refutes/2
+refutes:
+  # ---------------------------------------------------------------------------------
+  # 1. CONCURRENCY GROUP TERNARY — an `edited` event cannot cancel a running panel.
+  # The panel flags `cancel-in-progress: true` as "an edit kills the review." It does
+  # not: the group suffix is 'guard' for an `edited` event and 'panel' otherwise, so the
+  # two run in SEPARATE concurrency groups and cancel-in-progress only ever cancels a
+  # like-for-like predecessor. The proof evaluates the ternary's branch logic and asserts
+  # the edited-group differs from the opened- and synchronize-groups; the must_fail arm
+  # collapses the ternary to a single constant group (the pre-fix bug) and shows the
+  # distinctness assertion then fails — an edit WOULD cancel the panel.
+  - claim: "The concurrency group is parameterized by github.event.action: an `edited` event maps to the 'guard' group and every panel-triggering event to 'panel', so they never share a group and cancel-in-progress cannot cancel a running panel."
+    region:
+      file: .github/workflows/grace-review.yml
+      lines: "83-84"
+      hash: sha256:5d4c09246bfe07abe1d8406991536c1b014142d7147959c9f9a0730a47a20396
+    run: |-
+      sh -c 'sfx() { [ "$1" = edited ] && printf guard || printf panel; }; g=$(sfx edited); p=$(sfx opened); s=$(sfx synchronize); [ "$g" != "$p" ] && [ "$g" != "$s" ]'
+    must_fail: |-
+      sh -c 'sfx() { printf panel; }; g=$(sfx edited); p=$(sfx opened); [ "$g" != "$p" ]'
+  # ---------------------------------------------------------------------------------
+  # 2. CREDENTIAL HELPER — the token reaches git ONLY for get+host=github.com.
+  # The panel flags "$GRACE_DEPLOY_TOKEN inside a credential helper" as secret exposure.
+  # The helper is host- AND verb-gated: it answers only the `get` operation, only when the
+  # protocol's host= line reads github.com, and stays silent (exit 0, no output) otherwise —
+  # so the token cannot leak to another host or to a `store`/`erase`. The proof runs the
+  # exact helper against github.com/get (must emit), evil.com/get (must stay silent), and
+  # github.com/store (must stay silent). The must_fail arm strips the gates to an
+  # unconditional emit and shows the evil.com/get case then leaks the token.
+  - claim: "The credential helper emits GRACE_DEPLOY_TOKEN only for the `get` operation on host=github.com and is silent for any other host or operation, so the token cannot leak to a non-github host or to a store/erase."
+    region:
+      file: .github/workflows/grace-review.yml
+      lines: "205-206"
+      hash: sha256:e04c35da614d7a34138249632a8e25c05a5f4ad65caac0916899b260d28b1c37
+    run: |-
+      sh -c 'f() { [ "$1" = get ] || exit 0; h=""; while IFS="=" read -r k v; do [ "$k" = host ] && h="$v"; done; [ "$h" = github.com ] || exit 0; printf "password=%s\n" "$GRACE_DEPLOY_TOKEN"; }; export GRACE_DEPLOY_TOKEN=SEKRET; g=$(printf "host=github.com\n" | f get); e=$(printf "host=evil.com\n" | f get); s=$(printf "host=github.com\n" | f store); case "$g" in *SEKRET*) ;; *) exit 1;; esac; case "$e$s" in *SEKRET*) exit 1;; esac; true'
+    must_fail: |-
+      sh -c 'f() { printf "password=%s\n" "$GRACE_DEPLOY_TOKEN"; }; export GRACE_DEPLOY_TOKEN=SEKRET; g=$(printf "host=github.com\n" | f get); e=$(printf "host=evil.com\n" | f get); s=$(printf "host=github.com\n" | f store); case "$g" in *SEKRET*) ;; *) exit 1;; esac; case "$e$s" in *SEKRET*) exit 1;; esac; true'
+  # ---------------------------------------------------------------------------------
+  # 3. AID CASE GUARD — an unreadable artifact response can never be mistaken for an id.
+  # The panel flags the `case "$AID"` guard as "an emptiness test the error JSON slips past."
+  # The pattern is `'' | *[!0-9]*` — it treats an empty value OR any value carrying a
+  # non-digit (an error body gh emitted on a failed API call) as unreadable and re-runs the
+  # panel; only an all-digit id proceeds. The proof runs the guard against empty, a non-digit
+  # error body, and a real numeric id and asserts the first two are CAUGHT and the id PASSES.
+  # The must_fail arm narrows the pattern to the pre-fix emptiness-only guard and shows the
+  # error body then slips through as if it were an id.
+  - claim: "The `case \"$AID\"` guard matches an empty value OR any value containing a non-digit as unreadable and re-runs the panel; only an all-digit artifact id proceeds, so an error-JSON body can never be interpolated as an id."
+    region:
+      file: .github/workflows/grace-review.yml
+      lines: "312-317"
+      hash: sha256:b959ad7c2f447aed7a21365c61a92abb3b34e8c078d6f279f38d61e7da1cf430
+    run: |-
+      sh -c 'chk() { case "$1" in ""|*[!0-9]*) printf CAUGHT;; *) printf PASS;; esac; }; [ "$(chk "")" = CAUGHT ] && [ "$(chk "{message}")" = CAUGHT ] && [ "$(chk 12345)" = PASS ]'
+    must_fail: |-
+      sh -c 'chk() { case "$1" in "") printf CAUGHT;; *) printf PASS;; esac; }; [ "$(chk "{message}")" = CAUGHT ]'

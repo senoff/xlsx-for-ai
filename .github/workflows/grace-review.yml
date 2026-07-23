@@ -2,16 +2,33 @@ name: grace-review
 
 on:
   pull_request:
-    # Fire only when the PR is at a reviewable boundary, NOT on every commit:
     #  - opened (non-draft): PR is born ready
     #  - ready_for_review: draft → ready transition (the feature-commits-inside
     #    workflow we use opens drafts, shapes through many commits, then marks
     #    ready when done; this fires once at that moment)
     #  - reopened: re-fire if a closed PR comes back
-    # Synchronize (every push) intentionally OMITTED to avoid token burn on
-    # mid-feature commits. Bob 2026-05-19: feature-PR-with-many-commits-inside
-    # means we'd run Grace 5-15 times per PR otherwise.
-    types: [opened, ready_for_review, reopened]
+    #  - synchronize: every push to the PR head. See below — this is REQUIRED.
+    #
+    # `synchronize` was deliberately omitted here to avoid token burn on
+    # mid-feature commits (Bob 2026-05-19: the feature-PR-with-many-commits-inside
+    # model would run Grace 5-15 times per PR). That reasoning was CORRECT for an
+    # ADVISORY check, and it silently became wrong the moment this check was made
+    # REQUIRED in branch protection — a change made in a different file, owned by a
+    # different agent, that rewrote this trigger's contract without touching it.
+    #
+    # AN ADVISORY CHECK MAY FIRE SELECTIVELY. A REQUIRED CHECK MAY NOT.
+    #
+    # A required check that does not fire on the new head is not "skipped" — it is
+    # ABSENT, and a required-but-absent check is a merge freeze with no error to
+    # read: the head moves, the verdict stays pinned to the SHA it was computed on,
+    # and the PR sits at `blocked` forever showing nothing red. Measured on this
+    # repo 2026-07-12: a merge-in from main created CI + npm-audit runs on the new
+    # head and no grace-review run at all. Five PRs frozen; the workaround in flight
+    # was pushing empty commits, which is a human paying a tax for a config bug.
+    #
+    # The token burn is answered by the carry-forward below, NOT by refusing to
+    # fire: a push that does not change the PR's net diff costs zero LLM calls.
+    types: [opened, ready_for_review, reopened, synchronize]
 
 # Run only one instance per PR.
 concurrency:
@@ -38,14 +55,129 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
 
+      # The diff and its IDENTITY are computed BEFORE any expensive setup, because the only
+      # question that setup's cost depends on is whether this head changed anything at all.
+      - name: Compute diff + diff-identity
+        id: diff
+        run: |
+          set -e
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          # Fetch the exact base SHA — depth=1 of the base branch tip can miss BASE_SHA if the
+          # base branch advanced between event creation and the fetch ("fatal: bad object").
+          git fetch --no-tags origin "$BASE_SHA"
+          # Three-dot = "changes on the PR branch since divergence" (the GitHub PR view).
+          git diff "${BASE_SHA}...HEAD" > /tmp/pr.diff
+          echo "diff_lines=$(wc -l < /tmp/pr.diff | tr -d ' ')" >> "$GITHUB_OUTPUT"
+          # `git patch-id --stable` is a content hash of the diff itself: independent of commit
+          # SHA, author, date and message, and stable across reordering. Two heads proposing the
+          # same net change against base therefore share an identity — which is precisely what a
+          # merge-in from main, a rebase, or an empty commit produces. THIS is what licenses a
+          # carry-forward, and nothing else does: not the SHA (it moved — that is the bug), and
+          # not the check-run history (it went absent — that is also the bug).
+          PID=$(git patch-id --stable < /tmp/pr.diff | awk '{print $1}')
+          echo "id=${PID:-none}" >> "$GITHUB_OUTPUT"
+          echo "diff-identity: ${PID:-none} over $(wc -l < /tmp/pr.diff | tr -d ' ') lines"
+
+      - name: Has this exact diff already been reviewed?
+        id: carry
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          ID="${{ steps.diff.outputs.id }}"
+          PR_NUM="${{ github.event.pull_request.number }}"
+          REPO="${{ github.repository }}"
+          # `hit` is written ONLY on a confirmed match. Every early exit below leaves it unset,
+          # and unset is not 'true' — so every path that cannot prove a prior review of this
+          # exact diff falls through to the panel. The default is to REVIEW; skipping is what
+          # has to be earned.
+          if [ "$ID" = none ]; then
+            echo "empty diff — nothing to carry; the panel will decide."
+            exit 0
+          fi
+          # Every verdict this workflow posts carries a machine-readable marker naming the
+          # diff-identity it reviewed and the verdict it reached. Find the newest one matching
+          # THIS diff.
+          # Bounded, and it degrades to "no carry" rather than to a RED. Under `set -e` an
+          # unbounded --paginate that hangs takes the whole required check down with it —
+          # fail-CLOSED on infra, on the one step whose entire job is to SKIP work. If we
+          # cannot read the prior comments we simply do not know of a prior verdict, so we
+          # run the panel. That is fail-SAFE: the cost is a redundant review, never a
+          # skipped one.
+          if ! timeout 60 gh api "repos/${REPO}/issues/${PR_NUM}/comments" --paginate \
+              --jq '.[] | [.html_url, (.body | gsub("\n"; " "))] | @tsv' > /tmp/comments.tsv; then
+            echo "::warning::could not read prior PR comments (gh timed out or failed). Not carrying anything forward — running the panel."
+            exit 0
+          fi
+          LINE=$(grep -F "grace-review-marker: diff-id=${ID} " /tmp/comments.tsv | tail -1 || true)
+          if [ -z "$LINE" ]; then
+            echo "no prior review of diff-identity ${ID} — running the panel."
+            exit 0
+          fi
+          VERDICT=$(printf '%s' "$LINE" | sed -n 's/.*grace-review-marker: diff-id=[^ ]* verdict=\([a-z]*\) .*/\1/p')
+          PSHA=$(printf '%s' "$LINE" | sed -n 's/.*grace-review-marker: diff-id=[^ ]* verdict=[a-z]* sha=\([0-9a-f]*\).*/\1/p')
+          URL=$(printf '%s' "$LINE" | cut -f1)
+          # A marker we cannot fully parse is NOT a licence to skip the panel. Fail OPEN — into
+          # the review, never out of it. An unreadable verdict is not a passing one.
+          if [ "$VERDICT" != pass ] && [ "$VERDICT" != fail ]; then
+            echo "::warning::found a marker for ${ID} but could not read its verdict — running the panel rather than guessing."
+            exit 0
+          fi
+          # We carry a PASS forward. We NEVER carry a FAIL forward. (GPM-163)
+          #
+          # These look symmetric and are not, because the panel is a SAMPLER: GPT-5 restricts
+          # `temperature` to its default of 1.0 and cannot be pinned, and two runs over a
+          # byte-identical diff have returned DISJOINT CRITICAL sets. So:
+          #
+          #   carry a PASS  -> we decline to re-roll a die that already came up green.
+          #                    That is the "never re-roll for a green" rule, working.
+          #   carry a FAIL  -> we make ONE draw from that sampler PERMANENT. The diff-identity
+          #                    is stable across a merge-from-main and a rebase, which is the
+          #                    whole point of it — so NO legitimate push can ever re-evaluate
+          #                    the verdict. The panel never runs again. That means the entire
+          #                    false-positive defence never runs again either: not
+          #                    post-filter-false-positives, not grace-confirm-blocking. A
+          #                    fabricated CRITICAL becomes an unappealable, immortal freeze.
+          #
+          # And it does not even buy what it was built to buy. Carrying a fail was meant to stop
+          # someone churning code to re-roll for a green — but churn CHANGES the diff-identity,
+          # so it re-rolls anyway. Carrying a fail blocks only the HONEST re-check of unchanged
+          # code, while leaving the dishonest re-roll wide open. It is precisely backwards.
+          #
+          # Found by xlsx-merge on #94: the gate was held by a cached `fail` whose panel had not
+          # run on the live head, and no push could have cleared it.
+          if [ "$VERDICT" = fail ]; then
+            echo "prior verdict for ${ID} was FAIL (at ${PSHA}) — re-deriving it with a live panel."
+            echo "a red gate must always be re-derivable; a cached red is a frozen die roll (GPM-163)."
+            exit 0
+          fi
+          {
+            echo "hit=true"
+            echo "verdict=${VERDICT}"
+            echo "prior_sha=${PSHA}"
+            echo "prior_url=${URL}"
+          } >> "$GITHUB_OUTPUT"
+          echo "diff-identity ${ID} was already reviewed at ${PSHA} — verdict: ${VERDICT}."
+
       - name: Clone senoff/grace + senoff/max + multi-review tool
+        if: steps.carry.outputs.hit != 'true'
         env:
           GRACE_DEPLOY_TOKEN: ${{ secrets.GRACE_DEPLOY_TOKEN }}
           # Pinned to specific SHAs (not branch HEAD) so a force-push or
           # malicious commit to senoff/grace or senoff/max can't immediately
           # execute in CI with our secrets. Bump these intentionally when
           # upstream changes warrant.
-          GRACE_SHA: 4892e932ceea59f364836100d0c00e83751a17f7
+          #
+          # Bumped 2026-07-13, by exactly ONE commit on top of the previous pin
+          # (2d4d8e8), for XLS-468. grace's undefined-symbol post-filter could not
+          # see a class with an `extends` clause: `export class AbortError extends
+          # Error {` read as "not defined in repo", so the panel's phantom CRITICAL
+          # was kept — and CRITICAL is not overridable, which made an unmergeable
+          # PR out of a symbol declared 115 lines above its own use. It did that to
+          # this P0. The fix is cherry-picked ONTO the old pin rather than tracking
+          # grace's main, so the only behaviour change entering CI is that filter —
+          # a P0 is the wrong moment to also inherit every unrelated grace change.
+          GRACE_SHA: ab760363e4aca4112189477a32b59ceb5b5cbda6
           MAX_SHA:   9c42b002557b8e5755a29e588a73979b3857ccb5
         run: |
           set -e
@@ -69,11 +201,13 @@ jobs:
           echo "$HOME/grace/bin" >> "$GITHUB_PATH"
 
       - name: Set up Python (for grace-review's LLM calls)
+        if: steps.carry.outputs.hit != 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
       - name: Install runtime dependencies
+        if: steps.carry.outputs.hit != 'true'
         run: |
           set -e
           # multi-review uses curl + jq + python's json/urllib — all standard
@@ -85,28 +219,23 @@ jobs:
           # unavailable, the workflow should fail visibly so it's fixed.
           pip install --quiet anthropic openai google-generativeai
 
-      - name: Compute diff (PR base...head)
-        id: diff
-        run: |
-          set -e
-          BASE_SHA="${{ github.event.pull_request.base.sha }}"
-          # Fetch the exact base SHA — depth=1 of the base branch tip can miss
-          # BASE_SHA if the base branch advanced between event creation and the
-          # fetch, producing "fatal: bad object" diff errors.
-          git fetch --no-tags origin "$BASE_SHA"
-          # Three-dot diff = "changes on PR branch since divergence" (the GitHub PR view).
-          # We diff against HEAD (not the head.sha string) because the checkout
-          # step above already checked out head.sha with fetch-depth: 0, so HEAD
-          # is the PR tip and guaranteed to be locally available.
-          git diff "${BASE_SHA}...HEAD" > /tmp/pr.diff
-          echo "diff_lines=$(wc -l < /tmp/pr.diff | tr -d ' ')" >> "$GITHUB_OUTPUT"
-          echo "Diff is $(wc -l < /tmp/pr.diff) lines"
-
       - name: Run grace-review on the diff
+        id: review
+        if: steps.carry.outputs.hit != 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          # Large feature PRs (our many-commits-inside model) can exceed
+          # grace-review's EXPENSIVE cost threshold (currently $2.00 — grace's
+          # global default). In CI (non-interactive) a trip exits non-zero with
+          # no comment.md and the gate below fails closed on infra, not a real
+          # verdict. Bob authorized a $2 budget for this check (SPM 2026-06-19);
+          # grace's threshold already sits at $2, and grace-review exposes no
+          # per-invocation dollar-cap flag, so we use the binary ALLOW_EXPENSIVE
+          # override to proceed and get a verdict. CI cost stays bounded by diff
+          # size (Bob's own PRs).
+          ALLOW_EXPENSIVE: '1'
         run: |
           set -e
           PR_NUM="${{ github.event.pull_request.number }}"
@@ -123,11 +252,90 @@ jobs:
             -o "$OUT_DIR" \
             || REVIEW_EXIT=$?
           echo "grace-review exit: ${REVIEW_EXIT:-0}"
+          # The exit code is one of the gate's TWO channels and neither may carry the
+          # other's meaning: the EXIT CODE says whether the panel RAN, verdict.json says
+          # what it FOUND. The gate below fails OPEN on exit 10 (panel unavailable — an
+          # outage is not a verdict, GPM-21) and CLOSED on a missing verdict after a panel
+          # that did run. It cannot tell those apart unless we hand it the code, so export
+          # it rather than only printing it.
+          echo "exit=${REVIEW_EXIT:-0}" >> "$GITHUB_OUTPUT"
           # Don't fail the job here; we want the comment posted even if grace
           # found CRITICAL/HIGH (that's the whole point). Fail-check happens below.
           ls -la "$OUT_DIR"
 
+      - name: Read the verdict out of the review
+        id: fresh
+        if: steps.carry.outputs.hit != 'true'
+        env:
+          REVIEW_EXIT: ${{ steps.review.outputs.exit }}
+        run: |
+          set -e
+          OUT_DIR="$HOME/grace-out"
+          # A panel OUTAGE is not a verdict (GPM-21). On exit 10 no reviewer could be
+          # reached: there is no comment, nothing was judged, and there is nothing to
+          # record. Writing a marker here would let an infra failure be carried forward
+          # onto the next head as if it were a judgment. The gate below fails OPEN on it.
+          if [ "${REVIEW_EXIT:-0}" = 10 ]; then
+            echo "panel unavailable (grace-review exit 10) — no verdict to read."
+            echo "outage=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # The panel RAN, so it owes us a verdict.json — the machine-readable contract
+          # grace-verdict computes IN CODE. We read severity out of it and never grep the
+          # human-facing comment. Rule 9: grep is a pre-filter, never an authority.
+          #
+          # The grep that used to live here was wrong in BOTH directions at once, and both
+          # arms were witnessed in production on this repo:
+          #
+          #   FALSE GREEN  `^##\s+CRITICAL` cannot match the synthesizer's `## 🚨 CRITICAL`
+          #                header. Severity got read instead out of the <details> audit
+          #                trail, and two REAL CRITICALs landed on main via #106.
+          #
+          #   FALSE RED    comment.md ends with a <details> block holding every reviewer's
+          #                findings VERBATIM — including their own `### CRITICAL` headings,
+          #                which the synthesizer already considered and REFUTED. The grep
+          #                counted that raw audit trail as the verdict. One reviewer's
+          #                refuted line froze #125 — the P0 privacy fix — on a single
+          #                `### HIGH` inside a region synthesis structurally excludes.
+          #
+          # One bug, one grep, opposite signs. It waves real CRITICALs through and it
+          # freezes clean P0s, and the false-RED arm is the one that teaches everyone to
+          # reach for `grace-override:` — which is the lever that laundered the CRITICALs.
+          # The two defects feed each other. grace-verdict excludes <details> structurally
+          # and matches the emoji header; it scores both PRs correctly where this did not.
+          # This step CLASSIFIES; it never decides. grace-ci-gate below is the single
+          # decision point, so nothing here may abort the job and skip it — not a missing
+          # verdict.json, not a malformed one, not a jq that chokes. Under `set -e` an
+          # unguarded `jq` would kill the step on invalid JSON, the gate would be SKIPPED,
+          # and the run would die as an opaque infra error instead of the gate's own
+          # fail-closed diagnosis. That is a SECOND exit path deciding the check — exactly
+          # the drift this PR exists to end. So: no fatal commands past this line.
+          SEV=""
+          if [ -s "$OUT_DIR/verdict.json" ]; then
+            SEV=$(jq -r '.severity // empty' "$OUT_DIR/verdict.json" 2>/dev/null || true)
+          fi
+          # grace-review can run and still emit no comment (exit 9 degraded / 11 void).
+          # The post step must not `cat` a file that isn't there, so hand it a flag rather
+          # than letting it discover the absence by crashing.
+          if [ -s "$OUT_DIR/comment.md" ]; then
+            echo "comment_present=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "grace-verdict severity: ${SEV:-<none written>}"
+          # NONE is the ONLY clean reading. Everything else — CRITICAL, HIGH, UNKNOWN, and
+          # an absent or unparseable verdict — records as a fail. A could-not-determine that
+          # resolves to the benign answer is THE bug this whole change exists to kill, so
+          # the ambiguous cases land on `fail` and grace-ci-gate states the real reason.
+          case "$SEV" in
+            NONE) echo "verdict=pass" >> "$GITHUB_OUTPUT" ;;
+            *)    echo "verdict=fail" >> "$GITHUB_OUTPUT" ;;
+          esac
+
       - name: Post comment.md to the PR
+        # On a panel outage there is no comment.md to post and no verdict to mark. And a
+        # panel can RUN yet still write no comment (exit 9 degraded / 11 void) — posting
+        # then dies on a missing file, kills the job, and SKIPS the gate, turning a verdict
+        # into an opaque infra red. Discovering the absence by crashing is not a check.
+        if: steps.carry.outputs.hit != 'true' && steps.fresh.outputs.outage != 'true' && steps.fresh.outputs.comment_present == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -135,12 +343,6 @@ jobs:
           PR_NUM="${{ github.event.pull_request.number }}"
           REPO="${{ github.repository }}"
           COMMENT_FILE="$HOME/grace-out/comment.md"
-          if [ ! -s "$COMMENT_FILE" ]; then
-            echo "::warning::no comment.md from grace-review — skipping post"
-            exit 0
-          fi
-          # Prefix the comment with a clear "Grace review (auto)" header so
-          # human reviewers know it's a CI-posted multi-LLM review.
           {
             echo "## 🤖 Grace review (multi-LLM, auto)"
             echo ""
@@ -148,35 +350,127 @@ jobs:
             echo ""
             echo "---"
             echo "_Posted automatically by \`.github/workflows/grace-review.yml\`. See [senoff/grace](https://github.com/senoff/grace) for the doctrine._"
+            echo ""
+            # THE MARKER. This is what makes a future carry-forward evidence rather than a
+            # guess: it names the exact diff that was reviewed and the verdict reached on it.
+            # It records the RAW verdict — what the panel actually found — never the result of
+            # applying the grace-override escape hatch, because the override lives in the PR
+            # description and can be edited after the fact. The gate re-applies it every run.
+            echo "<!-- grace-review-marker: diff-id=${{ steps.diff.outputs.id }} verdict=${{ steps.fresh.outputs.verdict }} sha=${{ github.event.pull_request.head.sha }} -->"
           } > /tmp/comment-with-header.md
-          gh pr comment "$PR_NUM" --repo "$REPO" --body-file /tmp/comment-with-header.md
+          # Bounded, and NON-FATAL on purpose. The comment is how a human READS the verdict;
+          # it is not how the gate DECIDES one — the gate reads verdict.json and never this.
+          # So a wedged `gh` here must not take the decision down with it: unbounded, a hung
+          # post stalls the step to the 15-minute job timeout and an infra blip becomes a RED
+          # required check, which is the fail-CLOSED-on-infra this workflow refuses everywhere
+          # else. Losing the comment costs legibility. Losing the gate costs the gate.
+          timeout 60 gh pr comment "$PR_NUM" --repo "$REPO" --body-file /tmp/comment-with-header.md \
+            || echo "::warning::could not post the Grace comment (gh timed out or failed). The verdict below is unaffected — the gate reads verdict.json, not this comment."
 
-      - name: Fail the check if HIGH or CRITICAL findings
+      - name: Carry the prior verdict forward (no new code to review)
+        if: steps.carry.outputs.hit == 'true'
         env:
-          # gh pr view (below) needs an authenticated token to read the PR
-          # description for the grace-override: escape hatch. Without this,
-          # gh is unauthenticated, DESC ends up empty, and the override path
-          # silently never fires.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
-          COMMENT_FILE="$HOME/grace-out/comment.md"
-          if [ ! -s "$COMMENT_FILE" ]; then
-            echo "no comment.md — failing closed"
-            exit 1
-          fi
-          if grep -qE "^##\s+CRITICAL|^### CRITICAL|^- \[CRITICAL\]" "$COMMENT_FILE"; then
-            echo "::error::Grace found CRITICAL findings in the diff. See PR comment for details."
-            exit 1
-          fi
-          if grep -qE "^##\s+HIGH|^### HIGH|^- \[HIGH\]" "$COMMENT_FILE"; then
-            echo "::error::Grace found HIGH-severity findings in the diff. Address them, or override by editing the PR description with 'grace-override: <reason>'."
-            # Honor an override line in the PR description for borderline cases.
-            DESC=$(gh pr view "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --json body --jq '.body' 2>/dev/null || echo "")
-            if echo "$DESC" | grep -qE "grace-override:"; then
-              echo "::warning::HIGH findings present BUT 'grace-override:' line found in PR description — passing the check."
-              exit 0
+          PR_NUM="${{ github.event.pull_request.number }}"
+          REPO="${{ github.repository }}"
+          # A BARE GREEN HERE WOULD BE A LIE WITH A CHECKMARK. The obvious implementation of
+          # this step — "on a merge-only push, emit a passing status and exit" — manufactures a
+          # phantom green: a PASS on the gate that authorizes merges, with no review behind it
+          # and nothing to audit. So the carry-forward states its provenance in full: the diff
+          # identity that licensed it, the SHA the review actually ran on, and a link to that
+          # review. A green that says "unchanged from <sha>, reviewed there, see <link>" is
+          # evidence.
+          #
+          # ONLY A PASS REACHES THIS STEP (GPM-163). This used to carry a `fail` forward too, on
+          # the reasoning that "a merge-in does not fix a CRITICAL." That reasoning is correct
+          # and it is incomplete: it assumes the CRITICAL is TRUE. The panel samples at
+          # temperature 1.0 and invents blocking findings a meaningful fraction of the time, and
+          # a carried `fail` meant the panel never ran again to discover it had — an unappealable
+          # freeze on a fabrication. A red must always be re-derivable, so a red is no longer
+          # carried; it is re-run. See the `carry` step above.
+          {
+            echo "## 🤖 Grace review — carried forward"
+            echo ""
+            echo "This head introduces **no change to the PR's net diff**, so no new review was run."
+            echo "The verdict below is not a new judgment; it is the one already reached on this exact diff."
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| **Verdict carried** | \`${{ steps.carry.outputs.verdict }}\` |"
+            echo "| **Reviewed at** | \`${{ steps.carry.outputs.prior_sha }}\` |"
+            echo "| **This head** | \`${{ github.event.pull_request.head.sha }}\` |"
+            echo "| **Aggregate** | ${{ steps.carry.outputs.prior_url }} |"
+            echo "| **Diff identity** (\`git patch-id --stable\`) | \`${{ steps.diff.outputs.id }}\` |"
+            echo ""
+            echo "The diff identity is the proof: it is a content hash of \`base...head\`, independent of"
+            echo "commit SHA, author and message. It is unchanged, therefore the reviewed code is unchanged."
+            echo ""
+            echo "---"
+            echo "_Posted automatically by \`.github/workflows/grace-review.yml\`. No LLM calls were made for this run._"
+            echo ""
+            echo "<!-- grace-review-marker: diff-id=${{ steps.diff.outputs.id }} verdict=${{ steps.carry.outputs.verdict }} sha=${{ github.event.pull_request.head.sha }} -->"
+          } > /tmp/carry.md
+          # Same bound, same reason as the fresh-review post above: legibility must never be
+          # able to hang the decision.
+          timeout 60 gh pr comment "$PR_NUM" --repo "$REPO" --body-file /tmp/carry.md \
+            || echo "::warning::could not post the carry-forward comment (gh timed out or failed). The carried verdict is unaffected."
+
+      - name: Gate the merge on the verdict
+        # ALWAYS runs, on both paths, and it is the ONLY place the check's exit code is decided.
+        # Two paths that each decide their own pass/fail is how they drift apart.
+        env:
+          # LOAD-BEARING, even though nothing in this step calls `gh` any more: the gate's
+          # own fetch_pr_body() shells out to `gh pr view` and INHERITS this token. Without
+          # it the body read fails -> None -> no override -> the PR stays blocked. That is
+          # fail-SAFE, so deleting this token buys you a silent RED, never a silent green.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REVIEW_EXIT: ${{ steps.review.outputs.exit }}
+        run: |
+          set -e
+          # Carry-forward can only ever carry a PASS: the carry step exits BEFORE setting
+          # hit=true on an unparseable verdict and on a `fail`, so hit=true implies pass by
+          # construction (GPM-163). It is the one path with no grace clone to call.
+          if [ "${{ steps.carry.outputs.hit }}" = 'true' ]; then
+            # ...and we check it anyway, HERE, at the point of use.
+            #
+            # "By construction" is a proof that lives 300 lines away, in a different step. A
+            # MERGE DECISION must not rest on an invariant a reader has to go find, and that
+            # the next edit to that other step can silently break. If hit=true ever arrives
+            # carrying a non-pass, the honest response is to refuse — not to wave a cached
+            # red through on the strength of a comment.
+            #
+            # Cheap, local, and it fails SAFE. The panel called this path an unconditional
+            # pass (gpt-5 CRITICAL, gemini LOW). It was wrong — hit=true is unreachable on a
+            # fail — but it was wrong about something worth making unarguable.
+            CARRIED='${{ steps.carry.outputs.verdict }}'
+            if [ "$CARRIED" != 'pass' ]; then
+              echo "::error::carry-forward hit with verdict '${CARRIED}', which is not 'pass'. The carry step must never emit this. Refusing to short-circuit the gate — re-run the panel."
+              exit 1
             fi
-            exit 1
+            echo "diff-identity already reviewed — carried verdict: ${CARRIED}. Check passed."
+            exit 0
           fi
-          echo "Grace review clean (no HIGH/CRITICAL). Check passed."
+          # ONE decision point, and it is grace-ci-gate — the same tested code path every
+          # other repo in the fleet uses. Four repos hand-rolled this logic and all four
+          # drifted apart (GPM-147/150). This is the un-drifting: the gate was fixed in the
+          # toolbox weeks ago and stayed broken on the door, because nobody called it.
+          #
+          # It reads verdict.json and never the comment; it fails OPEN only on a panel
+          # outage (exit 10) and CLOSED on a review it could not parse; and — the property
+          # this PR exists for — it REFUSES to let `grace-override:` waive a CRITICAL.
+          # An unanchored override is how two CRITICALs reached main. A finding nobody has
+          # read yet is not a severity you get to waive; it is a tool fault to fix.
+          # The body is NOT fetched here. `--pr`/`--repo` are enough: the gate's own
+          # fetch_pr_body() is the hardened one (30s timeout, 3 attempts, backoff, and
+          # fail-SAFE to None — no body means no override means the PR stays blocked).
+          # A hand-rolled `gh pr view` here would be a fifth drifted copy of the very
+          # logic this step exists to un-drift, and a worse one: `|| echo ""` catches a
+          # non-zero exit, not a HANG, so a wedged call burned the 15-minute job timeout
+          # and turned an infra blip into a RED required check — the exact fail-CLOSED-on-
+          # infra this workflow refuses to do everywhere else.
+          python3 "$HOME/grace/bin/grace-ci-gate" "$HOME/grace-out" \
+            --review-exit "${REVIEW_EXIT:-0}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --repo "${{ github.repository }}"
