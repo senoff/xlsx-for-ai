@@ -48,10 +48,19 @@ WORKFLOW_PATH=".github/workflows/grace-review.yml"
 # ---- required CLIs — fail with an actionable error, not an opaque one ---------------
 need() { command -v "$1" >/dev/null 2>&1 || { echo "::error::required tool '$1' not found on the runner. Refusing to publish (fail closed)."; exit 1; }; }
 
+# ---- redact token-shaped strings from any diagnostic before it hits the log ---------
+# A persistent failure must be diagnosable (403 vs 404 vs 5xx) WITHOUT dumping raw tool
+# stderr — which can echo request URLs/bodies — onto a PUBLIC Actions log. gh does not
+# print the auth token to stderr, but mask token-shaped strings as defence in depth so
+# the summary is "not silent, not raw": the terminal resolution of the show-vs-hide split.
+gh_redact() {  # stdin -> stdout, GitHub/Bearer token patterns masked
+  sed -E 's/(gh[posru]_|github_pat_)[A-Za-z0-9_]+/\1***REDACTED***/g; s/([Bb]earer[[:space:]]+)[A-Za-z0-9._-]+/\1***REDACTED***/g'
+}
+
 # ---- gh api with bounded retry/backoff + a per-call timeout -------------------------
 # A transient network/API hiccup must not fail-closed a legitimate publish. Retry a few
-# times with backoff; a persistent failure still fails closed (the caller refuses). A
-# per-call timeout (where `timeout` exists) stops a hung call from stalling the publish.
+# times with backoff; a persistent failure still fails closed (the caller refuses). Every
+# call is `timeout`-bounded so a hung call cannot stall the publish.
 gh_api() {  # gh_api <api-path> [gh-flags...] — STREAMS gh's stdout, returns gh's rc
   # STREAM the output — do NOT capture into a var and re-printf. A shell variable
   # truncates at the first NUL, which corrupts any binary body (the receipt zip). JSON
@@ -62,21 +71,20 @@ gh_api() {  # gh_api <api-path> [gh-flags...] — STREAMS gh's stdout, returns g
   # (need timeout, below), so a hung gh api call is killed and retried rather than
   # stalling the publish job indefinitely. An unbounded network call is the one thing an
   # enforcement gate on an irreversible publish must not do.
-  local attempt rc=1
+  # stderr is captured to a temp file on EVERY attempt and, only on a persistent failure,
+  # surfaced as a REDACTED bounded tail — diagnosable but never raw on a public log.
+  # NOTE the `cmd && { ...; }` form, not `if cmd; then ...; fi` followed by rc=$?: an
+  # if-statement whose condition fails and which has no else-branch exits 0, so `rc=$?`
+  # after `fi` would capture 0 (success) on a real failure. `&&` short-circuits so $? is
+  # the command's true exit — the function must return non-zero when gh actually failed.
+  local attempt rc=1 errf; errf="$(mktemp)"
   for attempt in 1 2 3 4; do
-    if [ "$attempt" -lt 4 ]; then
-      # retry attempts: suppress transient stderr (404/5xx/rate-limit noise on a call
-      # we are about to repeat) so the log carries only the failure that actually sticks.
-      if timeout 60 gh api "$@" 2>/dev/null; then return 0; fi
-      rc=$?; sleep $((attempt * 2))
-    else
-      # FINAL attempt: let stderr through. A persistent failure (auth 403, rate-limit,
-      # a real 5xx) must show its HTTP detail in the job log — the caller then fails
-      # closed, and an operator can see WHY without re-running blind.
-      if timeout 60 gh api "$@"; then return 0; fi
-      rc=$?
-    fi
+    timeout 60 gh api "$@" 2>"$errf" && { rm -f "$errf"; return 0; }
+    rc=$?; [ "$attempt" -lt 4 ] && sleep $((attempt * 2))
   done
+  echo "::error::gh api failed after retries (rc=${rc}); redacted stderr tail follows:" >&2
+  gh_redact < "$errf" | tail -3 >&2
+  rm -f "$errf"
   return "$rc"
 }
 
@@ -84,17 +92,19 @@ gh_download() {  # gh_download <api-path> <outfile> — binary-safe download wit
   # For a BINARY body (the receipt zip): write each attempt to a FRESH temp file
   # (truncating), and move it into place ONLY on a fully-successful download. This keeps
   # the bytes intact (no shell-var round-trip) AND guarantees a partial body from a failed
-  # attempt is never concatenated with a later one. Bounded by `timeout` like gh_api.
-  local path="$1" out="$2" attempt rc=1 tmp="$2.part"
+  # attempt is never concatenated with a later one. Bounded by `timeout` like gh_api; same
+  # captured-then-redacted stderr discipline on a persistent failure.
+  # `cmd && { ...; }` (not `if cmd; then ...; fi` + rc=$?) so rc is gh's true exit — see
+  # the note in gh_api. `if ! gh_download` in the caller depends on a non-zero on failure.
+  local path="$1" out="$2" attempt rc=1 tmp="$2.part" errf; errf="$(mktemp)"
   for attempt in 1 2 3 4; do
     : > "$tmp"
-    if [ "$attempt" -lt 4 ]; then
-      if timeout 120 gh api "$path" > "$tmp" 2>/dev/null; then mv -f "$tmp" "$out"; return 0; fi
-    else
-      if timeout 120 gh api "$path" > "$tmp"; then mv -f "$tmp" "$out"; return 0; fi
-    fi
+    timeout 120 gh api "$path" > "$tmp" 2>"$errf" && { mv -f "$tmp" "$out"; rm -f "$errf"; return 0; }
     rc=$?; rm -f "$tmp"; [ "$attempt" -lt 4 ] && sleep $((attempt * 2))
   done
+  echo "::error::gh download failed after retries (rc=${rc}); redacted stderr tail follows:" >&2
+  gh_redact < "$errf" | tail -3 >&2
+  rm -f "$errf"
   return "$rc"
 }
 
@@ -178,7 +188,7 @@ if [ -z "$PR_JSON" ]; then
   exit 1
 fi
 read -r PR_NUM HEAD_SHA < <(printf '%s' "$PR_JSON" | jq -r '
-  ([.[] | select(.merged_at != null)] | sort_by(.merged_at) | last) // .[0]
+  ((([.[] | select(.merged_at != null)] | sort_by(.merged_at) | last) // .[0]) // {})
   | "\(.number // "") \(.head.sha // "")"')
 if [ -z "${HEAD_SHA:-}" ] || [ -z "${PR_NUM:-}" ]; then
   echo "::error::no pull request found for commit ${SHA} — cannot locate its grace receipt."
