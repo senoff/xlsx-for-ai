@@ -57,6 +57,11 @@ permissions:
   contents: read    # this workflow no longer commits or pushes anything. It reads main
                     # and publishes what main carries; the bump arrives as a reviewed PR.
   id-token: write   # for npm provenance (free supply-chain signal)
+  actions: read     # XLS-615: read the grace receipt artifact (gh api .../actions/artifacts).
+                    # A private repo 403s the artifact list without this — same reason
+                    # grace-review.yml grants actions:read to carry a receipt forward.
+  pull-requests: read  # XLS-615: map the release commit on main back to its PR + head sha
+                    # (GET /commits/{sha}/pulls) so the head-sha-keyed receipt is findable.
 
 jobs:
   publish:
@@ -139,6 +144,21 @@ jobs:
             exit 1
           fi
           echo "Tag v${TAG_VERSION} matches package.json ${PKG_VERSION}."
+
+      # ENFORCEMENT HALF of the grace gate (XLS-615). XLS-412 made a kept CRITICAL
+      # VISIBLE on the PR (the gate is ADVISORY — not a required check, so a CRITICAL
+      # can land, and a human PR-body override can wave one through at merge). It does
+      # NOT stop a publish: this workflow published "what main carries" and read the
+      # verdict NOWHERE. So a kept CRITICAL would ship to npm, and `npm publish` cannot
+      # be undone. This step reads the grace verdict from the RECEIPT ARTIFACT's machine
+      # field (override-receipt.json .severity, refute-aware /2 — NOT a prose grep) and
+      # REFUSES on a kept CRITICAL, here, before Install/Pack/publish — an irreversible
+      # step must never run after a step that can fail. Fails closed on a missing/expired/
+      # UNKNOWN receipt (an unrun gate is not a pass). See scripts/grace-publish-gate.sh.
+      - name: Refuse to publish on a kept CRITICAL (grace verdict)
+        run: bash scripts/grace-publish-gate.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Install
         run: npm ci
