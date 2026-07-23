@@ -106,9 +106,16 @@ decide() {  # decide <path-to-override-receipt.json> [expected-pr-number]
     exit 1
   fi
   schema="$(jq -r '.schema // ""' "$f" 2>/dev/null || echo "")"
+  # Pin to the EXACT schema this gate implements. /2's `severity` is refute-aware (a
+  # proven-false CRITICAL is dropped) — the whole basis for reading `.severity` as the
+  # kept-verdict. A /1 receipt is NOT refute-aware: its `severity=CRITICAL` may be a
+  # refuted critical → a false publish refusal. A /3+ may redefine the contract this gate
+  # reads. So accept ONLY /2 and fail closed on anything else: an enforcement gate on an
+  # irreversible publish must not read a receipt contract it does not implement. When
+  # grace bumps the schema, revisit this gate (fail-closed until then is the safe default).
   case "$schema" in
-    grace-override-receipt/*) : ;;
-    *) echo "::error::unrecognized grace receipt schema '${schema}' — a receipt this gate cannot read is not a pass. Refusing to publish."
+    grace-override-receipt/2) : ;;
+    *) echo "::error::grace receipt schema '${schema}' is not grace-override-receipt/2 (the refute-aware version this gate implements) — refusing to publish (fail closed). Update grace-publish-gate.sh for the new receipt contract."
        exit 1 ;;
   esac
   # Internal binding: the receipt must name the PR we resolved (defence in depth on top
