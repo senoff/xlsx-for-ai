@@ -52,25 +52,48 @@ need() { command -v "$1" >/dev/null 2>&1 || { echo "::error::required tool '$1' 
 # A transient network/API hiccup must not fail-closed a legitimate publish. Retry a few
 # times with backoff; a persistent failure still fails closed (the caller refuses). A
 # per-call timeout (where `timeout` exists) stops a hung call from stalling the publish.
-gh_api() {  # gh_api <api-path> [jq...] — echoes stdout, returns gh's rc on final attempt
+gh_api() {  # gh_api <api-path> [gh-flags...] — STREAMS gh's stdout, returns gh's rc
+  # STREAM the output — do NOT capture into a var and re-printf. A shell variable
+  # truncates at the first NUL, which corrupts any binary body (the receipt zip). JSON
+  # bodies have no NULs, so JSON callers ($(gh_api ...)) are unaffected; binary bodies go
+  # through gh_download (below), never here. gh writes its response body only on success,
+  # so a failed attempt contributes no partial stdout to concatenate.
   # Every call is GUARANTEED-bounded by `timeout 60` — live mode requires `timeout`
   # (need timeout, below), so a hung gh api call is killed and retried rather than
   # stalling the publish job indefinitely. An unbounded network call is the one thing an
   # enforcement gate on an irreversible publish must not do.
-  local attempt rc=1 out
+  local attempt rc=1
   for attempt in 1 2 3 4; do
     if [ "$attempt" -lt 4 ]; then
       # retry attempts: suppress transient stderr (404/5xx/rate-limit noise on a call
       # we are about to repeat) so the log carries only the failure that actually sticks.
-      if out="$(timeout 60 gh api "$@" 2>/dev/null)"; then printf '%s' "$out"; return 0; fi
+      if timeout 60 gh api "$@" 2>/dev/null; then return 0; fi
       rc=$?; sleep $((attempt * 2))
     else
       # FINAL attempt: let stderr through. A persistent failure (auth 403, rate-limit,
       # a real 5xx) must show its HTTP detail in the job log — the caller then fails
       # closed, and an operator can see WHY without re-running blind.
-      if out="$(timeout 60 gh api "$@")"; then printf '%s' "$out"; return 0; fi
+      if timeout 60 gh api "$@"; then return 0; fi
       rc=$?
     fi
+  done
+  return "$rc"
+}
+
+gh_download() {  # gh_download <api-path> <outfile> — binary-safe download with retry
+  # For a BINARY body (the receipt zip): write each attempt to a FRESH temp file
+  # (truncating), and move it into place ONLY on a fully-successful download. This keeps
+  # the bytes intact (no shell-var round-trip) AND guarantees a partial body from a failed
+  # attempt is never concatenated with a later one. Bounded by `timeout` like gh_api.
+  local path="$1" out="$2" attempt rc=1 tmp="$2.part"
+  for attempt in 1 2 3 4; do
+    : > "$tmp"
+    if [ "$attempt" -lt 4 ]; then
+      if timeout 120 gh api "$path" > "$tmp" 2>/dev/null; then mv -f "$tmp" "$out"; return 0; fi
+    else
+      if timeout 120 gh api "$path" > "$tmp"; then mv -f "$tmp" "$out"; return 0; fi
+    fi
+    rc=$?; rm -f "$tmp"; [ "$attempt" -lt 4 ] && sleep $((attempt * 2))
   done
   return "$rc"
 }
@@ -187,7 +210,7 @@ fi
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
-if ! gh_api "repos/${REPO}/actions/artifacts/${AID}/zip" > "${TMP}/receipt.zip"; then
+if ! gh_download "repos/${REPO}/actions/artifacts/${AID}/zip" "${TMP}/receipt.zip"; then
   echo "::error::failed to download grace receipt artifact ${AID} (after retries). Refusing to publish (fail closed)."
   exit 1
 fi
