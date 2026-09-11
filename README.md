@@ -183,7 +183,7 @@ The same governed contract is served read-only from two routes — discover the 
 
 | Tool | What it does |
 |---|---|
-| `xlsx_read` | Read a workbook — text, JSON, or markdown. Formulas, named ranges, layout, and data types preserved. |
+| `xlsx_read` | Read a workbook — text, JSON, or markdown. Formulas, named ranges, layout, and data types preserved. Also reads a **live Google Sheet** by id (`source:"gsheets"`), read-only, with a read-only Google OAuth token you supply. |
 | `xlsx_read_handle` | Read by server-side handle instead of bytes — for session flows where the workbook has already been uploaded and shouldn't be transferred again. |
 | `xlsx_write` | Create or update a workbook from a structured spec. Multi-sheet, formulas, named ranges, table definitions. |
 | `xlsx_data_clean` | Normalize messy data in place — trim whitespace, coerce types, dedupe rows, fix obvious encoding artifacts. Returns a cleaned copy + a change log. Save-As shape; never mutates the input. |
@@ -264,7 +264,7 @@ All **52 tools** the MCP server exposes (generated from `tools/list`). Invoke an
 
 **Read & explore**
 
-- `xlsx_read` — read an .xlsx file by path and return a rendered markdown/JSON/SQL representation.
+- `xlsx_read` — read an .xlsx file by path and return a rendered markdown/JSON/SQL representation. Also reads a **live Google Sheet**: pass `source:"gsheets"` with the `spreadsheet_id` and a read-only Google OAuth token you supply (token-injected — read-only, no write; the server never mints or brokers Google credentials). Same rendered output as reading the equivalent `.xlsx`.
 - `xlsx_read_handle` — read a workbook that has already been uploaded to the server via the chunked upload flow, by its server-side cache handle, WITHOUT re-transferring the bytes. Returns the same shape as xlsx_read (text / json / markdown) but skips the file_b64 round-trip.
 - `xlsx_validate` — cross-engine consistency check on a LOCAL .xlsx file — runs the workbook through TWO independent renderers (@protobi/exceljs and @cj-tech-master/excelts) and reports cell-level divergences.
 
