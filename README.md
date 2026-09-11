@@ -38,7 +38,7 @@ If your environment skips install scripts (`--ignore-scripts`, CI, or a sudo ins
 claude mcp add xfa -- xlsx-for-ai-mcp
 ```
 
-Verify: in a new Claude Code session, ask "what MCP tools do you have?" — 50 `xlsx_*` tools should appear, including `xlsx_doctor` (one-call health report — try it first on any unknown workbook).
+Verify: in a new Claude Code session, ask "what MCP tools do you have?" — 52 `xlsx_*` tools should appear, including `xlsx_doctor` (one-call health report — try it first on any unknown workbook).
 
 Then run `xfa samples` (shorthand for `xlsx-for-ai samples`) to drop two demo workbooks in your working directory and get paste-ready prompts to try.
 
@@ -56,7 +56,7 @@ Config file: `~/.cursor/mcp.json`
 }
 ```
 
-Verify: open Cursor settings → MCP → confirm `xfa` shows 50 `xlsx_*` tools.
+Verify: open Cursor settings → MCP → confirm `xfa` shows 52 `xlsx_*` tools.
 
 ### Continue
 
@@ -89,7 +89,7 @@ Pass `--mcp-server` on the command line, or add to your Codex config:
 }
 ```
 
-Verify: run `codex --list-tools` and confirm 50 `xlsx_*` tools are listed.
+Verify: run `codex --list-tools` and confirm 52 `xlsx_*` tools are listed.
 
 ### Zed
 
@@ -158,14 +158,14 @@ Beyond the free tier, rate-limited and oversize requests come back as a typed JS
 
 The same governed contract is served read-only from two routes — discover the whole API without a key:
 
-- **[`GET /api/v1/reference`](https://api.xlsx-for-ai.dev/api/v1/reference)** — a self-contained human HTML reference for all 50 public-stable tools, including the on-ramp above.
+- **[`GET /api/v1/reference`](https://api.xlsx-for-ai.dev/api/v1/reference)** — a self-contained human HTML reference for all 52 public-stable tools, including the on-ramp above.
 - **[`GET /api/v1/openapi.json`](https://api.xlsx-for-ai.dev/api/v1/openapi.json)** — the versioned OpenAPI 3.1 contract, verbatim. Point codegen, Postman, or Scalar/Redoc at it.
 
 ---
 
 ## What it does
 
-50 tools registered in `tools/list`. Descriptions are intentionally rich — an agent reading a transcript can tell what each tool does and when to reach for it, without extra docs.
+52 tools registered in `tools/list`. Descriptions are intentionally rich — an agent reading a transcript can tell what each tool does and when to reach for it, without extra docs.
 
 ### Triage / orient
 
@@ -260,7 +260,7 @@ Tool responses include a citation footer and a `_meta` block (tool name, version
 
 ## Tools
 
-All **50 tools** the MCP server exposes (generated from `tools/list`). Invoke any by asking your agent in plain English, or call the API/CLI directly.
+All **52 tools** the MCP server exposes (generated from `tools/list`). Invoke any by asking your agent in plain English, or call the API/CLI directly.
 
 **Read & explore**
 
@@ -346,17 +346,7 @@ All **50 tools** the MCP server exposes (generated from `tools/list`). Invoke an
 
 ## Functions
 
-`xlsx_eval` recalculates formulas with our own recalc engine — **382 Excel functions** across these categories:
-
-- **Math & trig** (101) — ABS, ACOS, ACOSH, ACOT, ACOTH, ARABIC, ASIN, ASINH, ATAN, ATAN2, ATANH, AVERAGE, AVERAGEA, AVERAGEIF, CEILING, CEILING.MATH, CEILING.PRECISE, COMBIN, COMBINA, COS, COSH, COT, COTH, COUNT, COUNTA, COUNTBLANK, COUNTIF, COUNTIFS, COUNTUNIQUE, CSC, CSCH, DEGREES, EVEN, EXP, FACT, FACTDOUBLE, FLOOR, FLOOR.MATH, FLOOR.PRECISE, GCD, INT, ISO.CEILING, LCM, LN, LOG, LOG10, MAX, MAXA, MAXIFS, MIN, MINA, MINIFS, MOD, MROUND, MULTINOMIAL, ODD, PI, POWER, PRODUCT, QUOTIENT, RADIANS, RAND, RANDBETWEEN, ROMAN, ROUND, ROUNDDOWN, ROUNDUP, SEC, SECH, SERIESSUM, SIGN, SIN, SINH, SQRT, SQRTPI, STDEV, STDEV.P, STDEV.S, STDEVA, STDEVP, STDEVPA, STDEVS, SUBTOTAL, SUM, SUMIF, SUMIFS, SUMPRODUCT, SUMSQ, SUMX2MY2, SUMX2PY2, SUMXMY2, TAN, TANH, TRUNC, VAR, VAR.P, VAR.S, VARA, VARP, VARPA, VARS
-- **Statistical** (108) — AVEDEV, BESSELI, BESSELJ, BESSELK, BESSELY, BETA.DIST, BETA.INV, BETADIST, BETAINV, BINOM.DIST, BINOM.INV, BINOMDIST, CHIDIST, CHIDISTRT, CHIINV, CHIINVRT, CHISQ.DIST, CHISQ.DIST.RT, CHISQ.INV, CHISQ.INV.RT, CHISQ.TEST, CHITEST, CONFIDENCE, CONFIDENCE.NORM, CONFIDENCE.T, CORREL, COVAR, COVARIANCE.P, COVARIANCE.S, COVARIANCEP, COVARIANCES, CRITBINOM, DEVSQ, ERF, ERFC, EXPON.DIST, EXPONDIST, F.DIST, F.DIST.RT, F.INV, F.INV.RT, F.TEST, FDIST, FDISTRT, FINV, FINVRT, FISHER, FISHERINV, FTEST, GAMMA, GAMMA.DIST, GAMMA.INV, GAMMADIST, GAMMAINV, GAMMALN, GAMMALN.PRECISE, GAUSS, GEOMEAN, HARMEAN, HYPGEOM.DIST, HYPGEOMDIST, LARGE, LOGINV, LOGNORM.DIST, LOGNORM.INV, LOGNORMDIST, LOGNORMINV, MEDIAN, NEGBINOM.DIST, NEGBINOMDIST, NORM.DIST, NORM.INV, NORM.S.DIST, NORM.S.INV, NORMDIST, NORMINV, NORMSDIST, NORMSINV, PEARSON, PHI, POISSON, POISSON.DIST, POISSONDIST, RSQ, SKEW, SKEW.P, SKEWP, SLOPE, SMALL, STANDARDIZE, STEYX, T.DIST, T.DIST.2T, T.DIST.RT, T.INV, T.INV.2T, T.TEST, TDIST, TDIST2T, TDISTRT, TINV, TINV2T, TTEST, WEIBULL, WEIBULL.DIST, WEIBULLDIST, Z.TEST, ZTEST
-- **Financial** (28) — CUMIPMT, CUMPRINC, DB, DDB, DOLLARDE, DOLLARFR, EFFECT, FV, FVSCHEDULE, IPMT, IRR, ISPMT, MIRR, NOMINAL, NPER, NPV, PDURATION, PMT, PPMT, PV, RATE, RRI, SLN, SYD, TBILLEQ, TBILLPRICE, TBILLYIELD, XNPV
-- **Date & time** (27) — DATE, DATEDIF, DATEVALUE, DAY, DAYS, DAYS360, EDATE, EOMONTH, HOUR, INTERVAL, ISOWEEKNUM, MINUTE, MONTH, NETWORKDAYS, NETWORKDAYS.INTL, NOW, SECOND, TEXT, TIME, TIMEVALUE, TODAY, WEEKDAY, WEEKNUM, WORKDAY, WORKDAY.INTL, YEAR, YEARFRAC
-- **Text** (26) — CHAR, CLEAN, CODE, CONCATENATE, EXACT, FIND, FORMULATEXT, HYPERLINK, LEFT, LEN, LOWER, MID, N, PROPER, REPLACE, REPT, RIGHT, SEARCH, SPLIT, SUBSTITUTE, T, TRIM, UNICHAR, UNICODE, UPPER, VALUE
-- **Logical** (12) — AND, CHOOSE, FALSE, IF, IFERROR, IFNA, IFS, NOT, OR, SWITCH, TRUE, XOR
-- **Lookup & reference** (13) — ADDRESS, ARRAYFORMULA, ARRAY_CONSTRAIN, FILTER, HLOOKUP, MATCH, MAXPOOL, MEDIANPOOL, MMULT, OFFSET, TRANSPOSE, VLOOKUP, XLOOKUP
-- **Information** (21) — COLUMN, COLUMNS, INDEX, ISBINARY, ISBLANK, ISERR, ISERROR, ISEVEN, ISFORMULA, ISLOGICAL, ISNA, ISNONTEXT, ISNUMBER, ISODD, ISREF, ISTEXT, NA, ROW, ROWS, SHEET, SHEETS
-- **Engineering** (46) — BASE, BIN2DEC, BIN2HEX, BIN2OCT, BITAND, BITLSHIFT, BITOR, BITRSHIFT, BITXOR, COMPLEX, DEC2BIN, DEC2HEX, DEC2OCT, DECIMAL, DELTA, HEX2BIN, HEX2DEC, HEX2OCT, IMABS, IMAGINARY, IMARGUMENT, IMCONJUGATE, IMCOS, IMCOSH, IMCOT, IMCSC, IMCSCH, IMDIV, IMEXP, IMLN, IMLOG10, IMLOG2, IMPOWER, IMPRODUCT, IMREAL, IMSEC, IMSECH, IMSIN, IMSINH, IMSQRT, IMSUB, IMSUM, IMTAN, OCT2BIN, OCT2DEC, OCT2HEX
+`xlsx_eval` recalculates formulas with our own recalc engine — **128 Excel functions today, and growing** (we certify more each week). Coverage spans the standard function families: Math & trig, Statistical, Financial, Date & time, Text, Logical, Lookup & reference, Information, and Engineering.
 
 The engine has no `INDIRECT`, `WEBSERVICE`, `RTD`, `DDE` — there is no dynamic-reference, network, or external-data function in the set, so a recalc can't reach off-workbook. The absent functions are the sandbox boundary.
 
