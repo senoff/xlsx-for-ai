@@ -1,8 +1,8 @@
 {
   "name": "xlsx-for-ai",
   "mcpName": "io.github.senoff/xlsx-for-ai",
-  "version": "4.0.3",
-  "description": "The missing reliability layer for spreadsheet work in LLM agents. Read, write, diff, validate, and analyze .xlsx files end-to-end \u2014 with merged cells, formulas, named ranges, conditional formatting, pivots, and charts preserved.",
+  "version": "4.0.4",
+  "description": "The missing reliability layer for spreadsheet work in LLM agents. Read, write, diff, validate, and analyze .xlsx files end-to-end — with merged cells, formulas, named ranges, conditional formatting, pivots, and charts preserved.",
   "main": "index.js",
   "bin": {
     "xfa": "index.js",
