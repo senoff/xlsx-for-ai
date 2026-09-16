@@ -565,4 +565,18 @@ jobs:
           # drains both pipes via communicate() so a >64KB tools/list response is never
           # truncated by a premature terminate — the XLS-988 false-RED. The identical
           # code is mutation-proved by .github/workflows/smoke-selftest.yml.
-          python "$GITHUB_WORKSPACE/scripts/mcp_smoke.py" "node_modules/.bin/xlsx-for-ai-mcp" "t.xlsx"
+          #
+          # Pass the .bin shim path with OS-NATIVE separators (XLS-1553). The harness
+          # spawns the shim directly: POSIX runs the bare path (shell=False); Windows
+          # appends ".cmd" and runs it via cmd.exe (shell=True). cmd.exe treats "/" as a
+          # switch delimiter, so a forward-slash path (node_modules/.bin/...) is parsed as
+          # the command "node_modules" and dies "'node_modules' is not recognized" — the
+          # windows-latest RED that blocked publish. os.path.join yields backslashes on
+          # Windows and "/" on POSIX (identical to the string macOS already ran), mirroring
+          # the cross-platform resolution the npx CLI step above relies on.
+          #
+          # This exact invocation is mirrored by .github/workflows/publish-smoke-verify.yml,
+          # which proves it on windows-latest PRE-merge (this step only runs post-publish).
+          # Keep the two in lockstep if either changes.
+          MCP_BIN="$(python -c "import os; print(os.path.join('node_modules', '.bin', 'xlsx-for-ai-mcp'))")"
+          python "$GITHUB_WORKSPACE/scripts/mcp_smoke.py" "$MCP_BIN" "t.xlsx"
