@@ -1,0 +1,105 @@
+name: publish-smoke-verify
+
+# Pre-merge / on-demand reproduction of publish.yml's post-publish MCP-stdio smoke on
+# windows-latest, WITHOUT publishing (XLS-1553).
+#
+# WHY THIS EXISTS. The real post-publish smoke in publish.yml only runs AFTER an
+# irreversible `npm publish`. So a defect in HOW publish.yml invokes the smoke on Windows
+# — a forward-slash .bin path that cmd.exe cannot run — could surface ONLY after the
+# artifact was already live. That is exactly how 4.0.6 shipped with a RED windows smoke
+# (run 34617806717): npm publish succeeded, then the Windows MCP-stdio smoke died with
+# "'node_modules' is not recognized" and turned the whole publish workflow red.
+#
+# This job installs the ALREADY-PUBLISHED artifact from the registry and runs the SAME
+# single-sourced harness (scripts/mcp_smoke.py) with the SAME OS-native invocation that
+# publish.yml now uses. GREEN here proves the Windows invocation before the next publish —
+# and any future edit to publish.yml / the harness re-proves it via the path filter below.
+#
+# It never publishes, never bumps, never mints an OIDC token. Its only secret is
+# XFA_SMOKE_KEY (the read-scoped smoke key, same one publish.yml's smoke uses):
+# initialize + tools/list are answered locally by the MCP server, but xlsx_read relays to
+# the hosted API and needs a valid Bearer key, so the smoke exercises the real end to end.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "npm version to smoke (blank = current dist-tag 'latest')"
+        required: false
+        default: ""
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/publish.yml"
+      - ".github/workflows/publish-smoke-verify.yml"
+      - "scripts/mcp_smoke.py"
+
+# No publish, no OIDC. Read-only + the smoke key.
+permissions:
+  contents: read
+
+jobs:
+  win-smoke:
+    name: windows MCP-stdio smoke (registry install, no publish)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout (harness only — the package comes from the registry)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Clean install the published version from the registry
+        shell: bash
+        run: |
+          set -euo pipefail
+          VER="${{ github.event.inputs.version }}"
+          if [ -z "$VER" ]; then VER="$(npm view xlsx-for-ai version)"; fi
+          echo "Smoking xlsx-for-ai@$VER on windows-latest"
+          mkdir smoke && cd smoke
+          npm init -y >/dev/null
+          npm install "xlsx-for-ai@$VER"
+          echo "Installed xlsx-for-ai@$VER."
+
+      - name: Inject smoke credentials (read-scoped; the ONLY secret this workflow references)
+        shell: bash
+        env:
+          XFA_SMOKE_KEY: ${{ secrets.XFA_SMOKE_KEY }}
+        run: |
+          set -eu
+          if [ -z "${XFA_SMOKE_KEY:-}" ]; then
+            echo "::error::XFA_SMOKE_KEY is not set — cannot run the windows smoke verify (expected on fork PRs, which do not receive secrets)."
+            exit 1
+          fi
+          mkdir -p "$HOME/.xlsx-for-ai"
+          # Serialize via json.dumps so a key with quotes/backslashes/newlines can't corrupt
+          # the config into a false-negative smoke failure (mirrors publish.yml, XLS-959).
+          python -c "import json,os; p=os.path.join(os.path.expanduser('~'),'.xlsx-for-ai','config.json'); open(p,'w').write(json.dumps({'api_key': os.environ['XFA_SMOKE_KEY']}))"
+
+      - name: Make fixture
+        shell: bash
+        run: |
+          python -m pip install openpyxl
+          python -c "
+          from openpyxl import Workbook
+          wb = Workbook(); ws = wb.active; ws.title = 'Data'
+          for r in [[10],[0],[30],[0],[50]]: ws.append(r)
+          wb.save('smoke/t.xlsx')"
+
+      - name: MCP stdio mode (identical invocation to publish.yml)
+        shell: bash
+        run: |
+          cd smoke
+          # Keep this IDENTICAL to publish.yml's post-publish MCP-stdio step so this job
+          # actually proves that invocation. os.path.join -> OS-native separators; the
+          # harness spawns the .bin shim (Windows: appends .cmd + cmd.exe). XLS-1553.
+          MCP_BIN="$(python -c "import os; print(os.path.join('node_modules', '.bin', 'xlsx-for-ai-mcp'))")"
+          python "$GITHUB_WORKSPACE/scripts/mcp_smoke.py" "$MCP_BIN" "t.xlsx"
