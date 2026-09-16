@@ -34,6 +34,8 @@ on:
       - ".github/workflows/publish.yml"
       - ".github/workflows/publish-smoke-verify.yml"
       - "scripts/mcp_smoke.py"
+      # A bin rename here would change the .bin shim the smoke invokes.
+      - "package.json"
 
 # No publish, no OIDC. Read-only + the smoke key.
 permissions:
@@ -49,7 +51,8 @@ jobs:
     # whose head repo equals this repo is not a fork.
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      github.event.pull_request.head.repo.full_name == github.repository
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
@@ -69,12 +72,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Both npm calls below are external registry reads. Each carries a per-attempt
+          # network timeout (--fetch-timeout, so a stalled socket can't hang the job to
+          # the 15-min job ceiling) AND a bounded retry loop (so a transient hiccup
+          # doesn't flake the smoke). XLS-1553 / grace-review.
           VER="${{ github.event.inputs.version }}"
           if [ -z "$VER" ]; then
-            # The registry read is an external call; a short retry keeps a transient
-            # npm hiccup from flaking the whole smoke.
             attempt=1
-            until VER="$(npm view xlsx-for-ai version 2>/dev/null)" && [ -n "$VER" ]; do
+            until VER="$(npm view xlsx-for-ai version --fetch-timeout=20000 2>/dev/null)" && [ -n "$VER" ]; do
               if [ "$attempt" -ge 5 ]; then
                 echo "::error::could not read xlsx-for-ai version from the registry after 5 attempts."
                 exit 1
@@ -87,7 +92,16 @@ jobs:
           echo "Smoking xlsx-for-ai@$VER on windows-latest"
           mkdir smoke && cd smoke
           npm init -y >/dev/null
-          npm install "xlsx-for-ai@$VER"
+          attempt=1
+          until npm install "xlsx-for-ai@$VER" --fetch-timeout=60000; do
+            if [ "$attempt" -ge 5 ]; then
+              echo "::error::npm install xlsx-for-ai@$VER failed after 5 attempts."
+              exit 1
+            fi
+            echo "npm install failed (attempt $attempt/5); retrying..."
+            attempt=$((attempt + 1))
+            sleep 5
+          done
           echo "Installed xlsx-for-ai@$VER."
 
       - name: Inject smoke credentials (read-scoped; the ONLY secret this workflow references)
@@ -108,12 +122,9 @@ jobs:
       - name: Make fixture
         shell: bash
         run: |
-          python -m pip install --disable-pip-version-check -q openpyxl
-          python -c "
-          from openpyxl import Workbook
-          wb = Workbook(); ws = wb.active; ws.title = 'Data'
-          for r in [[10],[0],[30],[0],[50]]: ws.append(r)
-          wb.save('smoke/t.xlsx')"
+          python -m pip install --retries 3 --disable-pip-version-check -q openpyxl
+          # Single line so there is no leading indentation for `python -c` to reject.
+          python -c "from openpyxl import Workbook; wb=Workbook(); ws=wb.active; ws.title='Data'; [ws.append(r) for r in [[10],[0],[30],[0],[50]]]; wb.save('smoke/t.xlsx')"
 
       - name: MCP stdio mode (identical invocation to publish.yml)
         # shell: bash to MATCH publish.yml's MCP-stdio step, which also sets shell: bash

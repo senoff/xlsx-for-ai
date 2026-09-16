@@ -574,5 +574,9 @@ jobs:
           # windows-latest RED that blocked publish. os.path.join yields backslashes on
           # Windows and "/" on POSIX (identical to the string macOS already ran), mirroring
           # the cross-platform resolution the npx CLI step above relies on.
+          #
+          # This exact invocation is mirrored by .github/workflows/publish-smoke-verify.yml,
+          # which proves it on windows-latest PRE-merge (this step only runs post-publish).
+          # Keep the two in lockstep if either changes.
           MCP_BIN="$(python -c "import os; print(os.path.join('node_modules', '.bin', 'xlsx-for-ai-mcp'))")"
           python "$GITHUB_WORKSPACE/scripts/mcp_smoke.py" "$MCP_BIN" "t.xlsx"
