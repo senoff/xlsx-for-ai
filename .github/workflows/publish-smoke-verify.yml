@@ -42,6 +42,14 @@ permissions:
 jobs:
   win-smoke:
     name: windows MCP-stdio smoke (registry install, no publish)
+    # XFA_SMOKE_KEY is a repo secret, and fork PRs receive no secrets — so this job
+    # would go permanently red on any fork PR. Skip it there (neutral, not failed);
+    # same-repo PRs and manual dispatch have the secret. NOTE: secrets.* is not
+    # available in a job-level `if`, so gate on the github context instead — a PR
+    # whose head repo equals this repo is not a fork.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
@@ -62,7 +70,20 @@ jobs:
         run: |
           set -euo pipefail
           VER="${{ github.event.inputs.version }}"
-          if [ -z "$VER" ]; then VER="$(npm view xlsx-for-ai version)"; fi
+          if [ -z "$VER" ]; then
+            # The registry read is an external call; a short retry keeps a transient
+            # npm hiccup from flaking the whole smoke.
+            attempt=1
+            until VER="$(npm view xlsx-for-ai version 2>/dev/null)" && [ -n "$VER" ]; do
+              if [ "$attempt" -ge 5 ]; then
+                echo "::error::could not read xlsx-for-ai version from the registry after 5 attempts."
+                exit 1
+              fi
+              echo "npm view failed (attempt $attempt/5); retrying..."
+              attempt=$((attempt + 1))
+              sleep 5
+            done
+          fi
           echo "Smoking xlsx-for-ai@$VER on windows-latest"
           mkdir smoke && cd smoke
           npm init -y >/dev/null
@@ -87,7 +108,7 @@ jobs:
       - name: Make fixture
         shell: bash
         run: |
-          python -m pip install openpyxl
+          python -m pip install --disable-pip-version-check -q openpyxl
           python -c "
           from openpyxl import Workbook
           wb = Workbook(); ws = wb.active; ws.title = 'Data'
@@ -95,6 +116,10 @@ jobs:
           wb.save('smoke/t.xlsx')"
 
       - name: MCP stdio mode (identical invocation to publish.yml)
+        # shell: bash to MATCH publish.yml's MCP-stdio step, which also sets shell: bash
+        # (publish.yml, "MCP stdio mode" step). Both run under bash on windows-latest, so
+        # the invocation is genuinely identical — do NOT switch this to powershell (that
+        # would DIVERGE from publish.yml and break the bash $(...) command substitution).
         shell: bash
         run: |
           cd smoke
