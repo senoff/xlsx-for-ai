@@ -15,28 +15,35 @@
 # grace-style receipt is REFUSED, not honored (no carry-over of the old signatures — RFC cutover
 # note). The publish-path detach-guard keeps the old gate's tooling out of this path.
 #
+# DELIVERY = signed COMMENT-MARKER (SysArch Confirm #2, 2026-09-24): the attestation is card A's
+# `review-attest-marker:` comment on the reviewed PR (base64 blob=canonical §13.1 predicate +
+# bundle=cosign keyless bundle), NOT a build-artifact triplet. F resolves the marker; it does not
+# download an artifact.
+#
 # §13.1 PREDICATE (ALL must hold, else REFUSE — fail closed):
-#   1. receipt present, non-empty, valid JSON
+#   1. predicate present, non-empty, valid JSON
 #   2. NOT grace-style (no `grace…` schema, not a grace-override-receipt shape)
-#   3. schema == the new attestation schema this gate implements (pinned; unknown ⇒ closed)
+#   3. predicate_type == the §13.1 version this gate implements (pinned; unknown ⇒ closed)
 #   4. verdict == "pass"                       (any other value or absence ⇒ RED)
 #   5. subject_content_id == recomputed candidate CONTENT_ID (the exact published content)
-#   6. signer_identity ∈ the allowlist          (a non-allowlisted signer ⇒ RED)
+#   6. signer_identity ∈ the allowlist AND == the keyless cert identity (a non-allowlisted or
+#      signature-unbound signer ⇒ RED)
 #   7. both LIVE reviewer slots present-and-passed (slot A + slot B in reviewer_slots;
 #      rungs_passed ⊇ {stage0, reviewerA, reviewerB})
 #   8. config_hash == the current gate config hash (a stale-config attestation is a miss)
-#   9. LIVE MODE ONLY: the cosign keyless signature verifies against the allowlisted OIDC
-#      identity. This is the crypto trust root; with no verify tooling / identity configured
+#   9. LIVE MODE ONLY: the marker's cosign keyless signature verifies against the EXACT allowlisted
+#      OIDC identity. This is the crypto trust root; with no verify tooling / identity configured
 #      it FAILS CLOSED (never a skip-to-pass). Exercised against fixtures in tests.
 #
 # MODES:
 #   --receipt-file <path> --expect-content-id <cid> [--allowlist <file>] [--config-hash <h>]
-#       Deterministic decision seam — the §14.F RED-arm witness. Runs the §13.1 predicate
-#       over a local receipt with NO network and NO crypto (the same posture the grace gate's
-#       --receipt-file seam had): valid ⇒ exit 0; missing/mismatched/grace-style ⇒ exit 1.
+#       Deterministic decision seam — the §14.F RED-arm witness. Runs the §13.1 predicate judge
+#       decide() over a local predicate with NO network and NO crypto: valid ⇒ exit 0;
+#       missing/mismatched/grace-style ⇒ exit 1.
 #   (live, default) resolve GITHUB_SHA → its PR (base + head) → recompute CONTENT_ID over
-#       base...head via scripts/content_id.py → locate the review workflow's attestation for
-#       the head sha → cosign-verify → decide(). Fail closed on any gap.
+#       base...head via scripts/content_id.py → resolve card A's signed review-attest-marker for
+#       that CONTENT_ID (scripts/review_attest_marker_resolve.py: cosign keyless verify against the
+#       EXACT allowlisted identity) → decide(). Fail closed on any gap.
 #
 # Exit: 0 = publish may proceed · 1 = REFUSE (fail closed) · 2 = usage error.
 set -euo pipefail
@@ -51,11 +58,12 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # exact allowlist PATH and the shared gate_config_hash HELPER — and the cosign identity is the
 # EXACT base-ref workflow identity (never a broad regexp — a wildcard that could match a
 # PR-head-controlled or foreign workflow is the fail-open guard SysArch calls the highest risk).
+# DELIVERY = signed COMMENT-MARKER (SysArch Confirm #2, 2026-09-24): card A posts a
+# `review-attest-marker:` comment on the reviewed PR (base64 {blob_b64=canonical §13.1 predicate,
+# bundle_b64=cosign keyless bundle}). F resolves it — it does NOT download a build artifact.
 ATTESTATION_SCHEMA="${ATTESTATION_SCHEMA:-review-attestation/1}"   # §13.1 predicate_type — CONFIRMED canonical
-REVIEW_WORKFLOW="${REVIEW_WORKFLOW:-review-gate.yml}"              # workflow that uploads the attestation artifact
-ATTESTATION_ARTIFACT_PREFIX="${ATTESTATION_ARTIFACT_PREFIX:-review-attestation-}" # + head sha; artifact name 'review-attestation'
-# ATTESTATION_ALLOWLIST — A's exact PATH (value taken from A's landed impl): the signer-allowlist
-# JSON, read from the BASE REF; F parses {oidc_issuer, allowed_signer_identities:[...]} (A's shape).
+# ATTESTATION_ALLOWLIST — A's exact PATH: the signer-allowlist JSON, read from the BASE REF; F
+# parses {oidc_issuer, allowed_signer_identities:[...]} (A's shape).
 ATTESTATION_ALLOWLIST="${ATTESTATION_ALLOWLIST:-.github/review-gate/signer-allowlist.json}"
 # GATE_CONFIG_MANIFEST — the CODEOWNERS-protected gate-config file SET whose sha256 is the
 # config_hash; F folds it through the SHARED helper (scripts/gate_config_hash.py, a vendored copy
@@ -63,8 +71,10 @@ ATTESTATION_ALLOWLIST="${ATTESTATION_ALLOWLIST:-.github/review-gate/signer-allow
 # GATE_CONFIG_HASH (env) still overrides for the deterministic seam. A stale-config attestation is
 # a miss. ATTESTATION_VERIFY_MODE=enforce turns on the live cosign verify (default `enforce`).
 GATE_CONFIG_MANIFEST="${GATE_CONFIG_MANIFEST:-.github/review-gate/config-manifest.txt}"
-# COSIGN identity/issuer — the EXACT base-ref signer identity (no broad regexp) + the definitive
-# GitHub Actions OIDC issuer. Overridable; enforce mode REFUSES if COSIGN_IDENTITY is unset.
+# COSIGN identity/issuer — the EXACT base-ref signer-workflow identity (no broad regexp — a
+# wildcard that could match a PR-head-controlled or foreign workflow is the fail-open guard) + the
+# definitive GitHub Actions OIDC issuer. Post-rename canonical (card A) for THIS repo. Overridable.
+COSIGN_IDENTITY="${COSIGN_IDENTITY:-https://github.com/senoff/xlsx-for-ai/.github/workflows/review-gate.yml@refs/heads/main}"
 COSIGN_OIDC_ISSUER="${COSIGN_OIDC_ISSUER:-https://token.actions.githubusercontent.com}"
 
 need() { command -v "$1" >/dev/null 2>&1 || { echo "::error::required tool '$1' not found on the runner. Refusing to publish (fail closed)."; exit 1; }; }
@@ -90,19 +100,6 @@ gh_api() {
     rc=$?; [ "$attempt" -lt 4 ] && sleep $((attempt * 2))
   done
   echo "::error::gh api failed after retries (rc=${rc}); redacted stderr tail follows:" >&2
-  gh_redact < "$errf" | tail -3 >&2
-  rm -f "$errf"
-  return "$rc"
-}
-
-gh_download() {  # gh_download <api-path> <outfile> — binary-safe download with retry
-  local path="$1" out="$2" attempt rc=1 tmp="$2.part" errf; errf="$(mktemp)"
-  for attempt in 1 2 3 4; do
-    : > "$tmp"
-    timeout 120 gh api "$path" > "$tmp" 2>"$errf" && { mv -f "$tmp" "$out"; rm -f "$errf"; return 0; }
-    rc=$?; rm -f "$tmp"; [ "$attempt" -lt 4 ] && sleep $((attempt * 2))
-  done
-  echo "::error::gh download failed after retries (rc=${rc}); redacted stderr tail follows:" >&2
   gh_redact < "$errf" | tail -3 >&2
   rm -f "$errf"
   return "$rc"
@@ -137,17 +134,21 @@ allowlist_has() {  # allowlist_has <allowlist-file> <signer> -> 0 if signer is a
   grep -qxF "$signer" "$allow"
 }
 
-# ── decide(): the ONE place a §13.1 attestation becomes a publish verdict ────────────
-# decide <receipt.json> <expected-content-id> [allowlist-file] [config-hash]
+# ── decide(): the ONE place the §13.1 marker predicate becomes a publish verdict ──────
+# decide <predicate.json> <expected-content-id> [allowlist-file] [config-hash] [cert-identity]
+# Mirrors card A's review_attest_lib.verify_predicate (subject/verdict/slots/config_hash/signer)
+# plus F's grace-style refusal and the predicate_type pin. `cert-identity` is the identity the
+# keyless SIGNATURE actually bound (from marker resolution); when omitted (the crypto-free seam)
+# it defaults to the predicate's declared signer_identity so the declared==cert check is a no-op.
 decide() {
-  local f="$1" want_cid="$2" allow="${3:-}" want_cfg="${4:-}"
-  local schema verdict subj signer cfg
+  local f="$1" want_cid="$2" allow="${3:-}" want_cfg="${4:-}" cert="${5:-}"
+  local ptype verdict subj signer cfg
   if [ ! -s "$f" ]; then
-    echo "::error::attestation receipt missing or empty ($f) — cannot certify this content was reviewed. Refusing to publish (fail closed)."
+    echo "::error::attestation predicate missing or empty ($f) — cannot certify this content was reviewed. Refusing to publish (fail closed)."
     exit 1
   fi
   if ! jq -e . "$f" >/dev/null 2>&1; then
-    echo "::error::attestation receipt ($f) is not valid JSON. Refusing to publish (fail closed)."
+    echo "::error::attestation predicate ($f) is not valid JSON. Refusing to publish (fail closed)."
     exit 1
   fi
   # (2) grace-style receipt is REFUSED — the old grace attestation is not honored.
@@ -155,10 +156,10 @@ decide() {
     echo "::error::this is a GRACE-style receipt (grace-override-receipt). The grace attestation is not honored under the new gate — re-run through the review gate to mint a workflow attestation. Refusing to publish (fail closed)."
     exit 1
   fi
-  # (3) schema pinned to the version this gate implements.
-  schema="$(jq -r '.schema // ""' "$f" 2>/dev/null || echo "")"
-  if [ "$schema" != "$ATTESTATION_SCHEMA" ]; then
-    echo "::error::attestation schema '$(disp "$schema")' is not '${ATTESTATION_SCHEMA}' (the version this gate implements) — refusing to publish (fail closed). Update publish-attestation-gate.sh for the new receipt contract."
+  # (3) predicate_type pinned to the §13.1 version this gate implements (card A stamps it).
+  ptype="$(jq -r '.predicate_type // ""' "$f" 2>/dev/null || echo "")"
+  if [ "$ptype" != "$ATTESTATION_SCHEMA" ]; then
+    echo "::error::attestation predicate_type '$(disp "$ptype")' is not '${ATTESTATION_SCHEMA}' (the version this gate implements) — refusing to publish (fail closed). Update publish-attestation-gate.sh for the new predicate contract."
     exit 1
   fi
   # (4) verdict must be exactly "pass".
@@ -173,8 +174,14 @@ decide() {
     echo "::error::attestation subject_content_id='$(disp "${subj:-<absent>}")' does not equal the published content's CONTENT_ID='${want_cid}' — the attestation does not answer for THIS content (mismatch). Refusing to publish (fail closed)."
     exit 1
   fi
-  # (6) signer_identity ∈ allowlist (when an allowlist is provided; live mode requires one).
+  # (6) signer_identity ∈ allowlist (when an allowlist is provided; live mode requires one), AND
+  #     the declared signer_identity == the identity the keyless SIGNATURE actually bound (cert).
   signer="$(jq -r '.signer_identity // ""' "$f" 2>/dev/null || echo "")"
+  [ -n "$cert" ] || cert="$signer"   # crypto-free seam: assume the signature bound the declared id
+  if [ "$signer" != "$cert" ]; then
+    echo "::error::attestation signer_identity='$(disp "${signer:-<absent>}")' != the keyless certificate identity='$(disp "$cert")' (the signature did not bind the declared signer) — refusing to publish (fail closed)."
+    exit 1
+  fi
   if [ -n "$allow" ]; then
     if [ ! -s "$allow" ]; then
       echo "::error::signer allowlist '${allow}' missing or empty — cannot certify the signer. Refusing to publish (fail closed)."
@@ -235,7 +242,7 @@ if [ "${1:-}" = "--receipt-file" ]; then
 fi
 
 # ── live mode ─────────────────────────────────────────────────────────────────────────
-need gh; need jq; need unzip; need timeout; need python3
+need gh; need jq; need timeout; need python3; need git
 REPO="${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required in live mode}"
 SHA="${GITHUB_SHA:?GITHUB_SHA is required in live mode}"
 export GH_TOKEN="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
@@ -327,65 +334,48 @@ if [ "$VERIFY_MODE" = "enforce" ] && [ -z "$CONFIG_HASH" ]; then
   exit 1
 fi
 
-# Locate the AUTHENTIC attestation: bind to the review workflow's OWN run for this head sha
-# (only the repo's review CI produces those), newest run holding a non-expired artifact.
-WF_JSON="$(gh_api "repos/${REPO}/actions/workflows/${REVIEW_WORKFLOW}" || true)"
-WF_ID="$(printf '%s' "$WF_JSON" | jq -r '.id // empty' 2>/dev/null || echo "")"
-if [ -z "$WF_ID" ]; then
-  echo "::error::review workflow (${REVIEW_WORKFLOW}) not found in ${REPO} — the new review gate is not present at this head, so no authentic attestation exists. Refusing to publish (fail closed)."
-  exit 1
-fi
-ART_NAME="${ATTESTATION_ARTIFACT_PREFIX}${HEAD_SHA}"
-RUN_ID=""; AID=""
-while IFS= read -r rid; do
-  [ -n "$rid" ] || continue
-  cand="$(gh_api "repos/${REPO}/actions/runs/${rid}/artifacts?per_page=100" \
-            --jq "[.artifacts[] | select(.name == \"${ART_NAME}\") | select(.expired == false)] | sort_by(.created_at) | last | .id // empty" || true)"
-  if [ -n "$cand" ]; then RUN_ID="$rid"; AID="$cand"; break; fi
-done < <(gh_api "repos/${REPO}/actions/workflows/${WF_ID}/runs?head_sha=${HEAD_SHA}&per_page=100" \
-           --jq '.workflow_runs | sort_by(.created_at) | reverse | .[].id' || true)
-if [ -z "$RUN_ID" ] || [ -z "$AID" ]; then
-  echo "::error::no ${REVIEW_WORKFLOW} run for PR #${PR_NUM} head ${HEAD_SHA} carries a non-expired ${ART_NAME}. The review gate never ran on this commit, or its attestation expired. Re-run the review gate, then republish. Refusing to publish (fail closed)."
-  exit 1
-fi
-
 TMP="$(mktemp -d)"; trap 'rm -rf "$BASEREF_DIR" "$TMP"' EXIT
-if ! gh_download "repos/${REPO}/actions/artifacts/${AID}/zip" "${TMP}/att.zip"; then
-  echo "::error::failed to download attestation artifact ${AID} (after retries). Refusing to publish (fail closed)."
-  exit 1
-fi
-if ! unzip -o -q "${TMP}/att.zip" -d "${TMP}/x"; then
-  echo "::error::failed to extract attestation artifact ${AID} (corrupt zip or no disk). Refusing to publish (fail closed)."
-  exit 1
-fi
-ATT="$(find "${TMP}/x" -type f -name 'attestation.json' -print 2>/dev/null | head -n1)"
-if [ -z "$ATT" ]; then
-  echo "::error::attestation artifact ${AID} extracted but contains no attestation.json. Refusing to publish (fail closed)."
-  exit 1
-fi
 
-# Crypto trust root: verify the cosign keyless signature over the attestation against the EXACT
-# allowlisted OIDC identity + issuer. Enforced in live mode; the signature file travels in the
-# artifact next to attestation.json. Per the SysArch F ruling the identity is PINNED EXACT
-# (--certificate-identity), never a broad --certificate-identity-regexp — a wildcard that could
-# match a PR-head-controlled or foreign workflow is the fail-open guard.
+# Resolve card A's signed COMMENT-MARKER on the merged PR (SysArch Confirm #2 — delivery is a
+# marker, NOT a build artifact). The resolver (scripts/review_attest_marker_resolve.py) reads every
+# `review-attest-marker:` comment on PR #${PR_NUM}, cosign-verifies each keyless bundle against the
+# EXACT allowlisted identity + issuer, keeps only those whose predicate's subject_content_id == the
+# recomputed CONTENT_ID, and returns the LATEST such predicate (a later unsigned/tampered line can
+# never override an earlier signed one). The trust DECISION stays in decide() — the one judge.
+ATT="${TMP}/predicate.json"
+CERT_IDENTITY=""
+resolve_marker() {  # resolve_marker <extra-args...> ; sets CERT_IDENTITY, writes $ATT; returns rc
+  local rc
+  CERT_IDENTITY="$(python3 "${HERE}/review_attest_marker_resolve.py" \
+      --repo "$REPO" --pr "$PR_NUM" --candidate-cid "$CID" \
+      --allowlist "$ALLOWLIST" --out "$ATT" "$@" 2>"${TMP}/resolve.err")"; rc=$?
+  gh_redact < "${TMP}/resolve.err" >&2 || true   # surface diagnostics (token-redacted)
+  return "$rc"
+}
+
 if [ "$VERIFY_MODE" = "enforce" ]; then
-  SIG="$(find "${TMP}/x" -type f -name 'attestation.json.sig' -print 2>/dev/null | head -n1)"
-  CRT="$(find "${TMP}/x" -type f -name 'attestation.json.pem' -print 2>/dev/null | head -n1)"
-  if [ -z "$SIG" ] || [ -z "$CRT" ]; then
-    echo "::error::attestation artifact is missing its cosign signature/cert (.sig/.pem) — cannot verify authenticity. Refusing to publish (fail closed)."
+  # cosign-verify the marker's keyless bundle against the EXACT allowlisted identity + issuer.
+  if ! COSIGN_IDENTITY_EXPECT="$COSIGN_IDENTITY" resolve_marker \
+        --cosign "${COSIGN_BIN:-cosign}" ${COSIGN_IGNORE_TLOG:+--ignore-tlog}; then
+    echo "::error::no authentic review-attest-marker for PR #${PR_NUM} head ${HEAD_SHA} attesting CONTENT_ID ${CID} — the review gate never posted a valid signed attestation for this content. Refusing to publish (fail closed)."
     exit 1
   fi
-  if ! COSIGN_EXPERIMENTAL=1 cosign verify-blob \
-        --certificate "$CRT" --signature "$SIG" \
-        --certificate-identity "${COSIGN_IDENTITY:?COSIGN_IDENTITY (exact base-ref signer identity) required in enforce mode}" \
-        --certificate-oidc-issuer "${COSIGN_OIDC_ISSUER:?COSIGN_OIDC_ISSUER required in enforce mode}" \
-        "$ATT" 2>&1 | gh_redact; then
-    echo "::error::cosign signature verification FAILED for the attestation — signature invalid or signer identity not permitted. Refusing to publish (fail closed)."
+  if [ ! -s "$ATT" ] || [ -z "$CERT_IDENTITY" ]; then
+    echo "::error::marker resolution did not yield a signed predicate + cert identity for CONTENT_ID ${CID}. Refusing to publish (fail closed)."
     exit 1
   fi
-  echo "cosign signature verified for attestation.json (identity ${COSIGN_IDENTITY} allowlisted)."
+  # The resolver pins cosign --certificate-identity to each allowlisted id; require the one it
+  # verified to be exactly the configured signer identity (defense-in-depth over the allowlist).
+  if [ "$CERT_IDENTITY" != "$COSIGN_IDENTITY" ]; then
+    echo "::error::marker was signed by '$(disp "$CERT_IDENTITY")', not the pinned signer identity '${COSIGN_IDENTITY}' — refusing to publish (fail closed)."
+    exit 1
+  fi
+  echo "review-attest-marker verified for PR #${PR_NUM} (cosign identity ${CERT_IDENTITY}); recomputed CONTENT_ID ${CID}."
+else
+  # permissive (non-enforce) diagnostic path only — never the live publish posture (enforce is the
+  # default). Resolution still fails closed if no marker for this content exists.
+  resolve_marker || { echo "::error::no resolvable review-attest-marker for CONTENT_ID ${CID} (permissive). Refusing to publish (fail closed)."; exit 1; }
+  [ -s "$ATT" ] || { echo "::error::no marker predicate resolved (permissive). Refusing (fail closed)."; exit 1; }
 fi
 
-echo "attestation ${ART_NAME} (artifact ${AID}, ${REVIEW_WORKFLOW} run ${RUN_ID}) fetched for release commit ${SHA} (PR #${PR_NUM}); recomputed CONTENT_ID ${CID}."
-decide "$ATT" "$CID" "$ALLOWLIST" "$CONFIG_HASH"
+decide "$ATT" "$CID" "$ALLOWLIST" "$CONFIG_HASH" "$CERT_IDENTITY"

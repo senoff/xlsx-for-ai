@@ -7,9 +7,9 @@
 //    proceeds; one with a missing / mismatched / grace-style receipt is refused; no grace
 //    reference remains in the publish path (the detach-guard passes on it)."
 //
-// The seam is network-free and crypto-free by design (the live cosign verify + artifact
-// resolution are the go-live path, exercised only when card A's keys are wired). This is the
-// same posture the previous gate's --receipt-file witness had: the decision LOGIC is the thing
+// The seam is network-free and crypto-free by design; the live path (card A's signed comment
+// MARKER resolution + cosign keyless verify) is exercised separately with stub gh/cosign. This is
+// the same posture the previous gate's --receipt-file witness had: the decision LOGIC is the thing
 // under test here.
 
 const { test } = require('node:test');
@@ -30,9 +30,9 @@ const dir = mkdtempSync(join(tmpdir(), 'xls1778-'));
 const allowlist = join(dir, 'allow.txt');
 writeFileSync(allowlist, SIGNER + '\n');
 
-// A fully-valid §13.1 attestation for content CID, signed by the allowlisted identity.
+// A fully-valid §13.1 marker predicate for content CID, signed by the allowlisted identity.
 const VALID = {
-  schema: 'review-attestation/1',
+  predicate_type: 'review-attestation/1',
   subject_content_id: CID,
   authored_file_set: ['scripts/publish-attestation-gate.sh'],
   per_file_blob_hashes: { 'scripts/publish-attestation-gate.sh': 'deadbeef' },
@@ -128,10 +128,17 @@ test('absent verdict → refused', () => {
   assert.strictEqual(r.code, 1, r.out);
 });
 
-test('wrong schema token → refused (fail closed on unimplemented contract)', () => {
-  const r = runGate({ ...VALID, schema: 'review-attestation/999' });
+test('wrong predicate_type → refused (fail closed on unimplemented contract)', () => {
+  const r = runGate({ ...VALID, predicate_type: 'review-attestation/999' });
   assert.strictEqual(r.code, 1, r.out);
   assert.match(r.out, /is not 'review-attestation\/1'/);
+});
+
+test('absent predicate_type → refused', () => {
+  const { predicate_type, ...noType } = VALID;
+  const r = runGate(noType);
+  assert.strictEqual(r.code, 1, r.out);
+  assert.match(r.out, /predicate_type/);
 });
 
 test('missing a live reviewer slot (only A) → refused', () => {
@@ -299,4 +306,87 @@ test('live/enforce: undeterminable gate config hash → refused (fail-open #1 cl
   }
   assert.strictEqual(r.code, 1, r.out);
   assert.match(r.out, /gate config hash could not be determined/, r.out);
+});
+
+// ── DELIVERY = signed comment-MARKER (SysArch Confirm #2): live path resolves card A's marker ──
+// Build a stub `gh` (answers commits→pulls AND issues→comments) and a stub `cosign` (verify rc),
+// a self-contained 2-commit repo for a real CONTENT_ID, and an A-shaped marker attesting it.
+function runLiveMarker({ cosignRc = 0, withMarker = true, markerCid = null, configHash = 'cfg-live' } = {}) {
+  const repo = makeRepo(true);
+  const realCid = contentId(repo.dir, repo.base, repo.head).cid;
+  const bin = mkdtempSync(join(tmpdir(), 'xls1778-bin-'));
+  const jsonAllow = join(bin, 'allow.json');
+  writeFileSync(jsonAllow, JSON.stringify({
+    oidc_issuer: 'https://token.actions.githubusercontent.com',
+    allowed_signer_identities: [SIGNER],
+  }));
+
+  const predicate = {
+    predicate_type: 'review-attestation/1',
+    subject_content_id: markerCid || realCid,
+    verdict: 'pass',
+    reviewer_slots: ['A:claude-opus-4-8', 'B:chatgpt'],
+    rungs_passed: ['stage0', 'reviewerA', 'reviewerB'],
+    signer_identity: SIGNER,
+    config_hash: configHash,
+  };
+  const marker = 'review-attest-marker: ' + JSON.stringify({
+    blob_b64: Buffer.from(JSON.stringify(predicate)).toString('base64'),
+    bundle_b64: Buffer.from('stub-bundle').toString('base64'),
+  });
+
+  // stub gh: commits/*/pulls -> the merged PR (base/head from the temp repo); issues/*/comments
+  // -q .[].body -> the marker line (or nothing when withMarker=false).
+  writeFileSync(join(bin, 'gh'),
+    `#!/usr/bin/env bash\n` +
+    `args="$*"\n` +
+    `if printf '%s' "$args" | grep -q 'commits/.*/pulls'; then\n` +
+    `  echo '[{"number":7,"merged_at":"2026-01-01T00:00:00Z","head":{"sha":"${repo.head}"},"base":{"sha":"${repo.base}"}}]'\n` +
+    `  exit 0\nfi\n` +
+    `if printf '%s' "$args" | grep -q 'issues/.*/comments'; then\n` +
+    (withMarker ? `  cat <<'MARK'\n${marker}\nMARK\n` : ``) +
+    `  exit 0\nfi\nexit 0\n`);
+  writeFileSync(join(bin, 'cosign'), `#!/usr/bin/env bash\nexit ${cosignRc}\n`);
+  chmodSync(join(bin, 'gh'), 0o755);
+  chmodSync(join(bin, 'cosign'), 0o755);
+
+  try {
+    const out = execFileSync('bash', [GATE], {
+      cwd: repo.dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH}`,
+        ATTESTATION_VERIFY_MODE: 'enforce',
+        GITHUB_REPOSITORY: 'senoff/xlsx-for-ai',
+        GITHUB_SHA: repo.head,
+        COSIGN_IDENTITY: SIGNER,
+        COSIGN_BIN: 'cosign',
+        ATTESTATION_ALLOWLIST: jsonAllow,
+        GATE_CONFIG_HASH: configHash, // seam override so the base-ref config resolution is skipped
+      },
+    });
+    return { code: 0, out };
+  } catch (e) { return { code: e.status ?? 1, out: (e.stdout || '') + (e.stderr || '') }; }
+}
+
+test('live marker: a valid signed marker for the published CONTENT_ID → publish proceeds', () => {
+  const r = runLiveMarker({});
+  assert.strictEqual(r.code, 0, r.out);
+  assert.match(r.out, /Publish may proceed/);
+});
+
+test('live marker: no review-attest-marker on the PR → refused (fail closed)', () => {
+  const r = runLiveMarker({ withMarker: false });
+  assert.strictEqual(r.code, 1, r.out);
+  assert.match(r.out, /no authentic review-attest-marker|Refusing to publish/);
+});
+
+test('live marker: cosign signature does NOT verify → refused (fail closed)', () => {
+  const r = runLiveMarker({ cosignRc: 1 });
+  assert.strictEqual(r.code, 1, r.out);
+});
+
+test('live marker: marker attests a DIFFERENT content_id → refused (no subject match)', () => {
+  const r = runLiveMarker({ markerCid: 'd'.repeat(64) });
+  assert.strictEqual(r.code, 1, r.out);
 });
