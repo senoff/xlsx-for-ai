@@ -300,13 +300,18 @@ fi
 BASEREF_DIR="$(mktemp -d)"
 trap 'rm -rf "$BASEREF_DIR" ${TMP:+"$TMP"}' EXIT
 
-# (a) signer allowlist — A's exact PATH, materialized from the base ref. An absolute/local path
-#     (e.g. a test fixture) that is not tracked at base is used as-is.
+# (a) signer allowlist — A's exact PATH, materialized from the base ref. Only an ABSOLUTE path (an
+#     out-of-tree test fixture) that is not tracked at base may be used as-is; a REPO-RELATIVE
+#     allowlist that is absent at base must NOT fall back to the PR HEAD copy — that would let a
+#     same-PR edit self-waive the signer set, defeating the base-only guarantee (fail closed).
 if git show "${BASE_SHA}:${ALLOWLIST}" > "${BASEREF_DIR}/signer-allowlist.json" 2>/dev/null \
      && [ -s "${BASEREF_DIR}/signer-allowlist.json" ]; then
   ALLOWLIST="${BASEREF_DIR}/signer-allowlist.json"
-elif [ ! -s "$ALLOWLIST" ]; then
-  ALLOWLIST=""
+else
+  case "$ALLOWLIST" in
+    /*) [ -s "$ALLOWLIST" ] || ALLOWLIST="" ;;   # absolute fixture: keep only if it exists
+    *)  ALLOWLIST="" ;;                           # repo-relative & absent at base => fail closed
+  esac
 fi
 if [ "$VERIFY_MODE" = "enforce" ] && { [ -z "$ALLOWLIST" ] || [ ! -s "$ALLOWLIST" ]; }; then
   echo "::error::signer allowlist ('${ATTESTATION_ALLOWLIST}') is absent at the base ref ${BASE_SHA} — the gate config is not present, so no signer can be certified. Refusing to publish (fail closed)."
@@ -374,7 +379,8 @@ resolve_marker() {  # resolve_marker <extra-args...> ; sets CERT_IDENTITY, write
 
 if [ "$VERIFY_MODE" = "enforce" ]; then
   # cosign-verify the marker's keyless bundle against the EXACT allowlisted identity + issuer.
-  if ! COSIGN_IDENTITY_EXPECT="$COSIGN_IDENTITY" resolve_marker \
+  # (the verified cert identity is cross-checked against the pinned COSIGN_IDENTITY at :369 below)
+  if ! resolve_marker \
         --expect-issuer "$COSIGN_OIDC_ISSUER" \
         --cosign "${COSIGN_BIN:-cosign}" ${COSIGN_IGNORE_TLOG:+--ignore-tlog}; then
     echo "::error::no authentic review-attest-marker for PR #${PR_NUM} head ${HEAD_SHA} attesting CONTENT_ID ${CID} — the review gate never posted a valid signed attestation for this content. Refusing to publish (fail closed)."

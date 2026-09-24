@@ -552,3 +552,37 @@ test('resolver gh api: persistent failure → RAISES fail-closed (timeout/retry,
   assert.strictEqual(r.code, 1, r.out);
   assert.match(r.out, /gh api read failed after 3 attempts/);
 });
+
+// ── grace-review re-review (8b26f75): base-only guarantee for the signer allowlist ──
+// A repo-relative allowlist that is ABSENT at base but present on the PR HEAD checkout must NOT be
+// read from HEAD (that would let a same-PR edit self-waive the signer set). Fail-closed.
+test('allowlist: repo-relative + absent at base (present only on HEAD) → refused (base-only, fail closed)', () => {
+  const repo = makeRepo(true); // non-empty diff → a real CONTENT_ID; allowlist NOT committed at base
+  const relAllow = 'signer-allowlist.json';
+  writeFileSync(join(repo.dir, relAllow), JSON.stringify({
+    oidc_issuer: 'https://token.actions.githubusercontent.com', allowed_signer_identities: [SIGNER],
+  })); // written into the working tree only — untracked, so `git show BASE:` misses it
+  const bin = mkdtempSync(join(tmpdir(), 'xls1778-baseonly-'));
+  writeFileSync(join(bin, 'gh'),
+    `#!/usr/bin/env bash\nargs="$*"\n` +
+    `if printf '%s' "$args" | grep -q 'commits/.*/pulls'; then\n` +
+    `  echo '[{"number":1,"merged_at":"2026-01-01T00:00:00Z","head":{"sha":"${repo.head}"},"base":{"sha":"${repo.base}"}}]'\n` +
+    `  exit 0\nfi\nexit 0\n`);
+  writeFileSync(join(bin, 'cosign'), `#!/usr/bin/env bash\nexit 0\n`);
+  chmodSync(join(bin, 'gh'), 0o755); chmodSync(join(bin, 'cosign'), 0o755);
+  let r;
+  try {
+    execFileSync('bash', [GATE], {
+      cwd: repo.dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+      env: {
+        ...process.env, PATH: `${bin}:${process.env.PATH}`, ATTESTATION_VERIFY_MODE: 'enforce',
+        GITHUB_REPOSITORY: 'senoff/xlsx-for-ai', GITHUB_SHA: repo.head, COSIGN_IDENTITY: SIGNER,
+        ATTESTATION_ALLOWLIST: relAllow,      // repo-relative, absent at base, present on HEAD
+        GATE_CONFIG_HASH: 'cfg-seam',          // skip base-ref config resolution
+      },
+    });
+    r = { code: 0, out: '' };
+  } catch (e) { r = { code: e.status ?? 1, out: (e.stdout || '') + (e.stderr || '') }; }
+  assert.strictEqual(r.code, 1, r.out);
+  assert.match(r.out, /absent at the base ref|Refusing to publish/);
+});
