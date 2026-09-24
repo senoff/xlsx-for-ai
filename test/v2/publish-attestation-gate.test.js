@@ -390,3 +390,165 @@ test('live marker: marker attests a DIFFERENT content_id → refused (no subject
   const r = runLiveMarker({ markerCid: 'd'.repeat(64) });
   assert.strictEqual(r.code, 1, r.out);
 });
+
+// ══════════════════════════════════════════════════════════════════════════════════════
+// SPM re-review (2026-09-24) regressions — the marker-resolution path hardening.
+// ══════════════════════════════════════════════════════════════════════════════════════
+const { dirname } = require('node:path');
+const CFGHASH = join(REPO, 'scripts', 'gate_config_hash.py');
+const RESOLVER = join(REPO, 'scripts', 'review_attest_marker_resolve.py');
+
+// Run gate_config_hash.py <root> <manifest>; return { code, out }.
+function cfgHash(root, manifest) {
+  try {
+    const out = execFileSync('python3', [CFGHASH, root, manifest], { encoding: 'utf8' });
+    return { code: 0, out };
+  } catch (e) { return { code: e.status ?? 1, out: (e.stdout || '') + (e.stderr || '') }; }
+}
+
+// A throwaway root with a manifest + optionally its listed files present.
+function cfgFixture(manifestLines, presentFiles) {
+  const root = mkdtempSync(join(tmpdir(), 'xls1778-cfg-'));
+  const man = join(root, 'manifest.txt');
+  writeFileSync(man, manifestLines.join('\n') + '\n');
+  for (const f of (presentFiles || [])) {
+    const p = join(root, f);
+    mkdirSync(dirname(p), { recursive: true });
+    writeFileSync(p, `content-of-${f}\n`);
+  }
+  return { root, man };
+}
+
+// ── Finding 2 (read side): gate_config_hash.py path-traversal containment, rejection-only ──
+test('config_hash: valid relative manifest → 64-hex digest, deterministic (byte-identical lockstep)', () => {
+  const { root, man } = cfgFixture(['a/one.txt', 'b/two.txt'], ['a/one.txt', 'b/two.txt']);
+  const r1 = cfgHash(root, man);
+  const r2 = cfgHash(root, man);
+  assert.strictEqual(r1.code, 0, r1.out);
+  assert.match(r1.out.trim(), /^[0-9a-f]{64}$/);
+  assert.strictEqual(r1.out, r2.out, 'digest must be deterministic for a valid manifest');
+});
+
+test('config_hash: absolute manifest entry → refused (traversal guard, fail closed)', () => {
+  const { root, man } = cfgFixture(['/etc/passwd'], []);
+  const r = cfgHash(root, man);
+  assert.strictEqual(r.code, 1, r.out);
+  assert.match(r.out, /absolute \(path traversal\)/);
+});
+
+test('config_hash: ..-escape manifest entry → refused (traversal guard, fail closed)', () => {
+  const { root, man } = cfgFixture(['../../../etc/passwd'], []);
+  const r = cfgHash(root, man);
+  assert.strictEqual(r.code, 1, r.out);
+  assert.match(r.out, /escapes repo root \(path traversal\)/);
+});
+
+test('config_hash: a listed file absent → RAISES (fail closed, not an empty hash)', () => {
+  const { root, man } = cfgFixture(['a/present.txt', 'b/absent.txt'], ['a/present.txt']);
+  const r = cfgHash(root, man);
+  assert.strictEqual(r.code, 1, r.out);
+  assert.match(r.out, /absent/);
+});
+
+// ── Findings 1 & 4 (write side, bash): base-ref manifest resolution ──
+// A repo whose BASE commit carries .github/review-gate/config-manifest.txt + (optionally) its files.
+function makeRepoWithManifest(manifestLines, presentFiles) {
+  const rd = mkdtempSync(join(tmpdir(), 'xls1778-mrepo-'));
+  const g = (...a) => execFileSync('git', ['-C', rd, '-c', 'user.email=t@t', '-c', 'user.name=t', ...a],
+    { encoding: 'utf8' });
+  g('init', '-q');
+  mkdirSync(join(rd, '.github', 'review-gate'), { recursive: true });
+  writeFileSync(join(rd, '.github/review-gate/config-manifest.txt'), manifestLines.join('\n') + '\n');
+  for (const f of (presentFiles || [])) {
+    const p = join(rd, f);
+    mkdirSync(dirname(p), { recursive: true });
+    writeFileSync(p, `content-of-${f}\n`);
+  }
+  g('add', '-A'); g('commit', '-q', '-m', 'c1-manifest');
+  const base = g('rev-parse', 'HEAD').trim();
+  writeFileSync(join(rd, 'f.txt'), 'changed\n');
+  g('add', '-A'); g('commit', '-q', '-m', 'c2');
+  const head = g('rev-parse', 'HEAD').trim();
+  return { dir: rd, base, head };
+}
+
+// Drive the gate through the base-ref config-hash resolution (GATE_CONFIG_HASH unset).
+function runConfigResolve(repo) {
+  const bin = mkdtempSync(join(tmpdir(), 'xls1778-cfgbin-'));
+  writeFileSync(join(bin, 'gh'),
+    `#!/usr/bin/env bash\nargs="$*"\n` +
+    `if printf '%s' "$args" | grep -q 'commits/.*/pulls'; then\n` +
+    `  echo '[{"number":1,"merged_at":"2026-01-01T00:00:00Z","head":{"sha":"${repo.head}"},"base":{"sha":"${repo.base}"}}]'\n` +
+    `  exit 0\nfi\nif printf '%s' "$args" | grep -q 'issues/.*/comments'; then exit 0; fi\nexit 0\n`);
+  writeFileSync(join(bin, 'cosign'), `#!/usr/bin/env bash\nexit 0\n`);
+  chmodSync(join(bin, 'gh'), 0o755); chmodSync(join(bin, 'cosign'), 0o755);
+  const jsonAllow = join(bin, 'allow.json');
+  writeFileSync(jsonAllow, JSON.stringify({
+    oidc_issuer: 'https://token.actions.githubusercontent.com', allowed_signer_identities: [SIGNER],
+  }));
+  try {
+    const out = execFileSync('bash', [GATE], {
+      cwd: repo.dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+      env: {
+        ...process.env, PATH: `${bin}:${process.env.PATH}`, ATTESTATION_VERIFY_MODE: 'enforce',
+        GITHUB_REPOSITORY: 'senoff/xlsx-for-ai', GITHUB_SHA: repo.head, COSIGN_IDENTITY: SIGNER,
+        ATTESTATION_ALLOWLIST: jsonAllow,
+        GATE_CONFIG_MANIFEST: '.github/review-gate/config-manifest.txt', GATE_CONFIG_HASH: '',
+      },
+    });
+    return { code: 0, out };
+  } catch (e) { return { code: e.status ?? 1, out: (e.stdout || '') + (e.stderr || '') }; }
+}
+
+test('base-ref config: manifest entry with .. → refused before publish (traversal guard, fail closed)', () => {
+  const repo = makeRepoWithManifest(['../../../etc/passwd'], []);
+  const r = runConfigResolve(repo);
+  assert.strictEqual(r.code, 1, r.out);
+  assert.match(r.out, /path-traversal guard/);
+});
+
+test('base-ref config: a listed file absent at base → refused, never an empty-hash proceed', () => {
+  const repo = makeRepoWithManifest(['.github/review-gate/present.json', '.github/review-gate/absent.json'],
+    ['.github/review-gate/present.json']);
+  const r = runConfigResolve(repo);
+  assert.strictEqual(r.code, 1, r.out);
+  assert.match(r.out, /not fully measurable|absent at base/);
+});
+
+// ── Finding 3 + OIDC wiring: resolver gh timeout/retry + --expect-issuer pin ──
+function runResolver(args, env) {
+  try {
+    const out = execFileSync('python3', [RESOLVER, ...args],
+      { encoding: 'utf8', env: { ...process.env, ...(env || {}) }, stdio: ['ignore', 'pipe', 'pipe'] });
+    return { code: 0, out };
+  } catch (e) { return { code: e.status ?? 1, out: (e.stdout || '') + (e.stderr || '') }; }
+}
+
+test('resolver --expect-issuer: allowlist issuer ≠ pinned issuer → fail-closed (exit 3)', () => {
+  const bin = mkdtempSync(join(tmpdir(), 'xls1778-res-'));
+  const allow = join(bin, 'allow.json');
+  writeFileSync(allow, JSON.stringify({
+    oidc_issuer: 'https://evil.example/oidc', allowed_signer_identities: [SIGNER],
+  }));
+  const out = join(bin, 'pred.json');
+  const r = runResolver(['--candidate-cid', CID, '--allowlist', allow, '--marker', '/dev/null',
+    '--out', out, '--expect-issuer', 'https://token.actions.githubusercontent.com']);
+  assert.strictEqual(r.code, 3, r.out);
+  assert.match(r.out, /pinned expected issuer/);
+});
+
+test('resolver gh api: persistent failure → RAISES fail-closed (timeout/retry, not a hang)', () => {
+  const bin = mkdtempSync(join(tmpdir(), 'xls1778-ghfail-'));
+  const allow = join(bin, 'allow.json');
+  writeFileSync(allow, JSON.stringify({
+    oidc_issuer: 'https://token.actions.githubusercontent.com', allowed_signer_identities: [SIGNER],
+  }));
+  writeFileSync(join(bin, 'gh'), `#!/usr/bin/env bash\necho "boom" >&2\nexit 1\n`);
+  chmodSync(join(bin, 'gh'), 0o755);
+  const out = join(bin, 'pred.json');
+  const r = runResolver(
+    ['--repo', 'senoff/xlsx-for-ai', '--pr', '7', '--candidate-cid', CID, '--allowlist', allow, '--out', out],
+    { PATH: `${bin}:${process.env.PATH}`, GH_API_RETRY_BACKOFF: '0', GH_API_TRIES: '3' });
+  assert.strictEqual(r.code, 1, r.out);
+  assert.match(r.out, /gh api read failed after 3 attempts/);
+});

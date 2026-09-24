@@ -35,6 +35,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 
 MARKER_PREFIX = "review-attest-marker:"
 GITHUB_OIDC_ISSUER = "https://token.actions.githubusercontent.com"
@@ -55,15 +56,43 @@ def load_allowlist(path: str) -> tuple[list[str], str]:
     return ids, issuer
 
 
+def _gh_api_with_retry(cmd: list[str], *, timeout: int | None = None, tries: int | None = None,
+                       backoff: float | None = None) -> subprocess.CompletedProcess:
+    """Run a `gh api` command with a per-attempt timeout and bounded retries — the same posture as
+    the gate script's gh_api() wrapper (60s/attempt, 4 tries) and symmetric with the cosign call's
+    timeout=120. A transient timeout or non-zero exit is retried with linear backoff; a persistent
+    failure RAISES so the caller fail-closes (an unmeasured comment set is never a pass). Without
+    this a hung/paginating gh call would block the publish runner indefinitely (no timeout).
+    Timeout/tries/backoff default from env (GH_API_TIMEOUT/GH_API_TRIES/GH_API_RETRY_BACKOFF) for
+    ops tuning and fast tests."""
+    if timeout is None:
+        timeout = int(os.environ.get("GH_API_TIMEOUT", "60"))
+    if tries is None:
+        tries = int(os.environ.get("GH_API_TRIES", "4"))
+    if backoff is None:
+        backoff = float(os.environ.get("GH_API_RETRY_BACKOFF", "2.0"))
+    last = ""
+    for attempt in range(1, tries + 1):
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            last = f"timeout after {timeout}s"
+        else:
+            if r.returncode == 0:
+                return r
+            last = f"rc={r.returncode}: {r.stderr.strip()[:200]}"
+        if attempt < tries:
+            _log(f"gh api attempt {attempt}/{tries} failed ({last}); retrying")
+            time.sleep(backoff * attempt)
+    raise RuntimeError(f"gh api read failed after {tries} attempts ({last})")
+
+
 def fetch_markers_from_pr(repo: str, pr: int) -> list[str]:
     """Every `review-attest-marker:` payload across the PR's issue comments, in comment order.
     A read failure raises (unmeasured != pass)."""
-    r = subprocess.run(
+    r = _gh_api_with_retry(
         ["gh", "api", "--paginate", f"repos/{repo}/issues/{pr}/comments", "-q", ".[].body"],
-        capture_output=True, text=True,
     )
-    if r.returncode != 0:
-        raise RuntimeError(f"gh api read of PR #{pr} comments failed (rc={r.returncode})")
     out: list[str] = []
     for ln in r.stdout.splitlines():
         s = ln.strip()
@@ -145,6 +174,9 @@ def main() -> int:
     ap.add_argument("--pr", type=int, help="PR number to read markers from")
     ap.add_argument("--candidate-cid", required=True, help="the published content's CONTENT_ID")
     ap.add_argument("--allowlist", required=True, help=".github/review-gate/signer-allowlist.json (base ref)")
+    ap.add_argument("--expect-issuer", default=None,
+                    help="pinned OIDC issuer; if given, the allowlist's oidc_issuer MUST equal it "
+                         "(fail-closed on mismatch) — defense-in-depth over A's allowlist JSON")
     ap.add_argument("--marker", default=None, help="local marker file (else self-fetch from the PR)")
     ap.add_argument("--out", required=True, help="write the selected authentic predicate JSON here")
     ap.add_argument("--cosign", default=os.environ.get("COSIGN_BIN", "cosign"))
@@ -156,6 +188,14 @@ def main() -> int:
         return 2
     try:
         allowlist, issuer = load_allowlist(args.allowlist)
+        # Pin the issuer (mirrors how the gate pins + cross-checks the signer identity): if F declares
+        # an expected OIDC issuer, the allowlist's oidc_issuer must equal it, else fail-closed. For a
+        # correctly-configured allowlist (GitHub OIDC) this is a no-op; it only rejects a tampered or
+        # unexpected issuer, so the cosign invocation stays byte-identical to A's for valid config.
+        if args.expect_issuer and issuer != args.expect_issuer:
+            _log(f"RED: allowlist oidc_issuer {issuer!r} != pinned expected issuer "
+                 f"{args.expect_issuer!r} — fail-closed.")
+            return 3
         if args.marker:
             markers = markers_from_file(args.marker)
         else:

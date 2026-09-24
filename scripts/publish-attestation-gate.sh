@@ -318,12 +318,31 @@ fi
 #     (scripts/gate_config_hash.py — a vendored copy of A's review_attest_lib.config_hash, NOT a
 #     reimplementation). A stale/absent gate config => empty hash => fail-closed below.
 if [ -z "$CONFIG_HASH" ] && git cat-file -e "${BASE_SHA}:${GATE_CONFIG_MANIFEST}" 2>/dev/null; then
-  git show "${BASE_SHA}:${GATE_CONFIG_MANIFEST}" > "${BASEREF_DIR}/config-manifest.txt" 2>/dev/null || true
+  if ! git show "${BASE_SHA}:${GATE_CONFIG_MANIFEST}" > "${BASEREF_DIR}/config-manifest.txt" 2>/dev/null; then
+    echo "::error::gate config manifest '${GATE_CONFIG_MANIFEST}' could not be materialized from base ${BASE_SHA} — the config surface is not measurable. Refusing to publish (fail closed)."
+    exit 1
+  fi
   while IFS= read -r rawrel || [ -n "$rawrel" ]; do
     rel="$(printf '%s' "$rawrel" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
     case "$rel" in ''|'#'*) continue ;; esac
+    # Path-traversal guard (SPM re-review): a manifest entry must be a repo-relative, ..-free path.
+    # An absolute path or a `..` segment would let a HEAD-authored manifest write OUTSIDE the sandbox
+    # (arbitrary-file truncation) on the npm-OIDC publish runner. Refuse — never `|| true` past it.
+    case "$rel" in
+      /*|../*|*/../*|*/..|..)
+        echo "::error::gate config manifest entry '${rel}' is not a repo-relative, ..-free path — refusing to publish (path-traversal guard, fail closed)."
+        exit 1 ;;
+    esac
     mkdir -p "${BASEREF_DIR}/$(dirname "$rel")"
-    git show "${BASE_SHA}:${rel}" > "${BASEREF_DIR}/${rel}" 2>/dev/null || true
+    # A file listed in the manifest but ABSENT at base = an unmeasurable config surface. Materialize
+    # via a temp file and keep it only on success; a missing blob must RAISE (fail closed), never
+    # leave an empty stub that gate_config_hash.py would then hash as '' instead of raising.
+    if ! git show "${BASE_SHA}:${rel}" > "${BASEREF_DIR}/${rel}.materializing" 2>/dev/null; then
+      rm -f "${BASEREF_DIR}/${rel}.materializing"
+      echo "::error::gate config file '${rel}' listed in the manifest is absent at base ${BASE_SHA} — the config surface is not fully measurable. Refusing to publish (fail closed)."
+      exit 1
+    fi
+    mv "${BASEREF_DIR}/${rel}.materializing" "${BASEREF_DIR}/${rel}"
   done < "${BASEREF_DIR}/config-manifest.txt"
   CONFIG_HASH="$(python3 "${HERE}/gate_config_hash.py" "${BASEREF_DIR}" "${BASEREF_DIR}/config-manifest.txt" 2>/dev/null || true)"
 fi
@@ -356,6 +375,7 @@ resolve_marker() {  # resolve_marker <extra-args...> ; sets CERT_IDENTITY, write
 if [ "$VERIFY_MODE" = "enforce" ]; then
   # cosign-verify the marker's keyless bundle against the EXACT allowlisted identity + issuer.
   if ! COSIGN_IDENTITY_EXPECT="$COSIGN_IDENTITY" resolve_marker \
+        --expect-issuer "$COSIGN_OIDC_ISSUER" \
         --cosign "${COSIGN_BIN:-cosign}" ${COSIGN_IGNORE_TLOG:+--ignore-tlog}; then
     echo "::error::no authentic review-attest-marker for PR #${PR_NUM} head ${HEAD_SHA} attesting CONTENT_ID ${CID} — the review gate never posted a valid signed attestation for this content. Refusing to publish (fail closed)."
     exit 1

@@ -42,8 +42,18 @@ def config_hash(repo_root: str, manifest_path: str) -> str:
                 continue
             paths.append(line)
     h = hashlib.sha256()
+    root_abs = os.path.realpath(repo_root)
     for rel in sorted(paths, key=lambda p: p.encode("utf-8")):
-        abs_p = os.path.join(repo_root, rel)
+        # Path-traversal guard (XLS-1778 F, SPM re-review): a manifest entry must be a repo-relative,
+        # ..-free path — an absolute path or a `..` escape would read a file OUTSIDE repo_root. This
+        # is REJECTION-ONLY: for any valid (relative, ..-free) manifest the resolved file is the same
+        # one os.path.join would have read, so the digest stays byte-identical to A's
+        # review_attest_lib.config_hash — only a malicious/malformed entry is refused (fail-closed).
+        if os.path.isabs(rel):
+            raise ValueError(f"gate config manifest entry is absolute (path traversal): {rel}")
+        abs_p = os.path.realpath(os.path.join(root_abs, rel))
+        if abs_p != root_abs and not abs_p.startswith(root_abs + os.sep):
+            raise ValueError(f"gate config manifest entry escapes repo root (path traversal): {rel}")
         if not os.path.isfile(abs_p):
             raise FileNotFoundError(f"gate config file listed in manifest is absent: {rel}")
         with open(abs_p, "rb") as fb:

@@ -18,6 +18,8 @@ on:
       - "scripts/publish-attestation-gate.sh"
       - "scripts/publish-path-detach-guard.sh"
       - "scripts/content_id.py"
+      - "scripts/gate_config_hash.py"
+      - "scripts/review_attest_marker_resolve.py"
       - "test/v2/publish-attestation-gate.test.js"
       - ".github/workflows/publish.yml"
       - ".github/workflows/publish-gate-verify.yml"
@@ -57,6 +59,8 @@ jobs:
           bash -n scripts/publish-attestation-gate.sh
           bash -n scripts/publish-path-detach-guard.sh
           python3 -c "import ast,sys; ast.parse(open('scripts/content_id.py').read())"
+          python3 -c "import ast,sys; ast.parse(open('scripts/gate_config_hash.py').read())"
+          python3 -c "import ast,sys; ast.parse(open('scripts/review_attest_marker_resolve.py').read())"
 
       # The §14.F acceptance table (deterministic seam; jq is present on ubuntu runners).
       - name: Attestation gate acceptance (§13.1 predicate branches)

@@ -30,7 +30,12 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${HERE}/.." && pwd)"
 
 WORKFLOW="\.github/workflows/publish.yml"      # tier 1: must be 100% grace-free
-GATE_SCRIPTS=("scripts/publish-attestation-gate.sh" "scripts/content_id.py")  # tier 2: no grace dependency
+GATE_SCRIPTS=(  # tier 2: no grace dependency — every script the publish gate invokes
+  "scripts/publish-attestation-gate.sh"
+  "scripts/content_id.py"
+  "scripts/gate_config_hash.py"
+  "scripts/review_attest_marker_resolve.py"
+)
 
 # grace-DEPENDENCY patterns: invoking a grace script, or reading a grace workflow/receipt/marker.
 # NOT the bare word — a comment or refusal-logic mention of grace is allowed in the new gate.
