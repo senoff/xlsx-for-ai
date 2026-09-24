@@ -59,10 +59,16 @@ def content_id_from_diff(diff_text):
 
 
 def content_id(tree, base, head):
-    """CONTENT_ID for base...head in `tree`. '' on empty diff / git fault (=> caller fail-closes)."""
+    """CONTENT_ID for base...head in `tree`. '' on empty diff / git fault (=> caller fail-closes).
+
+    An EMPTY diff returns '' (NOT the sha256 of the empty string): a release with no authored
+    change is not a certifiable subject, and the empty-diff hash is a known constant an attacker
+    could pre-mint an attestation over. Returning '' makes the caller refuse (fail closed) — a
+    fail-closed hardening OVER the vendored recipe; non-empty diffs stay byte-identical so this
+    gate and the attestation producer still agree on every real release."""
     rc, diff, _ = _git(tree, "-c", "core.autocrlf=false", "diff",
                        "--no-color", "--no-textconv", "--binary", "%s...%s" % (base, head))
-    if rc != 0:
+    if rc != 0 or not diff:
         return ""
     return content_id_from_diff(diff)
 

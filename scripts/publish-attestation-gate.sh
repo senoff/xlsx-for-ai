@@ -43,19 +43,29 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# ── contract values owned by cutover card A (env-overridable; GO-LIVE checklist) ─────
-# The new attestation schema token, the review workflow that MINTS the attestation, the
-# allowlisted OIDC signer identity, and the current gate config hash are all fixed by
-# card A's landed gate config. They are read from the environment so this gate does not
-# hard-code a value A may finalize; each has a fail-closed default (an unset required
-# value REFUSES, it never passes).
-ATTESTATION_SCHEMA="${ATTESTATION_SCHEMA:-review-attestation/1}"   # A: the §13.1 receipt schema token
-REVIEW_WORKFLOW="${REVIEW_WORKFLOW:-review-gate.yml}"              # A: workflow that uploads the attestation artifact
-ATTESTATION_ARTIFACT_PREFIX="${ATTESTATION_ARTIFACT_PREFIX:-review-attestation-}" # + head sha
-# ATTESTATION_ALLOWLIST (file, one signer identity per line) and GATE_CONFIG_HASH come
-# from A's gate config; ATTESTATION_VERIFY_MODE=enforce turns on the live cosign verify
-# (default `enforce` — a live publish must verify the signature; tests pass `skip-crypto`
-# via --receipt-file, never here).
+# ── contract values from the SysArch Integration Contract (rfc-v3-gate-cards.md §13.1 / §142+;
+#    2026-09-24 F ruling) — env-overridable, each with a FAIL-CLOSED default ──────────
+# These seam values are shared across cards A (sign) ↔ C (mint) ↔ F (this gate). Where a value
+# is OWNED by card A's landed implementation, F takes A's value verbatim and does NOT hardcode a
+# divergent one. Per the F ruling, F takes exactly two values from A's landed gate config — the
+# exact allowlist PATH and the shared gate_config_hash HELPER — and the cosign identity is the
+# EXACT base-ref workflow identity (never a broad regexp — a wildcard that could match a
+# PR-head-controlled or foreign workflow is the fail-open guard SysArch calls the highest risk).
+ATTESTATION_SCHEMA="${ATTESTATION_SCHEMA:-review-attestation/1}"   # §13.1 predicate_type — CONFIRMED canonical
+REVIEW_WORKFLOW="${REVIEW_WORKFLOW:-review-gate.yml}"              # workflow that uploads the attestation artifact
+ATTESTATION_ARTIFACT_PREFIX="${ATTESTATION_ARTIFACT_PREFIX:-review-attestation-}" # + head sha; artifact name 'review-attestation'
+# ATTESTATION_ALLOWLIST — A's exact PATH (value taken from A's landed impl): the signer-allowlist
+# JSON, read from the BASE REF; F parses {oidc_issuer, allowed_signer_identities:[...]} (A's shape).
+ATTESTATION_ALLOWLIST="${ATTESTATION_ALLOWLIST:-.github/review-gate/signer-allowlist.json}"
+# GATE_CONFIG_MANIFEST — the CODEOWNERS-protected gate-config file SET whose sha256 is the
+# config_hash; F folds it through the SHARED helper (scripts/gate_config_hash.py, a vendored copy
+# of A's review_attest_lib.config_hash — NOT a reimplementation) from the BASE REF. A precomputed
+# GATE_CONFIG_HASH (env) still overrides for the deterministic seam. A stale-config attestation is
+# a miss. ATTESTATION_VERIFY_MODE=enforce turns on the live cosign verify (default `enforce`).
+GATE_CONFIG_MANIFEST="${GATE_CONFIG_MANIFEST:-.github/review-gate/config-manifest.txt}"
+# COSIGN identity/issuer — the EXACT base-ref signer identity (no broad regexp) + the definitive
+# GitHub Actions OIDC issuer. Overridable; enforce mode REFUSES if COSIGN_IDENTITY is unset.
+COSIGN_OIDC_ISSUER="${COSIGN_OIDC_ISSUER:-https://token.actions.githubusercontent.com}"
 
 need() { command -v "$1" >/dev/null 2>&1 || { echo "::error::required tool '$1' not found on the runner. Refusing to publish (fail closed)."; exit 1; }; }
 
@@ -63,6 +73,13 @@ need() { command -v "$1" >/dev/null 2>&1 || { echo "::error::required tool '$1' 
 gh_redact() {
   sed -E 's/(gh[posru]_|github_pat_)[A-Za-z0-9_]+/\1***REDACTED***/g; s/([Bb]earer[[:space:]]+)[A-Za-z0-9._-]+/\1***REDACTED***/g'
 }
+
+# Sanitize a RECEIPT-controlled value before echoing it into a (public) Actions annotation: the
+# receipt is attacker-influenceable JSON, so strip CR/LF (log-line spoofing) and neutralize the
+# `::` workflow-command prefix (annotation/command injection), and cap the length. Used for DISPLAY
+# only — the raw value is what the predicate compares, so this never loosens a check (a doctored
+# value still fails the compare and is refused).
+disp() { printf '%s' "${1:-}" | tr -d '\r\n' | sed 's/::/:\xE2\x80\x8b:/g' | cut -c1-160; }
 
 # gh api with bounded retry/backoff + a per-call timeout (mirrors the grace gate: a transient
 # hiccup must not fail-closed a legitimate publish; a persistent failure still fails closed).
@@ -103,6 +120,23 @@ is_grace_style() {  # is_grace_style <receipt.json> -> 0 if it looks like a grac
   return 1
 }
 
+# ── signer allowlist membership — A's canonical shape is the JSON signer-allowlist ────
+# A's allowlist (.github/review-gate/signer-allowlist.json) is
+#   { "oidc_issuer": "...", "allowed_signer_identities": ["<exact base-ref workflow identity>", ...] }
+# F reads that exact PATH from the BASE REF and checks membership against
+# `allowed_signer_identities` (exact match; never a regexp). A legacy one-identity-per-line file
+# is still accepted (fallback) so the deterministic seam stays simple.
+allowlist_has() {  # allowlist_has <allowlist-file> <signer> -> 0 if signer is allowlisted
+  local allow="$1" signer="$2"
+  [ -n "$signer" ] || return 1
+  if jq -e 'has("allowed_signer_identities")' "$allow" >/dev/null 2>&1; then
+    jq -e --arg s "$signer" '(.allowed_signer_identities // []) | index($s) != null' \
+       "$allow" >/dev/null 2>&1
+    return $?
+  fi
+  grep -qxF "$signer" "$allow"
+}
+
 # ── decide(): the ONE place a §13.1 attestation becomes a publish verdict ────────────
 # decide <receipt.json> <expected-content-id> [allowlist-file] [config-hash]
 decide() {
@@ -124,19 +158,19 @@ decide() {
   # (3) schema pinned to the version this gate implements.
   schema="$(jq -r '.schema // ""' "$f" 2>/dev/null || echo "")"
   if [ "$schema" != "$ATTESTATION_SCHEMA" ]; then
-    echo "::error::attestation schema '${schema}' is not '${ATTESTATION_SCHEMA}' (the version this gate implements) — refusing to publish (fail closed). Update publish-attestation-gate.sh for the new receipt contract."
+    echo "::error::attestation schema '$(disp "$schema")' is not '${ATTESTATION_SCHEMA}' (the version this gate implements) — refusing to publish (fail closed). Update publish-attestation-gate.sh for the new receipt contract."
     exit 1
   fi
   # (4) verdict must be exactly "pass".
   verdict="$(jq -r '.verdict // ""' "$f" 2>/dev/null || echo "")"
   if [ "$verdict" != "pass" ]; then
-    echo "::error::attestation verdict='${verdict:-<absent>}' (only \"pass\" is landable) — refusing to publish (fail closed)."
+    echo "::error::attestation verdict='$(disp "${verdict:-<absent>}")' (only \"pass\" is landable) — refusing to publish (fail closed)."
     exit 1
   fi
   # (5) subject_content_id == the recomputed candidate CONTENT_ID (exact published content).
   subj="$(jq -r '.subject_content_id // ""' "$f" 2>/dev/null || echo "")"
   if [ -z "$subj" ] || [ "$subj" != "$want_cid" ]; then
-    echo "::error::attestation subject_content_id='${subj:-<absent>}' does not equal the published content's CONTENT_ID='${want_cid}' — the attestation does not answer for THIS content (mismatch). Refusing to publish (fail closed)."
+    echo "::error::attestation subject_content_id='$(disp "${subj:-<absent>}")' does not equal the published content's CONTENT_ID='${want_cid}' — the attestation does not answer for THIS content (mismatch). Refusing to publish (fail closed)."
     exit 1
   fi
   # (6) signer_identity ∈ allowlist (when an allowlist is provided; live mode requires one).
@@ -146,8 +180,8 @@ decide() {
       echo "::error::signer allowlist '${allow}' missing or empty — cannot certify the signer. Refusing to publish (fail closed)."
       exit 1
     fi
-    if [ -z "$signer" ] || ! grep -qxF "$signer" "$allow"; then
-      echo "::error::attestation signer_identity='${signer:-<absent>}' is not in the allowlist — refusing to publish (fail closed)."
+    if ! allowlist_has "$allow" "$signer"; then
+      echo "::error::attestation signer_identity='$(disp "${signer:-<absent>}")' is not in the allowlist — refusing to publish (fail closed)."
       exit 1
     fi
   elif [ -z "$signer" ]; then
@@ -173,7 +207,7 @@ decide() {
   if [ -n "$want_cfg" ]; then
     cfg="$(jq -r '.config_hash // ""' "$f" 2>/dev/null || echo "")"
     if [ -z "$cfg" ] || [ "$cfg" != "$want_cfg" ]; then
-      echo "::error::attestation config_hash='${cfg:-<absent>}' does not equal the current gate config hash — the review ran under stale gate config (a miss). Refusing to publish (fail closed)."
+      echo "::error::attestation config_hash='$(disp "${cfg:-<absent>}")' does not equal the current gate config hash — the review ran under stale gate config (a miss). Refusing to publish (fail closed)."
       exit 1
     fi
   fi
@@ -217,10 +251,18 @@ if [ "$VERIFY_MODE" = "enforce" ]; then
     echo "::error::live signature verify is enforced but 'cosign' is not on the runner. The new gate is not yet wired for live crypto (card A go-live). Refusing to publish (fail closed)."
     exit 1
   fi
-  if [ -z "$ALLOWLIST" ] || [ ! -s "$ALLOWLIST" ]; then
-    echo "::error::live verify is enforced but ATTESTATION_ALLOWLIST (the allowlisted OIDC signer identities) is unset/empty. Refusing to publish (fail closed)."
+  # The cosign identity is the EXACT base-ref signer workflow identity (SysArch F ruling): a
+  # broad regexp that could match a PR-head-controlled or foreign workflow is the fail-OPEN guard.
+  if [ -z "${COSIGN_IDENTITY:-}" ]; then
+    echo "::error::live verify is enforced but COSIGN_IDENTITY (the EXACT base-ref signer workflow identity) is unset — refusing to publish (fail closed). A broad certificate-identity regexp is not accepted."
     exit 1
   fi
+  if [ -z "$ALLOWLIST" ]; then
+    echo "::error::live verify is enforced but ATTESTATION_ALLOWLIST (the signer-allowlist path) is unset. Refusing to publish (fail closed)."
+    exit 1
+  fi
+  # config_hash presence is enforced AFTER the base ref is known (it is resolved from the base
+  # ref via the shared helper unless a GATE_CONFIG_HASH override is supplied) — see below.
 fi
 
 # Map the release commit on protected main back to its PR (base + head sha). The subject the
@@ -242,6 +284,46 @@ fi
 CID="$(python3 "${HERE}/content_id.py" "." "${BASE_SHA}" "${HEAD_SHA}" || true)"
 if [ -z "$CID" ]; then
   echo "::error::could not recompute CONTENT_ID for ${BASE_SHA}...${HEAD_SHA} (empty diff or git fault) — cannot check the attestation answers for this content. Refusing to publish (fail closed)."
+  exit 1
+fi
+
+# ── resolve the gate config from the BASE REF, never PR HEAD (SysArch D-2 / F ruling) ──
+# The signer allowlist and the config-hash file set are read from the base ref so a same-PR
+# self-waiver (editing the allowlist / a gate-config file on HEAD) cannot take effect.
+BASEREF_DIR="$(mktemp -d)"
+trap 'rm -rf "$BASEREF_DIR" ${TMP:+"$TMP"}' EXIT
+
+# (a) signer allowlist — A's exact PATH, materialized from the base ref. An absolute/local path
+#     (e.g. a test fixture) that is not tracked at base is used as-is.
+if git show "${BASE_SHA}:${ALLOWLIST}" > "${BASEREF_DIR}/signer-allowlist.json" 2>/dev/null \
+     && [ -s "${BASEREF_DIR}/signer-allowlist.json" ]; then
+  ALLOWLIST="${BASEREF_DIR}/signer-allowlist.json"
+elif [ ! -s "$ALLOWLIST" ]; then
+  ALLOWLIST=""
+fi
+if [ "$VERIFY_MODE" = "enforce" ] && { [ -z "$ALLOWLIST" ] || [ ! -s "$ALLOWLIST" ]; }; then
+  echo "::error::signer allowlist ('${ATTESTATION_ALLOWLIST}') is absent at the base ref ${BASE_SHA} — the gate config is not present, so no signer can be certified. Refusing to publish (fail closed)."
+  exit 1
+fi
+
+# (b) config_hash — an explicit GATE_CONFIG_HASH override wins (the deterministic seam); otherwise
+#     fold the manifest's CODEOWNERS-protected file set through the SHARED helper from the base ref
+#     (scripts/gate_config_hash.py — a vendored copy of A's review_attest_lib.config_hash, NOT a
+#     reimplementation). A stale/absent gate config => empty hash => fail-closed below.
+if [ -z "$CONFIG_HASH" ] && git cat-file -e "${BASE_SHA}:${GATE_CONFIG_MANIFEST}" 2>/dev/null; then
+  git show "${BASE_SHA}:${GATE_CONFIG_MANIFEST}" > "${BASEREF_DIR}/config-manifest.txt" 2>/dev/null || true
+  while IFS= read -r rawrel || [ -n "$rawrel" ]; do
+    rel="$(printf '%s' "$rawrel" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    case "$rel" in ''|'#'*) continue ;; esac
+    mkdir -p "${BASEREF_DIR}/$(dirname "$rel")"
+    git show "${BASE_SHA}:${rel}" > "${BASEREF_DIR}/${rel}" 2>/dev/null || true
+  done < "${BASEREF_DIR}/config-manifest.txt"
+  CONFIG_HASH="$(python3 "${HERE}/gate_config_hash.py" "${BASEREF_DIR}" "${BASEREF_DIR}/config-manifest.txt" 2>/dev/null || true)"
+fi
+# §8 predicate: a stale-config attestation is a miss. In enforce mode the hash MUST be determinable
+# (SPM fail-open fix #1: an unset config-hash must never silently skip the staleness check).
+if [ "$VERIFY_MODE" = "enforce" ] && [ -z "$CONFIG_HASH" ]; then
+  echo "::error::live verify is enforced but the gate config hash could not be determined (GATE_CONFIG_HASH unset AND the config manifest '${GATE_CONFIG_MANIFEST}' is absent at base ${BASE_SHA}) — a review under stale/absent gate config would pass. Refusing to publish (fail closed)."
   exit 1
 fi
 
@@ -267,7 +349,7 @@ if [ -z "$RUN_ID" ] || [ -z "$AID" ]; then
   exit 1
 fi
 
-TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+TMP="$(mktemp -d)"; trap 'rm -rf "$BASEREF_DIR" "$TMP"' EXIT
 if ! gh_download "repos/${REPO}/actions/artifacts/${AID}/zip" "${TMP}/att.zip"; then
   echo "::error::failed to download attestation artifact ${AID} (after retries). Refusing to publish (fail closed)."
   exit 1
@@ -282,9 +364,11 @@ if [ -z "$ATT" ]; then
   exit 1
 fi
 
-# Crypto trust root: verify the cosign keyless signature over the attestation against an
-# allowlisted OIDC identity. Enforced in live mode; the signature file travels in the
-# artifact next to attestation.json. (Go-live: card A finalizes the identity regex + issuer.)
+# Crypto trust root: verify the cosign keyless signature over the attestation against the EXACT
+# allowlisted OIDC identity + issuer. Enforced in live mode; the signature file travels in the
+# artifact next to attestation.json. Per the SysArch F ruling the identity is PINNED EXACT
+# (--certificate-identity), never a broad --certificate-identity-regexp — a wildcard that could
+# match a PR-head-controlled or foreign workflow is the fail-open guard.
 if [ "$VERIFY_MODE" = "enforce" ]; then
   SIG="$(find "${TMP}/x" -type f -name 'attestation.json.sig' -print 2>/dev/null | head -n1)"
   CRT="$(find "${TMP}/x" -type f -name 'attestation.json.pem' -print 2>/dev/null | head -n1)"
@@ -294,13 +378,13 @@ if [ "$VERIFY_MODE" = "enforce" ]; then
   fi
   if ! COSIGN_EXPERIMENTAL=1 cosign verify-blob \
         --certificate "$CRT" --signature "$SIG" \
-        --certificate-identity-regexp "${COSIGN_IDENTITY_REGEXP:?COSIGN_IDENTITY_REGEXP required in enforce mode (card A gate config)}" \
-        --certificate-oidc-issuer "${COSIGN_OIDC_ISSUER:?COSIGN_OIDC_ISSUER required in enforce mode (card A gate config)}" \
+        --certificate-identity "${COSIGN_IDENTITY:?COSIGN_IDENTITY (exact base-ref signer identity) required in enforce mode}" \
+        --certificate-oidc-issuer "${COSIGN_OIDC_ISSUER:?COSIGN_OIDC_ISSUER required in enforce mode}" \
         "$ATT" 2>&1 | gh_redact; then
     echo "::error::cosign signature verification FAILED for the attestation — signature invalid or signer identity not permitted. Refusing to publish (fail closed)."
     exit 1
   fi
-  echo "cosign signature verified for attestation.json (identity allowlisted)."
+  echo "cosign signature verified for attestation.json (identity ${COSIGN_IDENTITY} allowlisted)."
 fi
 
 echo "attestation ${ART_NAME} (artifact ${AID}, ${REVIEW_WORKFLOW} run ${RUN_ID}) fetched for release commit ${SHA} (PR #${PR_NUM}); recomputed CONTENT_ID ${CID}."

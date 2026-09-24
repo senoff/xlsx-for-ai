@@ -179,3 +179,102 @@ test('detach-guard --selftest reddens on a planted grace attachment (exit 0)', (
   const out = execFileSync('bash', [GUARD, '--selftest'], { encoding: 'utf8' });
   assert.match(out, /selftest PASS/);
 });
+
+// ── Integration-contract alignment (SysArch F ruling, 2026-09-24) ─────────────────────
+// F takes A's canonical signer-allowlist SHAPE: {oidc_issuer, allowed_signer_identities:[...]}.
+const { chmodSync, mkdirSync } = require('node:fs');
+
+test('A-shaped JSON signer-allowlist: allowlisted identity → proceeds', () => {
+  const jsonAllow = join(dir, 'signer-allowlist.json');
+  writeFileSync(jsonAllow, JSON.stringify({
+    oidc_issuer: 'https://token.actions.githubusercontent.com',
+    allowed_signer_identities: [SIGNER],
+  }));
+  const r = runGate(VALID, { allow: jsonAllow });
+  assert.strictEqual(r.code, 0, r.out);
+  assert.match(r.out, /Publish may proceed/);
+});
+
+test('A-shaped JSON signer-allowlist: identity NOT in the list → refused', () => {
+  const jsonAllow = join(dir, 'signer-allowlist-2.json');
+  writeFileSync(jsonAllow, JSON.stringify({
+    oidc_issuer: 'https://token.actions.githubusercontent.com',
+    allowed_signer_identities: ['https://github.com/senoff/other/.github/workflows/review-gate.yml@refs/heads/main'],
+  }));
+  const r = runGate(VALID, { allow: jsonAllow });
+  assert.strictEqual(r.code, 1, r.out);
+  assert.match(r.out, /not in the allowlist/);
+});
+
+// ── SPM fail-open fix #2: an EMPTY diff must yield NO content_id (never sha256('')) ────
+const CID_TOOL = join(REPO, 'scripts', 'content_id.py');
+// Return { code, cid } — cid is whatever went to STDOUT (the value a caller would consume),
+// captured regardless of exit code so we can assert an empty diff leaks NO content_id.
+function contentId(base, head) {
+  try {
+    const cid = execFileSync('python3', [CID_TOOL, '.', base, head],
+      { cwd: REPO, encoding: 'utf8' }).trim();
+    return { code: 0, cid };
+  } catch (e) { return { code: e.status ?? 1, cid: (e.stdout || '').trim() }; }
+}
+
+test('content_id: empty diff (base==head) → NO content_id on stdout + fail-closed exit', () => {
+  const r = contentId('HEAD', 'HEAD');
+  assert.strictEqual(r.cid, '', `an empty diff must leak no content_id (not sha256 of ''); got: ${r.cid}`);
+  assert.notStrictEqual(r.code, 0, 'an empty diff must exit non-zero (fail closed)');
+});
+
+test('content_id: a real change → a 64-hex content_id (exit 0)', () => {
+  const r = contentId('HEAD~1', 'HEAD');
+  assert.strictEqual(r.code, 0, r.cid);
+  assert.match(r.cid, /^[0-9a-f]{64}$/, r.cid);
+});
+
+// ── SPM fail-open fix #1: live/enforce must REFUSE when the config-hash is undeterminable
+// (unset GATE_CONFIG_HASH + no config manifest at base) — never silently skip the §8 staleness
+// check. Driven with stub gh/cosign on PATH and real base/head commits for a non-empty content_id.
+test('live/enforce: undeterminable gate config hash → refused (fail-open #1 closed)', () => {
+  const HEAD = execFileSync('git', ['-C', REPO, 'rev-parse', 'HEAD']).toString().trim();
+  const BASE = execFileSync('git', ['-C', REPO, 'rev-parse', 'HEAD~1']).toString().trim();
+
+  // stub PATH: a gh that answers the commits→pulls lookup, and a no-op cosign so the enforce
+  // precheck (cosign present) passes and we reach the config-hash guard.
+  const bin = join(dir, 'bin');
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(bin, 'gh'),
+    `#!/usr/bin/env bash\n` +
+    `if printf '%s ' "$@" | grep -q 'commits/.*/pulls'; then\n` +
+    `  echo '[{"number":1,"merged_at":"2026-01-01T00:00:00Z","head":{"sha":"${HEAD}"},"base":{"sha":"${BASE}"}}]'\n` +
+    `  exit 0\nfi\nexit 0\n`);
+  writeFileSync(join(bin, 'cosign'), `#!/usr/bin/env bash\nexit 0\n`);
+  chmodSync(join(bin, 'gh'), 0o755);
+  chmodSync(join(bin, 'cosign'), 0o755);
+
+  // an A-shaped allowlist that RESOLVES (absolute fixture, survives base-ref lookup) so the run
+  // gets past the allowlist gate and the ONLY thing missing is the config hash.
+  const jsonAllow = join(dir, 'allow-live.json');
+  writeFileSync(jsonAllow, JSON.stringify({ allowed_signer_identities: [SIGNER] }));
+
+  let r;
+  try {
+    execFileSync('bash', [GATE], {
+      cwd: REPO, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH}`,
+        ATTESTATION_VERIFY_MODE: 'enforce',
+        GITHUB_REPOSITORY: 'senoff/xlsx-for-ai',
+        GITHUB_SHA: HEAD,
+        COSIGN_IDENTITY: SIGNER,
+        ATTESTATION_ALLOWLIST: jsonAllow,
+        GATE_CONFIG_MANIFEST: '.github/review-gate/config-manifest.txt', // absent at base
+        GATE_CONFIG_HASH: '', // explicitly unset
+      },
+    });
+    r = { code: 0, out: '' };
+  } catch (e) {
+    r = { code: e.status ?? 1, out: (e.stdout || '') + (e.stderr || '') };
+  }
+  assert.strictEqual(r.code, 1, r.out);
+  assert.match(r.out, /gate config hash could not be determined/, r.out);
+});
