@@ -206,36 +206,58 @@ test('A-shaped JSON signer-allowlist: identity NOT in the list → refused', () 
   assert.match(r.out, /not in the allowlist/);
 });
 
+// A self-contained throwaway git repo with one or two commits — depth-independent (CI checks out
+// shallow, so HEAD~1 of the real repo may not exist; these tests never rely on the checkout depth).
+function makeRepo(twoCommits) {
+  const rd = mkdtempSync(join(tmpdir(), 'xls1778-repo-'));
+  const g = (...a) => execFileSync('git', ['-C', rd, '-c', 'user.email=t@t', '-c', 'user.name=t', ...a],
+    { encoding: 'utf8' });
+  g('init', '-q');
+  writeFileSync(join(rd, 'f.txt'), 'one\n');
+  g('add', 'f.txt'); g('commit', '-q', '-m', 'c1');
+  const base = g('rev-parse', 'HEAD').trim();
+  let head = base;
+  if (twoCommits) {
+    writeFileSync(join(rd, 'f.txt'), 'one\ntwo\n');
+    g('add', 'f.txt'); g('commit', '-q', '-m', 'c2');
+    head = g('rev-parse', 'HEAD').trim();
+  }
+  return { dir: rd, base, head };
+}
+
 // ── SPM fail-open fix #2: an EMPTY diff must yield NO content_id (never sha256('')) ────
 const CID_TOOL = join(REPO, 'scripts', 'content_id.py');
 // Return { code, cid } — cid is whatever went to STDOUT (the value a caller would consume),
 // captured regardless of exit code so we can assert an empty diff leaks NO content_id.
-function contentId(base, head) {
+function contentId(repoDir, base, head) {
   try {
-    const cid = execFileSync('python3', [CID_TOOL, '.', base, head],
-      { cwd: REPO, encoding: 'utf8' }).trim();
+    const cid = execFileSync('python3', [CID_TOOL, repoDir, base, head],
+      { encoding: 'utf8' }).trim();
     return { code: 0, cid };
   } catch (e) { return { code: e.status ?? 1, cid: (e.stdout || '').trim() }; }
 }
 
 test('content_id: empty diff (base==head) → NO content_id on stdout + fail-closed exit', () => {
-  const r = contentId('HEAD', 'HEAD');
+  const repo = makeRepo(false);
+  const r = contentId(repo.dir, repo.base, repo.base);
   assert.strictEqual(r.cid, '', `an empty diff must leak no content_id (not sha256 of ''); got: ${r.cid}`);
   assert.notStrictEqual(r.code, 0, 'an empty diff must exit non-zero (fail closed)');
 });
 
 test('content_id: a real change → a 64-hex content_id (exit 0)', () => {
-  const r = contentId('HEAD~1', 'HEAD');
+  const repo = makeRepo(true);
+  const r = contentId(repo.dir, repo.base, repo.head);
   assert.strictEqual(r.code, 0, r.cid);
   assert.match(r.cid, /^[0-9a-f]{64}$/, r.cid);
 });
 
 // ── SPM fail-open fix #1: live/enforce must REFUSE when the config-hash is undeterminable
 // (unset GATE_CONFIG_HASH + no config manifest at base) — never silently skip the §8 staleness
-// check. Driven with stub gh/cosign on PATH and real base/head commits for a non-empty content_id.
+// check. Driven with stub gh/cosign on PATH and a self-contained 2-commit repo (non-empty CID).
 test('live/enforce: undeterminable gate config hash → refused (fail-open #1 closed)', () => {
-  const HEAD = execFileSync('git', ['-C', REPO, 'rev-parse', 'HEAD']).toString().trim();
-  const BASE = execFileSync('git', ['-C', REPO, 'rev-parse', 'HEAD~1']).toString().trim();
+  const repo = makeRepo(true);      // cwd for the gate; content_id.py "." runs here (non-empty diff)
+  const HEAD = repo.head;
+  const BASE = repo.base;
 
   // stub PATH: a gh that answers the commits→pulls lookup, and a no-op cosign so the enforce
   // precheck (cosign present) passes and we reach the config-hash guard.
@@ -258,7 +280,7 @@ test('live/enforce: undeterminable gate config hash → refused (fail-open #1 cl
   let r;
   try {
     execFileSync('bash', [GATE], {
-      cwd: REPO, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+      cwd: repo.dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
       env: {
         ...process.env,
         PATH: `${bin}:${process.env.PATH}`,
