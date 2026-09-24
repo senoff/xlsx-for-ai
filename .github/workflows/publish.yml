@@ -70,18 +70,18 @@ on:
 permissions:
   contents: read    # this workflow no longer commits or pushes anything. It reads main
                     # and publishes what main carries; the bump arrives as a reviewed PR.
-  actions: read         # XLS-615: read the grace receipt artifact (gh api actions/artifacts)
-  pull-requests: read   # XLS-615: map the release commit on main to its PR head sha
+  actions: read         # XLS-1778: read the review attestation artifact (gh api actions/artifacts)
+  pull-requests: read   # XLS-1778: map the release commit on main to its PR (base + head sha)
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     # Hard ceiling: this job performs the irreversible npm publish + registry sync; a hung
-    # network step must not pin a runner to the default 6h timeout (XLS-959/grace).
+    # network step must not pin a runner to the default 6h timeout (XLS-959).
     timeout-minutes: 30
     # id-token: write lives HERE — the ONLY job that mints an OIDC token (npm trusted
     # publishing + automatic provenance). Job-level permissions replace the workflow
-    # default entirely, so the read grants the grace gate needs are restated.
+    # default entirely, so the read grants the attestation gate needs are restated.
     permissions:
       contents: read
       actions: read
@@ -228,18 +228,17 @@ jobs:
           fi
           echo "Requested version ${REQUESTED} matches package.json."
 
-      # ENFORCEMENT HALF of the grace gate (XLS-615). XLS-412 made a kept CRITICAL
-      # VISIBLE on the PR (the gate is ADVISORY — not a required check, so a CRITICAL
-      # can land, and a human PR-body override can wave one through at merge). It does
-      # NOT stop a publish: this workflow published "what main carries" and read the
-      # verdict NOWHERE. So a kept CRITICAL would ship to npm, and `npm publish` cannot
-      # be undone. This step reads the grace verdict from the RECEIPT ARTIFACT's machine
-      # field (override-receipt.json .severity, refute-aware /2 — NOT a prose grep) and
-      # REFUSES on a kept CRITICAL, here, before Install/Pack/publish — an irreversible
-      # step must never run after a step that can fail. Fails closed on a missing/expired/
-      # UNKNOWN receipt (an unrun gate is not a pass). See scripts/grace-publish-gate.sh.
-      - name: Refuse to publish on a kept CRITICAL (grace verdict)
-        run: bash scripts/grace-publish-gate.sh
+      # ENFORCEMENT of the review gate at the irreversible npm boundary (XLS-1778, gate
+      # cutover card F). `npm publish` cannot be undone, and this workflow publishes "what
+      # main carries", so the release must be certified BEFORE Install/Pack/publish — an
+      # irreversible step must never run after a step that can fail. This step requires a
+      # valid workflow-attestation receipt (§13.1) for the EXACT content being published:
+      # both live reviewers passed, signed by an allowlisted OIDC identity, and its
+      # subject_content_id equals the CONTENT_ID recomputed from the release PR's base...head.
+      # Fails closed on a missing / mismatched / superseded-format / unsigned attestation
+      # ("an unrun gate is not a pass"). See scripts/publish-attestation-gate.sh.
+      - name: Refuse to publish without a valid review attestation for this content
+        run: bash scripts/publish-attestation-gate.sh
         env:
           GH_TOKEN: ${{ github.token }}
 
@@ -334,7 +333,7 @@ jobs:
           echo "published=true" >> "$GITHUB_OUTPUT"
           # Durable audit record of this irreversible, security-relevant operation to the immutable
           # run summary — recoverable from the run record for compliance / incident response, alongside
-          # the MCP-sync audit line below (XLS-959/grace). Provenance itself is attested on npm.
+          # the MCP-sync audit line below (XLS-959). Provenance itself is attested on npm.
           echo "- **npm publish (OIDC trusted publishing):** \`${{ steps.pkg.outputs.name }}@${{ steps.pkg.outputs.version }}\` published with automatic provenance at $(date -u +%Y-%m-%dT%H:%M:%SZ) (run \`${GITHUB_RUN_ID}\`)." >> "$GITHUB_STEP_SUMMARY"
 
       # ── MCP Registry sync — the AUTHORITATIVE per-release path (XLS-504) ─────────────────
@@ -507,7 +506,7 @@ jobs:
           PKG="${{ needs.publish.outputs.name }}@${{ needs.publish.outputs.version }}"
           # Poll npm until this exact version is visible on THIS runner's edge (propagation is
           # per-region), THEN install once — clearer than a blind retry-install loop, and uses a
-          # bash `until` counter (no `seq`, portable across the macOS/Windows runners). XLS-959/grace.
+          # bash `until` counter (no `seq`, portable across the macOS/Windows runners). XLS-959.
           attempt=1
           until npm view "$PKG" version >/dev/null 2>&1; do
             if [ "$attempt" -ge 10 ]; then
@@ -535,7 +534,7 @@ jobs:
           fi
           mkdir -p "$HOME/.xlsx-for-ai"
           # Serialize via json.dumps so a key with quotes/backslashes/newlines can't corrupt
-          # the config into a false-negative smoke failure (XLS-959, grace). setup-python ran.
+          # the config into a false-negative smoke failure (XLS-959). setup-python ran.
           python -c "import json,os; p=os.path.join(os.path.expanduser('~'),'.xlsx-for-ai','config.json'); open(p,'w').write(json.dumps({'api_key': os.environ['XFA_SMOKE_KEY']}))"
 
       - name: Make fixture
@@ -553,7 +552,7 @@ jobs:
         run: |
           cd smoke
           # npx resolves the LOCAL install cross-platform (no POSIX-path .bin shim assumption
-          # that breaks under bash on windows-latest, XLS-959/grace). --no-install: never re-fetch.
+          # that breaks under bash on windows-latest, XLS-959). --no-install: never re-fetch.
           npx --no-install xlsx-for-ai t.xlsx
 
       - name: MCP stdio mode
