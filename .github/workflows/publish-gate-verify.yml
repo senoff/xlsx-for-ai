@@ -1,0 +1,67 @@
+name: publish-gate-verify
+
+# The PR-time acceptance for the npm publish-attestation gate (XLS-1778, gate cutover card F).
+# publish.yml itself runs only on dispatch/tag, so its gate change is never exercised on a PR.
+# This focused check (mirrors smoke-selftest.yml) grades the gate's §14.F acceptance on every PR
+# that touches it, with NO network, NO registry, and NO publish:
+#   * the deterministic §13.1 predicate seam — a valid attestation for the exact content proceeds;
+#     a missing / mismatched / grace-style / unsigned attestation is refused (fail closed);
+#   * the detach-guard — publish.yml is grace-free and the gate scripts carry no grace dependency,
+#     and its own --selftest proves the guard still reddens on a planted grace attachment.
+# The live cosign verify + artifact resolution are the go-live path (card A keys), not exercised here.
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "scripts/publish-attestation-gate.sh"
+      - "scripts/publish-path-detach-guard.sh"
+      - "scripts/content_id.py"
+      - "scripts/gate_config_hash.py"
+      - "scripts/review_attest_marker_resolve.py"
+      - "test/v2/publish-attestation-gate.test.js"
+      - ".github/workflows/publish.yml"
+      - ".github/workflows/publish-gate-verify.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: attestation gate — §13.1 predicate + detach-guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # Falsifiability first: prove the detach-guard still reddens on a planted grace attachment.
+      # A detector that cannot fail is not a detector.
+      - name: Detach-guard self-test (must redden on a planted grace attachment)
+        run: bash scripts/publish-path-detach-guard.sh --selftest
+
+      # The real assertion: the publish path is grace-detached.
+      - name: Detach-guard — publish path is grace-free
+        run: bash scripts/publish-path-detach-guard.sh
+
+      # Syntax gates before behavioural tests (a broken script must die here, legibly).
+      - name: Shell + Python syntax
+        run: |
+          bash -n scripts/publish-attestation-gate.sh
+          bash -n scripts/publish-path-detach-guard.sh
+          python3 -c "import ast,sys; ast.parse(open('scripts/content_id.py').read())"
+          python3 -c "import ast,sys; ast.parse(open('scripts/gate_config_hash.py').read())"
+          python3 -c "import ast,sys; ast.parse(open('scripts/review_attest_marker_resolve.py').read())"
+
+      # The §14.F acceptance table (deterministic seam; jq is present on ubuntu runners).
+      - name: Attestation gate acceptance (§13.1 predicate branches)
+        run: node --test test/v2/publish-attestation-gate.test.js
