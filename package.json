@@ -17,6 +17,7 @@
     "lib/auto-upgrade.js",
     "lib/client.js",
     "lib/config.js",
+    "lib/device-flow.js",
     "lib/inline-4xx.js",
     "lib/read-file.js",
     "lib/discover.js",
