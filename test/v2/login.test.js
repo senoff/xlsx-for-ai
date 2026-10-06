@@ -36,6 +36,7 @@ function startServer() {
         }
         if (req.url === '/oauth/token') {
           tokenPolls += 1;
+          if (!/resource=/.test(body)) { res.statusCode = 400; return res.end(JSON.stringify({ error: 'invalid_target' })); }
           if (tokenPolls < 2) { res.statusCode = 400; return res.end(JSON.stringify({ error: 'authorization_pending' })); }
           return res.end(JSON.stringify({ access_token: 'AT.jwt.value', token_type: 'Bearer' }));
         }
