@@ -22,8 +22,6 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
   - The tool name, arguments and output envelope are unchanged.
   - The MCP tool description, the annotation title, the README rows and the
     `samples` demo prompt now say what the tool actually does.
-  - If you used `xlsx_validate` to compare two engines, use `xlsx_diff` on
-    the outputs instead.
 - **Dependency lockfile refreshed** (`npm audit fix`, lockfile only) for
   transitive advisories in the MCP SDK's HTTP-transport dependencies
   (ip-address, proxy-addr and others). The stdio client never runs that
