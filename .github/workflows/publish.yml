@@ -240,6 +240,10 @@ jobs:
       # The gate cosign-verifies the review attestation's keyless signature and fails closed
       # when `cosign` is absent from the runner (v4.0.7 first publish died here). Install it,
       # pinned to a commit SHA (v3.10.0). Signing/verification stays ON — no skip, no bypass.
+      # Failure semantics: a transient installer/network error here fails the job CLOSED, before
+      # `npm publish` (the only irreversible step, which runs later). Nothing is published and
+      # nothing needs cleanup, so the retry is simply re-dispatching this workflow; an in-job
+      # retry or a fallback verifier would only add a path around the gate.
       - name: Install cosign (pinned) for the attestation verify
         timeout-minutes: 5
         uses: sigstore/cosign-installer@d7543c93d881b35a8faa02e8e3605f69b7a1ce62 # v3.10.0 (the ACTION, pinned by commit SHA)
