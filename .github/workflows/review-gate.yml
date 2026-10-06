@@ -1,0 +1,217 @@
+name: review-gate
+
+# The review-attestation SIGNER for the npm publish gate. Mirrors senoff/xlsx-for-ai-server's
+# .github/workflows/review-gate.yml `sign` job.
+#
+# This filename is the FIXED cosign keyless OIDC identity the publish gate trusts:
+#   https://github.com/senoff/xlsx-for-ai/.github/workflows/review-gate.yml@refs/heads/main
+# pinned in .github/review-gate/signer-allowlist.json and in publish-attestation-gate.sh's
+# COSIGN_IDENTITY default. Renaming this file or signing from another ref breaks that match, and
+# the publish gate then refuses (fail closed).
+#
+# When the gate of record ("Multi-LLM diff defect review", emitted by grace-review.yml) settles
+# definitively green at a PR's live head, this job builds the §13.1 predicate over that head's
+# CONTENT_ID + the current gate config_hash, keyless-signs it with cosign, and posts it on the PR
+# as a `review-attest-marker:` comment. publish.yml later resolves that marker for the release PR,
+# cosign-verifies it against the exact identity above, and refuses to publish without it.
+#
+# BASE-REF EXECUTION: `workflow_run` and `workflow_dispatch` both run this file as it exists on
+# main, so a PR cannot change its own signer. The PR head is fetched as git objects for the
+# CONTENT_ID diff only; none of its code is executed. Fork PRs are excluded.
+
+on:
+  workflow_run:
+    workflows: ["grace-review"]
+    types: [completed]
+  # Manual re-sign for one PR (e.g. a marker post that failed). Same checks, same fail-closed rules.
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: PR number to sign (digits only; validated in-job)
+        required: true
+
+jobs:
+  sign:
+    name: review-gate-sign
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'workflow_run'
+        && github.event.workflow_run.head_repository.fork == false)
+    concurrency:
+      group: review-gate-signer-${{ github.event_name == 'workflow_run' && join(github.event.workflow_run.pull_requests.*.number, '-') || 'dispatch' }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    # Job-level permissions are the job's complete grant (nothing is inherited beyond this list).
+    permissions:
+      id-token: write        # keyless OIDC signing identity (Fulcio); ONLY this job holds it
+      contents: read
+      checks: read
+      pull-requests: write   # post the marker comment
+    timeout-minutes: 10
+    steps:
+      - name: Checkout main (gate config + scripts come from the base ref, never the PR head)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve PR number, live head and base
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          DISPATCH_PR: ${{ github.event.inputs.pr }}
+          WF_PRS: ${{ github.event_name == 'workflow_run' && join(github.event.workflow_run.pull_requests.*.number, ' ') || '' }}
+        run: |
+          set -euo pipefail
+          . scripts/gh_retry.sh
+          # Only main's copy of this workflow carries the allowlisted identity; a run from any other
+          # ref could never produce a marker the publish gate honors, so it signs nothing.
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::notice::running from ${GITHUB_REF}, not refs/heads/main; nothing to sign"
+            echo "resolved=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            PR="$DISPATCH_PR"
+            case "$PR" in
+              ''|*[!0-9]*)
+                echo "::notice::workflow_dispatch pr input is not a plain PR number; nothing to sign"
+                echo "resolved=false" >> "$GITHUB_OUTPUT"; exit 0 ;;
+            esac
+          else
+            # Only the run's own PR association counts (a commit->PR lookup can return a stale or
+            # unrelated PR). More than one open PR is ambiguous: sign nothing.
+            PR=""
+            for cand in ${WF_PRS:-}; do
+              STATE="$(gh_retry api "repos/${REPO}/pulls/${cand}" --jq .state || true)"
+              [ "$STATE" = "open" ] || continue
+              if [ -n "$PR" ] && [ "$PR" != "$cand" ]; then
+                echo "::notice::workflow_run associated with multiple open PRs (${WF_PRS}); ambiguous, nothing signed"
+                echo "resolved=false" >> "$GITHUB_OUTPUT"; exit 0
+              fi
+              PR="$cand"
+            done
+            if [ -z "$PR" ]; then
+              echo "::notice::workflow_run carried no open-PR association; nothing to sign"
+              echo "resolved=false" >> "$GITHUB_OUTPUT"; exit 0
+            fi
+          fi
+          # Bind to the PR's LIVE head (what the publish gate will recompute), not the producer's snapshot.
+          META="$(gh_retry api "repos/${REPO}/pulls/${PR}" --jq '"\(.head.sha) \(.base.sha) \(.head.repo.fork)"' || true)"
+          read -r HEAD BASE FORK <<< "${META:-}"
+          if [ -z "${HEAD:-}" ] || [ "$HEAD" = "null" ] || [ -z "${BASE:-}" ] || [ "$BASE" = "null" ] || [ "${FORK:-}" != "false" ]; then
+            echo "::notice::could not resolve a same-repo PR head/base for #${PR}; nothing to sign"
+            echo "resolved=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          { echo "pr=${PR}"; echo "head=${HEAD}"; echo "base=${BASE}"; echo "resolved=true"; } >> "$GITHUB_OUTPUT"
+
+      - name: Gate of record must be definitively GREEN at this head (else nothing is signed)
+        id: gate
+        if: steps.pr.outputs.resolved == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD: ${{ steps.pr.outputs.head }}
+        run: |
+          set -euo pipefail
+          . scripts/gh_retry.sh
+          if gh_retry api --paginate "repos/${REPO}/commits/${HEAD}/check-runs?per_page=100" \
+               --jq '.check_runs[]' > "${RUNNER_TEMP}/check-runs.jsonl"; then
+            python3 -c 'import json,os; d=os.environ["RUNNER_TEMP"]; print(json.dumps([json.loads(l) for l in open(d+"/check-runs.jsonl") if l.strip()]))' > "${RUNNER_TEMP}/check-runs.json"
+            if python3 scripts/review_gate_precondition.py --check-runs-file "${RUNNER_TEMP}/check-runs.json"; then
+              echo "pass=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "pass=false" >> "$GITHUB_OUTPUT"
+              echo "::notice::gate of record not definitively green at ${HEAD}; nothing signed"
+            fi
+          else
+            echo "pass=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::check-runs unreadable at ${HEAD} after retries; nothing signed"
+          fi
+
+      - name: Fetch the PR head as data (git objects only; never checked out or executed)
+        if: steps.gate.outputs.pass == 'true'
+        env:
+          PR: ${{ steps.pr.outputs.pr }}
+          HEAD: ${{ steps.pr.outputs.head }}
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          AUTH="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$TOKEN" | base64 | tr -d '\n')"
+          # Exponential backoff with jitter between attempts (2s, 4s, 8s + 0-2s), each attempt bounded.
+          for i in 1 2 3 4; do
+            if timeout 120 git -c "http.https://github.com/.extraheader=${AUTH}" fetch --no-tags origin \
+                 "+refs/pull/${PR}/head:refs/remotes/origin/pr/${PR}"; then
+              break
+            fi
+            [ "$i" -lt 4 ] && sleep $(( (1 << i) + RANDOM % 3 ))
+          done
+          git cat-file -e "${HEAD}^{commit}"
+
+      - name: Install cosign (pinned)
+        if: steps.gate.outputs.pass == 'true'
+        uses: sigstore/cosign-installer@d7543c93d881b35a8faa02e8e3605f69b7a1ce62 # v3.10.0 (the ACTION, pinned by commit SHA)
+        with:
+          cosign-release: 'v2.6.1'
+
+      - name: Build the §13.1 predicate over CONTENT_ID and sign it keyless
+        id: sign
+        if: steps.gate.outputs.pass == 'true'
+        env:
+          HEAD: ${{ steps.pr.outputs.head }}
+          BASE: ${{ steps.pr.outputs.base }}
+        run: |
+          set -euo pipefail
+          IDENTITY="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/review-gate.yml@${GITHUB_REF}"
+          python3 scripts/review_attest_sign.py \
+            --repo-dir "$GITHUB_WORKSPACE" --repo-root "$GITHUB_WORKSPACE" \
+            --base "$BASE" --head "$HEAD" \
+            --config-manifest .github/review-gate/config-manifest.txt \
+            --signer-identity "$IDENTITY" \
+            --out-blob "${RUNNER_TEMP}/predicate.blob"
+          timeout 180 cosign sign-blob --yes --bundle "${RUNNER_TEMP}/predicate.bundle" "${RUNNER_TEMP}/predicate.blob"
+          # Prove the signature verifies against the exact identity the publish gate pins before posting.
+          cosign verify-blob --bundle "${RUNNER_TEMP}/predicate.bundle" \
+            --certificate-identity "$IDENTITY" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            "${RUNNER_TEMP}/predicate.blob"
+          echo "identity=$IDENTITY" >> "$GITHUB_OUTPUT"
+
+      - name: Post the attestation marker to the PR (idempotent; RED if the post fails)
+        if: steps.gate.outputs.pass == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ steps.pr.outputs.pr }}
+          IDENTITY: ${{ steps.sign.outputs.identity }}
+        run: |
+          set -euo pipefail
+          . scripts/gh_retry.sh
+          BLOB_B64="$(base64 < "${RUNNER_TEMP}/predicate.blob" | tr -d '\n')"
+          BUNDLE_B64="$(base64 < "${RUNNER_TEMP}/predicate.bundle" | tr -d '\n')"
+          MARKER="$(python3 -c 'import json,sys; print(json.dumps({"blob_b64":sys.argv[1],"bundle_b64":sys.argv[2]}))' "$BLOB_B64" "$BUNDLE_B64")"
+          NEW_CID="$(python3 -c 'import json,os;print(json.load(open(os.environ["RUNNER_TEMP"]+"/predicate.blob"))["subject_content_id"])')"
+          # Idempotency is author-scoped: only a marker posted by this job's own identity (the
+          # Actions bot behind github.token) counts as already present, so a forged comment cannot
+          # suppress a real mint.
+          TRUSTED_AUTHOR="github-actions[bot]"
+          if gh_retry api --paginate "repos/${REPO}/issues/${PR}/comments" \
+               --jq '.[] | {author: (.user.login // ""), body: (.body // "")}' > "${RUNNER_TEMP}/pr-comments.ndjson" \
+             && python3 scripts/review_gate_marker_present.py --content-id "$NEW_CID" \
+                  --comments-ndjson "${RUNNER_TEMP}/pr-comments.ndjson" --trusted-author "$TRUSTED_AUTHOR"; then
+            echo "::notice::a marker for content_id ${NEW_CID} already carries on PR #${PR}; no-op"
+            exit 0
+          fi
+          {
+            echo "## review-attest: keyless attestation posted"
+            echo ""
+            echo "Signed by \`${IDENTITY}\` over this head's content_id. The npm publish gate honors it while the authored content and gate config are unchanged."
+            echo ""
+            echo "review-attest-marker: ${MARKER}"
+          } > "${RUNNER_TEMP}/marker-comment.md"
+          if ! gh_retry pr comment "$PR" --repo "${REPO}" --body-file "${RUNNER_TEMP}/marker-comment.md"; then
+            echo "::error::marker post failed after retries on a gate-passed head"
+            exit 1
+          fi
