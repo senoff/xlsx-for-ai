@@ -268,10 +268,32 @@ jobs:
       # The gate recomputes CONTENT_ID over the release PR's base...head. A PR landed through the
       # merge door is not an ancestor of main and its branch is deleted, so a plain checkout never
       # has the head commit (measured: content_id.py "empty diff or git fault" on a full clone).
-      # Fetch the PR head refs so the exact signed head is present. Read-only; nothing is skipped.
-      - name: Fetch PR head refs (the attestation recompute needs the release PR head commit)
+      # Fetch ONLY the release commit's own PR head ref (one ref, not every PR), with bounded
+      # retries. Read-only; nothing is skipped and the gate below still decides.
+      - name: Fetch the release PR head ref (the attestation recompute needs that commit)
         timeout-minutes: 5
-        run: git fetch --no-tags origin '+refs/pull/*/head:refs/remotes/origin/pr/*'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          PR=""
+          for i in 1 2 3; do
+            PR="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${RELEASE_SHA}/pulls" \
+              --jq '[.[] | select(.merged_at != null)] | sort_by(.merged_at) | last | .number // empty' || true)"
+            [ -n "$PR" ] && break
+            sleep $((i * 5))
+          done
+          if [ -z "$PR" ]; then
+            echo "::error::no merged pull request found for ${RELEASE_SHA}; every release lands via a reviewed PR. Refusing to publish (fail closed)."
+            exit 1
+          fi
+          for i in 1 2 3; do
+            git fetch --no-tags origin "+refs/pull/${PR}/head:refs/remotes/origin/pr/${PR}" && exit 0
+            sleep $((i * 5))
+          done
+          echo "::error::could not fetch refs/pull/${PR}/head. Refusing to publish (fail closed)."
+          exit 1
 
       - name: Refuse to publish without a valid review attestation for this content
         run: bash scripts/publish-attestation-gate.sh
