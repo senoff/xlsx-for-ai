@@ -131,10 +131,11 @@ For custom MCP clients, the binary is `xlsx-for-ai-mcp` (stdio transport). Overr
 
 ### Using the raw HTTP API
 
-The MCP client is the easy path, but every tool is also a plain HTTP endpoint you can call from any language — no SDK required. Sign in with the OAuth device flow (RFC 8628) at `https://api.xlsx-for-ai.dev/oauth` (`/oauth/reg`, `/oauth/device/auth`, `/oauth/token`, with `resource=https://api.xlsx-for-ai.dev/mcp`), then `POST https://api.xlsx-for-ai.dev/api/v1/clients` with `Authorization: Bearer <access token>` returns `{ client_id, api_key }`. Call any tool with `Authorization: Bearer <api_key>`. Anonymous keys from earlier versions still work during the transition. The free tier is **10,000 calls/month, 10 MB per file** — no billing, no email, no signup.
+The MCP client is the easy path, but every tool is also a plain HTTP endpoint you can call from any language — no SDK required. Sign in with the OAuth device flow (RFC 8628) at `https://api.xlsx-for-ai.dev/oauth` (`/oauth/reg`, `/oauth/device/auth`, `/oauth/token`, with `resource=https://api.xlsx-for-ai.dev/mcp`), then `POST https://api.xlsx-for-ai.dev/api/v1/clients` with `Authorization: Bearer <access token>` returns `{ client_id, api_key }`. Call any tool with `Authorization: Bearer <api_key>`. Anonymous keys from earlier versions still work during the transition. The free tier is **10,000 calls/month, 10 MB per file** — no billing.
 
 ```bash
-# Self-issue a key (no signup), then convert report.xlsx to Markdown.
+# Legacy keyless registration (still accepted during the transition; new integrations
+# should use the device-flow sign-in above), then convert report.xlsx to Markdown.
 # Needs jq, and bash or zsh. The base64 body is passed to curl through a
 # process-substitution fd and the token through a --config heredoc on stdin, which
 # keeps both out of the argument list. -fsS --max-time makes curl fail loudly on an
@@ -397,7 +398,7 @@ These workflows are the reason tool descriptions are FP&A-legible: when a develo
 
 ## Privacy
 
-Files are transmitted to `https://api.xlsx-for-ai.dev` over HTTPS and processed in memory. Files are not persisted beyond the duration of a single request. No email is collected. Sign-in is by email link or Google; no password is stored.
+Files are transmitted to `https://api.xlsx-for-ai.dev` over HTTPS and processed in memory. Files are not persisted beyond the duration of a single request. Sign-in is by email link or Google; the address is used only to identify your account, and no password is stored.
 
 See [PRIVACY.md](PRIVACY.md) for the full data-handling policy.
 

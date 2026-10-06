@@ -94,6 +94,6 @@ It's a small tool. It just happens to fix the one thing standing between AI assi
 
 ## Privacy contract
 
-The tool is a thin client over a hosted API, so the workbook you point it at is transmitted to `https://api.xlsx-for-ai.dev` over HTTPS to be processed — that's how the rendering and analysis happen. Files are processed in memory and are **not** persisted beyond the duration of a single request. No email, no signup — registration is an anonymous client UUID created on first call.
+The tool is a thin client over a hosted API, so the workbook you point it at is transmitted to `https://api.xlsx-for-ai.dev` over HTTPS to be processed — that's how the rendering and analysis happen. Files are processed in memory and are **not** persisted beyond the duration of a single request. First use needs a one-time sign-in (`xlsx-for-ai login`, by email link or Google).
 
-Telemetry is off by default. When you opt in with `xlsx-for-ai --enable-telemetry`, we capture only aggregate usage signals — call counts, error rates, file-size distributions tied to your anonymous client UUID — never workbook content. `XFA_PRIVACY=strict` opts out of error-triggered capture entirely. See [PRIVACY.md](PRIVACY.md) for the full data-handling policy.
+Telemetry is off by default. When you opt in with `xlsx-for-ai --enable-telemetry`, we capture only aggregate usage signals — call counts, error rates, file-size distributions tied to your client ID — never workbook content. `XFA_PRIVACY=strict` opts out of error-triggered capture entirely. See [PRIVACY.md](PRIVACY.md) for the full data-handling policy.
