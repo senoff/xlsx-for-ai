@@ -1,0 +1,17 @@
+# Gate config manifest: the file SET whose content is folded into config_hash (RFC §13.1:
+# "config_hash == hash of the config the review ran under"; a stale-config attestation is a miss).
+# Same format and hash as senoff/xlsx-for-ai-server: scripts/gate_config_hash.py sha256s each
+# listed file's content in byte-sorted path order. One repo-relative path per line; blank lines and
+# '#' comments ignored. Every listed file must exist (the hash fails closed on a missing one).
+#
+# The manifest lists ITSELF, so adding or removing a protected file changes config_hash too.
+#
+# Changing any file below invalidates every attestation minted under the old config, which forces
+# a fresh review of the release PR under the new config. The signer reads this from main when it
+# signs; the publish gate reads it from the release PR's base ref when it verifies.
+.github/review-gate/config-manifest.txt
+.github/review-gate/signer-allowlist.json
+.github/workflows/review-gate.yml
+.github/workflows/publish.yml
+scripts/publish-attestation-gate.sh
+scripts/review_attest_sign.py
