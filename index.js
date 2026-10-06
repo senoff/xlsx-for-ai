@@ -604,7 +604,7 @@ function runSamplesSubcommand(rest) {
   process.stdout.write(
     '\nDemo workbooks ready. Try these in your AI agent:\n\n' +
     `  • "Diff ${path.basename(v1)} against ${path.basename(v2)} and tell me what changed."\n` +
-    `  • "Validate ${path.basename(v2)} across two engines and report any cell divergences."\n` +
+    `  • "Validate ${path.basename(v2)} and report whether it loads cleanly."\n` +
     `  • "Redact any PII in ${path.basename(v2)} and show me a manifest of what was found."\n` +
     `  • "Give me a one-call health report on ${path.basename(v1)}."  (xlsx_doctor)\n\n`,
   );

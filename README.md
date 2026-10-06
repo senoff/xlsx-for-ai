@@ -8,7 +8,7 @@
 
 The missing reliability layer for spreadsheet work in LLM agents. Read, write, diff, validate, and analyze .xlsx files end-to-end — with merged cells, formulas, named ranges, conditional formatting, pivots, and charts preserved.
 
-xlsx-for-ai makes Claude reliable on real-world Excel files. Forty-plus tools cover the structural surface that pandas-style sandboxes drop on the floor: merged cells, named ranges, formulas with results, conditional formatting, pivots, slicers, charts, comments, data validations, hyperlinks, cross-sheet topology, external links, form controls, VBA macros, document properties, and protection settings. Cross-engine validation catches the corruption other readers silently mask. A hosted recalc engine computes served values in-house — no third-party formula engine in the serve path.
+xlsx-for-ai makes Claude reliable on real-world Excel files. Forty-plus tools cover the structural surface that pandas-style sandboxes drop on the floor: merged cells, named ranges, formulas with results, conditional formatting, pivots, slicers, charts, comments, data validations, hyperlinks, cross-sheet topology, external links, form controls, VBA macros, document properties, and protection settings. A soundness check (`xlsx_validate`) flags corruption other readers silently mask. A hosted recalc engine computes served values in-house — no third-party formula engine in the serve path.
 
 ```bash
 npm install -g xlsx-for-ai
@@ -183,14 +183,14 @@ The same governed contract is served read-only from two routes — discover the 
 
 | Tool | What it does |
 |---|---|
-| `xlsx_read` | Read a workbook — text, JSON, or markdown. Formulas, named ranges, layout, and data types preserved. |
+| `xlsx_read` | Read a workbook — text, JSON, or markdown. Formulas, named ranges, layout, and data types preserved. Also reads a **live Google Sheet** by id (`source:"gsheets"`), read-only, with a read-only Google OAuth token you supply. |
 | `xlsx_read_handle` | Read by server-side handle instead of bytes — for session flows where the workbook has already been uploaded and shouldn't be transferred again. |
 | `xlsx_write` | Create or update a workbook from a structured spec. Multi-sheet, formulas, named ranges, table definitions. |
 | `xlsx_data_clean` | Normalize messy data in place — trim whitespace, coerce types, dedupe rows, fix obvious encoding artifacts. Returns a cleaned copy + a change log. Save-As shape; never mutates the input. |
 | `xlsx_diff` | Semantic diff between two workbooks — cell-level deltas, formula changes, structural shifts. Deterministic output. |
 | `xlsx_redact` | Redact PII from a workbook before sharing. Server-side detection; returns redacted copy plus audit manifest. |
 | `xlsx_convert` | 25+ in / 16 out formats (csv, tsv, html, ods, xls, xlsb, dif, sylk, prn, txt, dbf, eth, json, markdown, xlsx, etc.). |
-| `xlsx_validate` | Cross-engine consistency check — runs the workbook through TWO independent renderers and reports cell-level divergences. |
+| `xlsx_validate` | Soundness check — parses the workbook with the server's own OOXML engine and reports whether it loads cleanly, with a per-sheet structural summary. |
 | `xlsx_session_set_validations` | Configure per-session validation rules the server will apply to subsequent calls in the same session (e.g., reject rows missing required columns). Stateful — affects this session only. |
 
 ### Pandas-parity (compute fresh aggregates)
@@ -218,7 +218,7 @@ The same governed contract is served read-only from two routes — discover the 
 | `xlsx_comments` | Both legacy notes AND threaded conversations (multi-author, with display-name resolution). |
 | `xlsx_protection` | Sheet locks + per-cell locked/hidden flags + workbook structure/window locks. |
 | `xlsx_merged_cells` | Layout-aware merge listing with master values + kind heuristic (header / horizontal / vertical / block). |
-| `xlsx_charts` | Chart spec (type, title, series formula refs, axis titles) — ExcelJS doesn't expose these at all. |
+| `xlsx_charts` | Chart spec (type, title, series formula refs, axis titles) — read straight from the chart XML parts most spreadsheet libraries ignore. |
 | `xlsx_images` | Embedded image inventory (format, size, sheet, anchor cells). |
 | `xlsx_pivot_tables` | Pre-existing pivot definitions — location, source, row/col/page/data fields with agg functions. |
 | `xlsx_slicers_timelines` | Modern Excel filter UI — slicers (table/pivot bound) + timelines (date-range with selection). |
@@ -264,9 +264,9 @@ All **52 tools** the MCP server exposes (generated from `tools/list`). Invoke an
 
 **Read & explore**
 
-- `xlsx_read` — read an .xlsx file by path and return a rendered markdown/JSON/SQL representation.
+- `xlsx_read` — read an .xlsx file by path and return a rendered markdown/JSON/SQL representation. Also reads a **live Google Sheet**: pass `source:"gsheets"` with the `spreadsheet_id` and a read-only Google OAuth token you supply (token-injected — read-only, no write; the server never mints or brokers Google credentials). Same rendered output as reading the equivalent `.xlsx`.
 - `xlsx_read_handle` — read a workbook that has already been uploaded to the server via the chunked upload flow, by its server-side cache handle, WITHOUT re-transferring the bytes. Returns the same shape as xlsx_read (text / json / markdown) but skips the file_b64 round-trip.
-- `xlsx_validate` — cross-engine consistency check on a LOCAL .xlsx file — runs the workbook through TWO independent renderers (@protobi/exceljs and @cj-tech-master/excelts) and reports cell-level divergences.
+- `xlsx_validate` — soundness check on a LOCAL .xlsx file — parses the workbook with the server's own OOXML engine and reports whether it loads cleanly (truncated zip, encrypted container, no worksheets, or a damaged sheet body each fail), with a per-sheet structural summary.
 
 **Inspect structure**
 
@@ -422,7 +422,7 @@ agent (Claude Code / Cursor / Continue / Zed / Windsurf / custom)
   └── MCP stdio
         └── xlsx-for-ai-mcp  (this package, ~200 lines)
               └── POST /api/v1/tools/<name>  →  api.xlsx-for-ai.dev
-                    └── server-side engine (ExcelJS, formula eval, schema inference, redaction)
+                    └── server-side engine (own OOXML/CSV engine, formula eval, schema inference, redaction)
 ```
 
 **Requirements:** Node.js 22+. 1.5.x line stays maintained on `main` for users who cannot upgrade.
