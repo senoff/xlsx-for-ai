@@ -265,6 +265,14 @@ jobs:
         timeout-minutes: 2
         run: cosign version
 
+      # The gate recomputes CONTENT_ID over the release PR's base...head. A PR landed through the
+      # merge door is not an ancestor of main and its branch is deleted, so a plain checkout never
+      # has the head commit (measured: content_id.py "empty diff or git fault" on a full clone).
+      # Fetch the PR head refs so the exact signed head is present. Read-only; nothing is skipped.
+      - name: Fetch PR head refs (the attestation recompute needs the release PR head commit)
+        timeout-minutes: 5
+        run: git fetch --no-tags origin '+refs/pull/*/head:refs/remotes/origin/pr/*'
+
       - name: Refuse to publish without a valid review attestation for this content
         run: bash scripts/publish-attestation-gate.sh
         env:
