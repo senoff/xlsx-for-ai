@@ -159,18 +159,16 @@ function freshRequire(mod) {
 // Test: first-run registration writes config, returns api_key
 // ---------------------------------------------------------------------------
 
-test('first-run registration writes config with client_id and api_key', async () => {
+test('a stored key (from any earlier version) is used as-is, no registration call', async () => {
+  const { readConfig, mergeConfig } = freshRequire('../../lib/config');
+  mergeConfig({ client_id: MOCK_CLIENT_ID, api_key: MOCK_API_KEY, registered_at: new Date().toISOString() });
+  lastRequest = null;
   const { ensureRegistered } = freshRequire('../../lib/register');
-  const { readConfig }       = freshRequire('../../lib/config');
-
   const result = await ensureRegistered();
   assert.equal(result.client_id, MOCK_CLIENT_ID);
   assert.equal(result.api_key, MOCK_API_KEY);
-
-  const cfg = readConfig();
-  assert.equal(cfg.client_id, MOCK_CLIENT_ID);
-  assert.equal(cfg.api_key, MOCK_API_KEY);
-  assert.ok(cfg.registered_at);
+  assert.equal(lastRequest, null, 'no network call when a key is stored');
+  assert.equal(readConfig().api_key, MOCK_API_KEY);
 });
 
 // ---------------------------------------------------------------------------

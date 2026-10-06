@@ -21,6 +21,7 @@
     "lib/read-file.js",
     "lib/discover.js",
     "lib/register.js",
+    "lib/login.js",
     "lib/mcp-register.js",
     "lib/setup.js",
     "lib/installer-cleanup.js",
