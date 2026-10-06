@@ -1379,6 +1379,8 @@ function friendlyErrorMessage(toolName, err) {
       return `${toolName}: file path is not a regular file.`;
     case 'MISSING_TOKEN':
       return `${toolName}: required token env var is not set (see tool docs for which one).`;
+    case 'LOGIN_FAILED':
+      return `${toolName}: sign-in failed. Run \`xlsx-for-ai login\` in a terminal to try again.`;
     case 'LOGIN_REQUIRED':
       return `${toolName}: not signed in. Run \`xlsx-for-ai login\` in a terminal, then retry.`;
     case 'API_UNREACHABLE':

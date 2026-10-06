@@ -169,3 +169,22 @@ test('network failure during sign-in is a LOGIN_FAILED error, not a raw TypeErro
     process.env.XLSX_FOR_AI_API = 'http://127.0.0.1:' + port;
   }
 });
+
+test('a transient 503 while polling does not abort the sign-in', async () => {
+  const orig = server.listeners('request')[0];
+  let fired = false;
+  server.removeAllListeners('request');
+  server.on('request', (req, res) => {
+    if (req.url === '/oauth/token' && !fired) { fired = true; res.statusCode = 503; return res.end('{}'); }
+    orig(req, res);
+  });
+  try {
+    const { deviceLogin } = fresh('../../lib/login');
+    const r = await deviceLogin({ out: () => {}, sleep: async () => {} });
+    assert.equal(r.api_key, 'xfa_oauth_key');
+    assert.equal(fired, true);
+  } finally {
+    server.removeAllListeners('request');
+    server.on('request', orig);
+  }
+});

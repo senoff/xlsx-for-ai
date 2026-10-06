@@ -157,6 +157,10 @@ The free tier caps files at 10 MB; larger workbooks and higher volume come back 
 
 Beyond the free tier, rate-limited and oversize requests come back as a typed JSON error (`{ "error": { "code", "message" } }`) carrying an `upgrade` field with your options — see `GET /api/v1/reference` for the full contract.
 
+Every error body is exactly that shape: `error.code` is the stable, machine-readable key to branch on, and `error.message` is the self-correcting detail that says what was wrong and what to change. A few codes add a documented extra field (for example `available_sheets` on a sheet-not-found refusal, or `upgrade` on a paywall refusal), but there is no finer error-subtype field on the wire; the server keeps a finer attribution for its own audit only.
+
+**Convert can refuse with a typed `501`.** `xlsx_convert` converts `xlsx`, `xls`, `csv` and `json` inputs with the server's own engine only. When that engine declines a conversion of one of those inputs (most notably `to=xlsx`), the API returns HTTP `501` with `error.code` `capability_gap` and a message of the form "xlsx_convert isn't yet supported by our own engine for .xlsx files, and we don't fall back to a full-workbook recompute on this file type ...". It does not silently fall back to a compatibility library. It is not a client error and not transient, so retrying the same file does not help. Through the hosted MCP connector the same refusal arrives as a tool result with `isError: true` carrying that message. Exotic formats (`ods`, `xlsb`, `fods`, and the `xls`/BIFF8 write target) are still served by the legacy path and are unaffected.
+
 The same governed contract is served read-only from two routes — discover the whole API without a key:
 
 - **[`GET /api/v1/reference`](https://api.xlsx-for-ai.dev/api/v1/reference)** — a self-contained human HTML reference for all 52 public-stable tools, including the on-ramp above.
@@ -190,7 +194,7 @@ The same governed contract is served read-only from two routes — discover the 
 | `xlsx_data_clean` | Normalize messy data in place — trim whitespace, coerce types, dedupe rows, fix obvious encoding artifacts. Returns a cleaned copy + a change log. Save-As shape; never mutates the input. |
 | `xlsx_diff` | Semantic diff between two workbooks — cell-level deltas, formula changes, structural shifts. Deterministic output. |
 | `xlsx_redact` | Redact PII from a workbook before sharing. Server-side detection; returns redacted copy plus audit manifest. |
-| `xlsx_convert` | 25+ in / 16 out formats (csv, tsv, html, ods, xls, xlsb, dif, sylk, prn, txt, dbf, eth, json, markdown, xlsx, etc.). |
+| `xlsx_convert` | 25+ in / 16 out formats (csv, tsv, html, ods, xls, xlsb, dif, sylk, prn, txt, dbf, eth, json, markdown, xlsx, etc.). For xlsx, xls, csv and json inputs there is no compatibility-engine fallback: if our own engine declines, the call fails with a typed `501` `capability_gap`. |
 | `xlsx_validate` | Soundness check — parses the workbook with the server's own OOXML engine and reports whether it loads cleanly, with a per-sheet structural summary. |
 | `xlsx_session_set_validations` | Configure per-session validation rules the server will apply to subsequent calls in the same session (e.g., reject rows missing required columns). Stateful — affects this session only. |
 

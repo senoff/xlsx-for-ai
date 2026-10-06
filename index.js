@@ -632,7 +632,7 @@ async function main() {
   if (argv.length > 0 && argv[0] === 'login') {
     try {
       const cfg = require('./lib/config').readConfig();
-      if (cfg && cfg.api_key && !argv.includes('--force')) {
+      if (cfg && cfg.api_key && cfg.client_id && !argv.includes('--force')) {
         process.stderr.write('Already signed in. Use `xlsx-for-ai login --force` to sign in again.\n');
         process.exit(0);
       }
