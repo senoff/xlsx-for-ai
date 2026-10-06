@@ -139,3 +139,33 @@ test('ensureRegistered on a TTY with no key runs the device login (real 1s poll 
   }
   assert.equal(r.api_key, 'xfa_oauth_key');
 });
+
+test('device client id is cached per API origin, not shared across origins', async () => {
+  const { deviceLogin } = fresh('../../lib/login');
+  const { readConfig } = fresh('../../lib/config');
+  await deviceLogin({ out: () => {}, sleep: async () => {} });
+  const ids = readConfig().oauth_device_client_ids;
+  assert.deepEqual(Object.keys(ids), ['http://127.0.0.1:' + port]);
+  // a different origin must not reuse the cached id: it registers again (and here fails: nothing listens)
+  process.env.XLSX_FOR_AI_API = 'http://127.0.0.1:1';
+  const again = fresh('../../lib/login');
+  try {
+    await assert.rejects(again.deviceLogin({ out: () => {}, sleep: async () => {} }), { code: 'LOGIN_FAILED' });
+  } finally {
+    process.env.XLSX_FOR_AI_API = 'http://127.0.0.1:' + port;
+  }
+});
+
+test('network failure during sign-in is a LOGIN_FAILED error, not a raw TypeError', async () => {
+  process.env.XLSX_FOR_AI_API = 'http://127.0.0.1:1';
+  try {
+    const { deviceLogin } = fresh('../../lib/login');
+    await assert.rejects(deviceLogin({ out: () => {}, sleep: async () => {} }), (e) => {
+      assert.equal(e.code, 'LOGIN_FAILED');
+      assert.match(e.message, /could not reach/);
+      return true;
+    });
+  } finally {
+    process.env.XLSX_FOR_AI_API = 'http://127.0.0.1:' + port;
+  }
+});
