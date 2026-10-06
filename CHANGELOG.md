@@ -9,7 +9,24 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 
 ## [Unreleased]
 
+## [4.1.0]
+
+### Added
+
+- **`xlsx-for-ai login`** — one-time sign-in using the OAuth device flow.
+  It prints a link and a short code; approve it in any browser and the key
+  is stored in `~/.xlsx-for-ai/config.json`. `--force` signs in again.
+
 ### Changed
+
+- **First run now needs a sign-in.** This version no longer creates an
+  anonymous key on first use.
+  - A key already stored by an earlier version keeps working as-is.
+  - No stored key in an interactive terminal: the sign-in starts
+    automatically and prints the link.
+  - No stored key and no terminal (CI, an MCP host): the command fails
+    straight away with `not signed in. Run xlsx-for-ai login`. It does not
+    wait or prompt.
 
 - **`xlsx_validate` is now a soundness check, not a two-engine cross-check.**
   The hosted server dropped its second renderer when it moved workbook

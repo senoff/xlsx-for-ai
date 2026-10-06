@@ -180,6 +180,8 @@ function friendlyCliError(prefix, err) {
   const showRaw = process.env.XFA_DEBUG === '1';
   const base = (() => {
     switch (code) {
+      case 'LOGIN_REQUIRED':        return `${prefix}: not signed in. Run \`xlsx-for-ai login\` in a terminal, then retry.`;
+      case 'LOGIN_FAILED':          return `${prefix}: sign-in failed. Run \`xlsx-for-ai login\` to try again.`;
       case 'API_UNREACHABLE':       return `${prefix}: API is unreachable — check network connectivity.`;
       case 'API_SERVER_ERROR':      return `${prefix}: API returned a server error — retry shortly.`;
       // 4xx: surface the server's validation message (the caller's own
@@ -626,6 +628,20 @@ async function main() {
   }
   if (argv.length > 0 && argv[0] === 'samples') {
     process.exit(runSamplesSubcommand(argv.slice(1)));
+  }
+  if (argv.length > 0 && argv[0] === 'login') {
+    try {
+      const cfg = require('./lib/config').readConfig();
+      if (cfg && cfg.api_key && !argv.includes('--force')) {
+        process.stderr.write('Already signed in. Use `xlsx-for-ai login --force` to sign in again.\n');
+        process.exit(0);
+      }
+      await require('./lib/login').deviceLogin();
+      process.exit(0);
+    } catch (err) {
+      process.stderr.write(`${err && err.message ? err.message : 'login failed'}\n`);
+      process.exit(1);
+    }
   }
   if (argv.length > 0 && argv[0] === 'setup') {
     process.exit(require('./lib/setup').runSetup(argv.slice(1)));

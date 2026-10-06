@@ -1,0 +1,15 @@
+{
+  "_comment": [
+    "Signer allowlist for the npm publish attestation gate (scripts/publish-attestation-gate.sh).",
+    "Mirrors senoff/xlsx-for-ai-server's .github/review-gate/signer-allowlist.json: the ONE keyless",
+    "identity whose cosign attestation the publish gate honors is this repo's own base-ref signing",
+    "workflow (.github/workflows/review-gate.yml on main) under the GitHub Actions OIDC issuer.",
+    "Exact identity, never a regexp: a pattern that matched any Actions workflow (or a PR-head",
+    "controlled one) would let a non-independent job mint a pass. The publish gate reads this file",
+    "from the release PR's BASE ref, so a PR cannot widen its own signer set."
+  ],
+  "oidc_issuer": "https://token.actions.githubusercontent.com",
+  "allowed_signer_identities": [
+    "https://github.com/senoff/xlsx-for-ai/.github/workflows/review-gate.yml@refs/heads/main"
+  ]
+}
