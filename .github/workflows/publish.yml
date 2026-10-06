@@ -242,6 +242,11 @@ jobs:
       # pinned to a commit SHA (v3.10.0). Signing/verification stays ON — no skip, no bypass.
       - name: Install cosign (pinned) for the attestation verify
         uses: sigstore/cosign-installer@d7543c93d881b35a8faa02e8e3605f69b7a1ce62 # v3.10.0
+        with:
+          cosign-release: 'v2.6.1'   # the cosign BINARY is pinned too, so verification is reproducible
+
+      - name: Log cosign version
+        run: cosign version
 
       - name: Refuse to publish without a valid review attestation for this content
         run: bash scripts/publish-attestation-gate.sh
