@@ -241,11 +241,15 @@ jobs:
       # when `cosign` is absent from the runner (v4.0.7 first publish died here). Install it,
       # pinned to a commit SHA (v3.10.0). Signing/verification stays ON — no skip, no bypass.
       - name: Install cosign (pinned) for the attestation verify
-        uses: sigstore/cosign-installer@d7543c93d881b35a8faa02e8e3605f69b7a1ce62 # v3.10.0
+        timeout-minutes: 5
+        uses: sigstore/cosign-installer@d7543c93d881b35a8faa02e8e3605f69b7a1ce62 # v3.10.0 (the ACTION, pinned by commit SHA)
         with:
-          cosign-release: 'v2.6.1'   # the cosign BINARY is pinned too, so verification is reproducible
+          # the cosign BINARY, pinned by release. The installer itself verifies the downloaded
+          # binary against sigstore's published checksum/signature before it is put on PATH.
+          cosign-release: 'v2.6.1'
 
       - name: Log cosign version
+        timeout-minutes: 2
         run: cosign version
 
       - name: Refuse to publish without a valid review attestation for this content
