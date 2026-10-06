@@ -223,7 +223,7 @@ const TOOLS = [
   // -------------------------------------------------------------------------
   // Pandas-shaped analysis tools — work where pandas can't:
   //   - preserves merged cells, named ranges, conditional formatting
-  //   - reads workbooks with cross-engine validation (some tools)
+  //   - soundness-checks workbooks before analysis (xlsx_validate)
   //   - dtype inference reports confidence per column instead of guessing
   // All free; the 10k/month cap is the throttle, not gating.
   // -------------------------------------------------------------------------
@@ -570,8 +570,8 @@ const TOOLS = [
   {
     name: 'xlsx_validate',
     description:
-      'cross-engine consistency check on a LOCAL .xlsx file — runs the workbook through TWO independent renderers (@protobi/exceljs and @cj-tech-master/excelts) and reports cell-level divergences.\n' +
-      'No other tool can do this: pandas trusts cached values, openpyxl is single-engine, and Excel-itself disagrees with everything else on edge cases like LAMBDA, dynamic arrays, and timezone handling. xlsx_validate is the only way to know whether two engines agree on what your workbook says.\n\n' +
+      'soundness check on a LOCAL .xlsx file — parses the workbook with the server\'s own OOXML engine and reports whether it loads cleanly (truncated zip, encrypted container, no worksheets, or a damaged sheet body each fail), with a per-sheet structural summary.\n' +
+      'Lenient readers silently turn a damaged workbook into an empty-but-valid one; xlsx_validate makes that judgment explicit.\n\n' +
       'USE WHEN: the user is about to send the workbook downstream for analysis or as an authoritative source — pre-flight check. Or for audit / regression testing across engine versions. ' +
       'Free tier — counts against the 10k/mo cap.\n\n' +
       'DO NOT USE WHEN: a casual read suffices (use xlsx_read). Or for upload/attached files.',
