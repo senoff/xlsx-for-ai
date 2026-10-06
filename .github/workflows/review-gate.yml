@@ -30,8 +30,6 @@ on:
         description: PR number to sign (digits only; validated in-job)
         required: true
 
-permissions: {}
-
 jobs:
   sign:
     name: review-gate-sign
@@ -43,6 +41,7 @@ jobs:
       group: review-gate-signer-${{ github.event_name == 'workflow_run' && join(github.event.workflow_run.pull_requests.*.number, '-') || 'dispatch' }}
       cancel-in-progress: false
     runs-on: ubuntu-latest
+    # Job-level permissions are the job's complete grant (nothing is inherited beyond this list).
     permissions:
       id-token: write        # keyless OIDC signing identity (Fulcio); ONLY this job holds it
       contents: read
@@ -141,12 +140,13 @@ jobs:
         run: |
           set -euo pipefail
           AUTH="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$TOKEN" | base64 | tr -d '\n')"
-          for i in 1 2 3; do
+          # Exponential backoff with jitter between attempts (2s, 4s, 8s + 0-2s), each attempt bounded.
+          for i in 1 2 3 4; do
             if timeout 120 git -c "http.https://github.com/.extraheader=${AUTH}" fetch --no-tags origin \
                  "+refs/pull/${PR}/head:refs/remotes/origin/pr/${PR}"; then
               break
             fi
-            sleep $((i * 5))
+            [ "$i" -lt 4 ] && sleep $(( (1 << i) + RANDOM % 3 ))
           done
           git cat-file -e "${HEAD}^{commit}"
 
