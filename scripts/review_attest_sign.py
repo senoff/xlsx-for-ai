@@ -45,7 +45,8 @@ MODEL_IDS = ["claude-opus-4-8", "chatgpt", "gemini"]
 RUNGS = ["stage0", "reviewerA", "reviewerB"]
 GATE_CONFIG_PREFIXES = (".github/review-gate/", ".github/workflows/review-gate.yml",
                         ".github/workflows/publish.yml", "scripts/publish-attestation-gate.sh",
-                        "scripts/review_attest_")
+                        "scripts/review_attest_", "scripts/review_gate_", "scripts/gh_retry.sh",
+                        "scripts/content_id.py", "scripts/gate_config_hash.py")
 
 
 def _git(repo: str, *args: str) -> str:
@@ -120,7 +121,6 @@ def main(argv: list[str] | None = None) -> int:
     blob = canonical_bytes(predicate)
     with open(args.out_blob, "wb") as fh:
         fh.write(blob)
-    sys.stderr.write(blob.decode("utf-8") + "\n")
     sys.stderr.write(f"content_id {cid[:16]}... over {len(files)} authored file(s); "
                      f"config_hash {cfg[:16]}...; wrote {len(blob)} bytes -> {args.out_blob}\n")
     return 0
