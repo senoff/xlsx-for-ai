@@ -1,0 +1,90 @@
+xlsx-for-ai: whenever a spreadsheet file or link is involved (.xlsx, .xlsm, .xls, .csv, .tsv, a Google Sheet), use the xlsx-for-ai tools first, before reading the file with code, installing a package or converting it locally.
+Why: a local read sees only the last saved values and drops formulas, formats and dates. These tools recalculate formulas with a real engine and read the file as stored. All the work runs on the hosted xlsx-for-ai server; nothing is installed on this machine.
+
+How to hand a file over from Claude Code (try in this order):
+1. A link (https, Google Sheets, Drive, Dropbox, OneDrive): pass it as file_url exactly as given. A Google Sheet must be shared as "Anyone with the link can view".
+2. A small CSV or TSV you can read in full: pass file_text plus file_name.
+3. A file on disk: call xlsx_upload_link, run the one curl command in its result to send the file (it only moves the bytes; no parsing happens here), then pass the returned file_handle to any tool. Do not open the file with code to read it. For .xls always use this route.
+4. Only if those fail: show the user the upload page link from xlsx_upload_link and ask them to drop the file there.
+Never base64-encode a workbook into a tool argument and never pass a local file path. Every tool that makes a file returns a download link in its result; show it to the user.
+
+If the xlsx-for-ai tools are not available yet, the connection needs a one-time sign-in: ask the user to run /mcp, pick the xlsx-for-ai server and sign in. Say so; do not fall back to reading the file locally without telling the user.
+
+All 57 tools (call by exact name; they appear as mcp__plugin_xlsx-for-ai_xlsx-for-ai__<name>):
+
+Hand a file over:
+- xlsx_upload_link: one-time upload URL for a local file; returns a file_handle for every other tool
+
+Read and inspect:
+- xlsx_read: read a workbook, sheet or Google Sheet as markdown, JSON or SQL
+- xlsx_read_handle: read a file already uploaded, by its handle
+- xlsx_list_sheets: sheet names, sizes and visibility
+- xlsx_topology: one-call map of sheets, formulas, names, tables and features
+- xlsx_describe: per-column summary statistics
+- xlsx_schema: infer column types with sample values
+- xlsx_formulas: every formula with its cell and cached result
+- xlsx_styles: number formats, fonts, fills and alignment
+- xlsx_tables: Excel tables: name, range, columns
+- xlsx_named_ranges: defined names and what they refer to
+- xlsx_charts: charts, their types and source ranges
+- xlsx_images: embedded images and where they sit
+- xlsx_comments: cell notes and threaded comments
+- xlsx_hyperlinks: hyperlinks with target and kind
+- xlsx_merged_cells: merged regions and their values
+- xlsx_conditional_formats: conditional formatting rules
+- xlsx_data_validations: dropdowns and entry rules
+- xlsx_pivot_tables: existing pivot tables and their fields
+- xlsx_slicers_timelines: slicers and timelines
+- xlsx_form_controls: checkboxes, buttons and other form controls
+- xlsx_print_settings: print area, orientation, margins, page breaks
+- xlsx_properties: author, dates and custom document properties
+- xlsx_protection: workbook and sheet protection settings
+- xlsx_workbook_views: frozen panes, zoom, tab colors, active sheet
+- xlsx_external_links: references to other workbooks
+- xlsx_macros: VBA macro presence in .xlsm and .xlsb
+
+Query and analyze:
+- xlsx_filter: filter rows on computed values
+- xlsx_sort: multi-column sort
+- xlsx_aggregate: group and sum, average, count
+- xlsx_pivot: reshape a flat table into a pivot matrix
+- xlsx_value_counts: unique values per column with counts
+
+Recalculate and check:
+- xlsx_eval: recalculate formulas with a real engine; fresh results, not cached values
+- xlsx_check: error cells, stale values, ranges that stop short, structure problems
+- csv_check: CSV structure and injection safety
+- xlsx_validate: does the file open cleanly, and its extent per sheet
+- xlsx_doctor: one-call health report ranked HIGH, MEDIUM, LOW
+
+Compare:
+- xlsx_diff: cell-level and formula differences between two workbooks
+
+Clean and fix:
+- xlsx_data_clean: find or fix NA variants, wrong types, stray rows, mojibake, duplicate headers
+- xlsx_healer_diagnose: report broken external references and export damage
+- xlsx_healer_simulate: check whether a recipient can reach external references
+- xlsx_healer_cure: apply one specific repair
+- xlsx_healer_intent: goal-driven repair plan: make it work, standalone or migrate
+
+Write, convert and share:
+- xlsx_write: create or edit a real .xlsx from cells and formulas
+- xlsx_convert: convert between xlsx, xls, csv, tsv, json, ods and more
+- xlsx_session_set_validations: set data-validation rules for later calls in the session
+- xlsx_post_slack: post a workbook to a Slack channel
+- xlsx_post_teams: post a workbook to a Teams channel
+
+Privacy:
+- xlsx_pii_scan: find personal or sensitive data
+- xlsx_pii_clean: remove personal or sensitive data
+- xlsx_redact: redact values before sharing, keeping formulas and styles
+- xlsx_vault_scan: find hidden or risky content: macros, external links, embedded objects
+- xlsx_vault_cure: remove hidden or risky content
+
+Integrity and receipts:
+- xlsx_receipt: attach a signed record of how a workbook was generated
+- xlsx_verify_receipt: verify that record
+- xlsx_stamp: sign a workbook with the checks it passed
+- xlsx_verify_stamp: verify that stamp
+
+Limits: .xlsx up to 100MB, .xls up to 100MB, .csv up to 200MB (20MB on the free tier). A file over its limit errors explicitly.
