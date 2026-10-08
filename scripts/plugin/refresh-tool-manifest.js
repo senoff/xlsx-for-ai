@@ -8,9 +8,9 @@
  *   node scripts/plugin/refresh-tool-manifest.js --url https://api.xlsx-for-ai.dev/api/v1/tools/list
  *
  * Input is the server's public tool list ({ tools: [{ name, description }] }).
- * Commerce tools (importable_, printful_, printify_, shopify_) are not served
- * by the plugin's endpoint and are dropped, the same filter the server uses
- * (src/mcp/claude-manifest.ts). xlsx_upload_link is served by the door itself
+ * Commerce tools (importable_, printful_, printify_, shopify_) are dropped
+ * except the 12 file-in, file-out shopify_* tools the door serves, the same
+ * allowlist the server uses (src/mcp/claude-manifest.ts). xlsx_upload_link is served by the door itself
  * and is not in that list, so it is always kept.
  *
  * Tools that vanished are removed. New tools are appended to a group named
@@ -22,6 +22,13 @@ const fs = require('node:fs');
 const { MANIFEST, allTools } = require('./generate-session-start.js');
 
 const COMMERCE_PREFIXES = ['importable_', 'printful_', 'printify_', 'shopify_'];
+// The commerce tools the door serves (server CLAUDE_DOOR_COMMERCE_TOOLS): file in, file out only.
+const SERVED_COMMERCE = [
+  'shopify_products_import', 'shopify_products_import_fix', 'shopify_collections_import',
+  'shopify_inventory_import', 'shopify_url_redirects_import', 'shopify_metafields_safe_reimport',
+  'shopify_variant_metafields_import', 'shopify_product_metafields_import',
+  'shopify_google_feed', 'shopify_amazon_feed', 'shopify_ebay_feed', 'shopify_ups_feed',
+];
 const DOOR_LOCAL = ['xlsx_upload_link'];
 
 function firstSentence(text) {
@@ -31,7 +38,7 @@ function firstSentence(text) {
 
 function refresh(manifest, list) {
   const served = new Map(
-    list.filter((t) => !COMMERCE_PREFIXES.some((p) => t.name.startsWith(p))).map((t) => [t.name, t]),
+    list.filter((t) => SERVED_COMMERCE.includes(t.name) || !COMMERCE_PREFIXES.some((p) => t.name.startsWith(p))).map((t) => [t.name, t]),
   );
   for (const name of DOOR_LOCAL) served.set(name, served.get(name) || { name, description: '' });
   const known = new Set(allTools(manifest).map((t) => t.name));

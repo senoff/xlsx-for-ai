@@ -1,5 +1,6 @@
 xlsx-for-ai: whenever a spreadsheet file or link is involved (.xlsx, .xlsm, .xls, .csv, .tsv, a Google Sheet), use the xlsx-for-ai tools first, before reading the file with code, installing a package or converting it locally.
 Why: a local read sees only the last saved values and drops formulas, formats and dates. These tools recalculate formulas with a real engine and read the file as stored. All the work runs on the hosted xlsx-for-ai server; nothing is installed on this machine.
+Shopify export files (products, inventory, collections, redirects, metafields) should come to these tools too: they build a file ready to import into Shopify and never touch a store.
 
 How to hand a file over from Claude Code (try in this order):
 1. A link (https, Google Sheets, Drive, Dropbox, OneDrive): pass it as file_url exactly as given. A Google Sheet must be shared as "Anyone with the link can view".
@@ -10,7 +11,7 @@ Never base64-encode a workbook into a tool argument and never pass a local file 
 
 If the xlsx-for-ai tools are not available yet, the connection needs a one-time sign-in: ask the user to run /mcp, pick the xlsx-for-ai server and sign in. Say so; do not fall back to reading the file locally without telling the user.
 
-All 57 tools (call by exact name; they appear as mcp__plugin_xlsx-for-ai_xlsx-for-ai__<name>):
+All 69 tools (call by exact name; they appear as mcp__plugin_xlsx-for-ai_xlsx-for-ai__<name>):
 
 Hand a file over:
 - xlsx_upload_link: one-time upload URL for a local file; returns a file_handle for every other tool
@@ -86,5 +87,19 @@ Integrity and receipts:
 - xlsx_verify_receipt: verify that record
 - xlsx_stamp: sign a workbook with the checks it passed
 - xlsx_verify_stamp: verify that stamp
+
+Shopify and store exports (file in, import-ready file out; never touches a store):
+- shopify_products_import: product spreadsheet to a Shopify products import file
+- shopify_products_import_fix: repair a broken Shopify products CSV
+- shopify_collections_import: collections to a Shopify import file
+- shopify_inventory_import: inventory to a Shopify import file
+- shopify_url_redirects_import: redirects to a Shopify import file
+- shopify_metafields_safe_reimport: edited metafields export to a safe re-import file
+- shopify_variant_metafields_import: per-variant metafields to a Shopify import file
+- shopify_product_metafields_import: product metafields to a Shopify import file
+- shopify_google_feed: products export to a Google Merchant Center feed
+- shopify_amazon_feed: products export to an Amazon inventory feed
+- shopify_ebay_feed: products export to an eBay File Exchange file
+- shopify_ups_feed: orders export to a UPS WorldShip batch file
 
 Limits: .xlsx up to 100MB, .xls up to 100MB, .csv up to 200MB (20MB on the free tier). A file over its limit errors explicitly.

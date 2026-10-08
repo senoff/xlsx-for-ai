@@ -23,17 +23,39 @@ test('every manifest tool appears by exact name in the text, and no other tool n
   assert.ok(text.includes(`All ${names.length} tools`));
 });
 
-test('no commerce tools; descriptions present; no "Other tools" left unedited', () => {
+// The commerce tools the hosted door serves (server PR XLS-2591, CLAUDE_DOOR_COMMERCE_TOOLS):
+// file in, import-ready file out; the door never connects to a store or supplier account.
+const SERVED_COMMERCE = [
+  'shopify_products_import', 'shopify_products_import_fix', 'shopify_collections_import',
+  'shopify_inventory_import', 'shopify_url_redirects_import', 'shopify_metafields_safe_reimport',
+  'shopify_variant_metafields_import', 'shopify_product_metafields_import',
+  'shopify_google_feed', 'shopify_amazon_feed', 'shopify_ebay_feed', 'shopify_ups_feed',
+];
+
+test('only the 12 served commerce tools, none of the store or supplier tools; descriptions present; no "Other tools" left unedited', () => {
   for (const t of allTools(manifest)) {
-    assert.ok(!COMMERCE_PREFIXES.some((p) => t.name.startsWith(p)), `commerce tool ${t.name}`);
+    const commerce = COMMERCE_PREFIXES.some((p) => t.name.startsWith(p));
+    assert.ok(!commerce || SERVED_COMMERCE.includes(t.name), `commerce tool the door does not serve: ${t.name}`);
     assert.ok(t.description && t.description.length > 3, `no description for ${t.name}`);
   }
   assert.ok(!manifest.groups.some((g) => g.title === 'Other tools'), 'move new tools out of "Other tools"');
 });
 
-test('text is plain ASCII, under 6000 characters, first two lines carry the rule', () => {
+test('the Shopify group lists exactly the served commerce tools and the text points Shopify files at them', () => {
+  const group = manifest.groups.find((g) => /^Shopify and store exports/.test(g.title));
+  assert.ok(group, 'missing Shopify and store exports group');
+  assert.deepEqual(group.tools.map((t) => t.name).sort(), [...SERVED_COMMERCE].sort());
+  const names = allTools(manifest).map((t) => t.name).filter((n) => COMMERCE_PREFIXES.some((p) => n.startsWith(p)));
+  assert.deepEqual(names.sort(), [...SERVED_COMMERCE].sort());
   const text = fs.readFileSync(OUTPUT, 'utf8');
-  assert.ok(text.length <= 6000, `length ${text.length}`);
+  const lines = text.split('\n');
+  assert.ok(lines.findIndex((l) => /^Shopify export files \(products, inventory, collections, redirects, metafields\)/.test(l)) < 6, 'Shopify line is not near the top');
+  assert.match(text, /build a file ready to import into Shopify and never touch a store/);
+});
+
+test('text is plain ASCII, under 7000 characters, first two lines carry the rule', () => {
+  const text = fs.readFileSync(OUTPUT, 'utf8');
+  assert.ok(text.length <= 7000, `length ${text.length}`);
   assert.ok(/^[\x09\x0a\x20-\x7e]*$/.test(text), 'non-ASCII character in text');
   const [l1, l2] = text.split('\n');
   assert.match(l1, /\.xlsx, \.xlsm, \.xls, \.csv, \.tsv, a Google Sheet/);

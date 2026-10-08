@@ -1,5 +1,5 @@
 {
-  "_comment": "Tools served by the hosted OAuth door (https://api.xlsx-for-ai.dev/mcp) with x-xfa-toolset: all. Source: the server tool inventory (src/routes/tools-list.ts) minus commerce tools (src/mcp/claude-manifest.ts isCommerceTool) plus the door-local xlsx_upload_link. Refresh with scripts/plugin/refresh-tool-manifest.js. The session-start text is generated from this file by scripts/plugin/generate-session-start.js.",
+  "_comment": "Tools served by the hosted OAuth door (https://api.xlsx-for-ai.dev/mcp) with x-xfa-toolset: all. Source: the server tool inventory (src/routes/tools-list.ts) minus the commerce tools the door does not serve (src/mcp/claude-manifest.ts CLAUDE_DOOR_WITHHELD_COMMERCE: importable_*, printful_*, printify_*) plus the door-local xlsx_upload_link. The 12 shopify_* file tools in the last group are served once server PR XLS-2591 is deployed. Refresh with scripts/plugin/refresh-tool-manifest.js. The session-start text is generated from this file by scripts/plugin/generate-session-start.js.",
   "endpoint": "https://api.xlsx-for-ai.dev/mcp",
   "groups": [
     {
@@ -102,6 +102,23 @@
         { "name": "xlsx_verify_receipt", "description": "verify that record" },
         { "name": "xlsx_stamp", "description": "sign a workbook with the checks it passed" },
         { "name": "xlsx_verify_stamp", "description": "verify that stamp" }
+      ]
+    },
+    {
+      "title": "Shopify and store exports (file in, import-ready file out; never touches a store)",
+      "tools": [
+        { "name": "shopify_products_import", "description": "product spreadsheet to a Shopify products import file" },
+        { "name": "shopify_products_import_fix", "description": "repair a broken Shopify products CSV" },
+        { "name": "shopify_collections_import", "description": "collections to a Shopify import file" },
+        { "name": "shopify_inventory_import", "description": "inventory to a Shopify import file" },
+        { "name": "shopify_url_redirects_import", "description": "redirects to a Shopify import file" },
+        { "name": "shopify_metafields_safe_reimport", "description": "edited metafields export to a safe re-import file" },
+        { "name": "shopify_variant_metafields_import", "description": "per-variant metafields to a Shopify import file" },
+        { "name": "shopify_product_metafields_import", "description": "product metafields to a Shopify import file" },
+        { "name": "shopify_google_feed", "description": "products export to a Google Merchant Center feed" },
+        { "name": "shopify_amazon_feed", "description": "products export to an Amazon inventory feed" },
+        { "name": "shopify_ebay_feed", "description": "products export to an eBay File Exchange file" },
+        { "name": "shopify_ups_feed", "description": "orders export to a UPS WorldShip batch file" }
       ]
     }
   ]
