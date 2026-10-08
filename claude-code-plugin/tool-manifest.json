@@ -1,5 +1,4 @@
 {
-  "_comment": "Tools served by the hosted OAuth door (https://api.xlsx-for-ai.dev/mcp) with x-xfa-toolset: all. Source: the server tool inventory (src/routes/tools-list.ts) minus the commerce tools the door does not serve (src/mcp/claude-manifest.ts CLAUDE_DOOR_WITHHELD_COMMERCE: importable_*, printful_*, printify_*) plus the door-local xlsx_upload_link. The 12 shopify_* file tools in the last group are served once server PR XLS-2591 is deployed. Refresh with scripts/plugin/refresh-tool-manifest.js. The session-start text is generated from this file by scripts/plugin/generate-session-start.js.",
   "endpoint": "https://api.xlsx-for-ai.dev/mcp",
   "groups": [
     {
@@ -105,7 +104,7 @@
       ]
     },
     {
-      "title": "Shopify and store exports (file in, import-ready file out; never touches a store)",
+      "title": "Shopify exports (file in, import-ready file out)",
       "tools": [
         { "name": "shopify_products_import", "description": "product spreadsheet to a Shopify products import file" },
         { "name": "shopify_products_import_fix", "description": "repair a broken Shopify products CSV" },

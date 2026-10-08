@@ -18,13 +18,12 @@ test('every manifest tool appears by exact name in the text, and no other tool n
   const names = allTools(manifest).map((t) => t.name);
   assert.equal(new Set(names).size, names.length, 'duplicate tool names in manifest');
   for (const n of names) assert.ok(text.includes(`- ${n}: `), `missing ${n}`);
-  const listed = [...text.matchAll(/^- ([a-z_]+): /gm)].map((m) => m[1]);
+  const listed = [...text.matchAll(/^- ([a-z0-9_-]+): /gim)].map((m) => m[1]);
   assert.deepEqual(listed.sort(), [...names].sort());
   assert.ok(text.includes(`All ${names.length} tools`));
 });
 
-// The commerce tools the hosted door serves (server PR XLS-2591, CLAUDE_DOOR_COMMERCE_TOOLS):
-// file in, import-ready file out; the door never connects to a store or supplier account.
+// The commerce tools the hosted door serves: file in, import-ready file out.
 const SERVED_COMMERCE = [
   'shopify_products_import', 'shopify_products_import_fix', 'shopify_collections_import',
   'shopify_inventory_import', 'shopify_url_redirects_import', 'shopify_metafields_safe_reimport',
@@ -42,15 +41,32 @@ test('only the 12 served commerce tools, none of the store or supplier tools; de
 });
 
 test('the Shopify group lists exactly the served commerce tools and the text points Shopify files at them', () => {
-  const group = manifest.groups.find((g) => /^Shopify and store exports/.test(g.title));
-  assert.ok(group, 'missing Shopify and store exports group');
+  const group = manifest.groups.find((g) => /^Shopify exports/.test(g.title));
+  assert.ok(group, 'missing Shopify exports group');
   assert.deepEqual(group.tools.map((t) => t.name).sort(), [...SERVED_COMMERCE].sort());
   const names = allTools(manifest).map((t) => t.name).filter((n) => COMMERCE_PREFIXES.some((p) => n.startsWith(p)));
   assert.deepEqual(names.sort(), [...SERVED_COMMERCE].sort());
   const text = fs.readFileSync(OUTPUT, 'utf8');
   const lines = text.split('\n');
   assert.ok(lines.findIndex((l) => /^Shopify export files \(products, inventory, collections, redirects, metafields\)/.test(l)) < 6, 'Shopify line is not near the top');
-  assert.match(text, /build a file ready to import into Shopify and never touch a store/);
+  assert.match(text, /build a file ready to import into Shopify\./);
+  assert.ok(!/connect(ing)? (a|your|the) (store|shop)/i.test(text), 'text must not talk about connecting a store');
+});
+
+test('manifest endpoint equals the .mcp.json URL, and nothing positions against another product', () => {
+  const mcp = JSON.parse(fs.readFileSync(path.join(ROOT, 'claude-code-plugin', '.mcp.json'), 'utf8'));
+  assert.equal(manifest.endpoint, mcp.mcpServers['xlsx-for-ai'].url);
+  const text = fs.readFileSync(OUTPUT, 'utf8');
+  assert.ok(!/libreoffice|excel is|than excel/i.test(text));
+});
+
+test('firstSentence keeps one sentence, strips non-ASCII and truncates', () => {
+  const { firstSentence, validateList } = require('../../scripts/plugin/refresh-tool-manifest.js');
+  assert.equal(firstSentence('Reads a file. Then more.'), 'Reads a file');
+  assert.equal(firstSentence('café  list'), 'caf- list');
+  assert.ok(firstSentence('a'.repeat(200)).length <= 110);
+  assert.throws(() => validateList([{ name: 'bad name; rm' }]), /unexpected tool name/);
+  assert.equal(validateList([{ name: 'xlsx_read' }]).length, 1);
 });
 
 test('text is plain ASCII, under 7000 characters, first two lines carry the rule', () => {

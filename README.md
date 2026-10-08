@@ -180,7 +180,7 @@ Then, once: start Claude Code, run `/mcp`, choose the `xlsx-for-ai` server and s
 What it does:
 
 - Prints a short text at session start (startup, resume, clear and compact) that says to use the xlsx-for-ai tools first for any spreadsheet, why, how to hand a file over from Claude Code, and every tool by name.
-- Sends Shopify export files (products, inventory, collections, redirects, metafields) to the `shopify_*` tools, which build a file ready to import into Shopify (plus Google, Amazon, eBay and UPS feed files). They work on the file only and never connect to or change a store; you upload the result yourself. Store-connected and supplier tools are not offered here. These tools are served by the hosted door once the server change (XLS-2591) is deployed.
+- Sends Shopify export files (products, inventory, collections, redirects, metafields) to the `shopify_*` tools, which build a file ready to import into Shopify (plus Google, Amazon, eBay and UPS feed files). They work on the file you give them and hand a file back; you import the result yourself.
 - Adds a `spreadsheets` skill that applies when spreadsheet files are in play.
 - Connects Claude Code to the hosted server.
 

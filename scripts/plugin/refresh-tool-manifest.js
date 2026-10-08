@@ -54,17 +54,61 @@ function refresh(manifest, list) {
   return { manifest, added, removed };
 }
 
+const TOOL_NAME = /^[a-z0-9_]+$/;
+
+// Bounded fetch: 10 s per attempt, 3 attempts, 500 ms / 1 s backoff. Node >= 22 (package.json engines) has global fetch.
+async function fetchJson(url, attempts = 3, timeoutMs = 10000) {
+  let last;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    } catch (e) {
+      last = e;
+      if (i < attempts - 1) await new Promise((r) => setTimeout(r, 500 * (i + 1)));
+    }
+  }
+  throw new Error(`could not fetch ${url} after ${attempts} attempts: ${last && last.message}`);
+}
+
+function validateList(list) {
+  if (!Array.isArray(list)) throw new Error('tool list is not an array');
+  for (const t of list) {
+    if (!t || typeof t.name !== 'string' || !TOOL_NAME.test(t.name)) {
+      throw new Error(`unexpected tool name: ${JSON.stringify(t && t.name)}`);
+    }
+  }
+  return list;
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const get = (flag) => (args.includes(flag) ? args[args.indexOf(flag) + 1] : null);
-  let body;
-  if (get('--file')) body = JSON.parse(fs.readFileSync(get('--file'), 'utf8'));
-  else if (get('--url')) body = await (await fetch(get('--url'))).json();
-  else {
+  const usage = () => {
     console.error('usage: refresh-tool-manifest.js --file tools-list.json | --url <tools list URL>');
     process.exit(2);
+  };
+  let body;
+  try {
+    if (args.includes('--file')) {
+      if (!get('--file')) usage();
+      body = JSON.parse(fs.readFileSync(get('--file'), 'utf8'));
+    } else if (args.includes('--url')) {
+      if (!get('--url')) usage();
+      body = await fetchJson(get('--url'));
+    } else usage();
+  } catch (e) {
+    console.error(`refresh-tool-manifest: ${e.message}`);
+    process.exit(3);
   }
-  const list = Array.isArray(body) ? body : body.tools;
+  let list;
+  try {
+    list = validateList(Array.isArray(body) ? body : body.tools);
+  } catch (e) {
+    console.error(`refresh-tool-manifest: ${e.message}`);
+    process.exit(3);
+  }
   const { manifest, added, removed } = refresh(JSON.parse(fs.readFileSync(MANIFEST, 'utf8')), list);
   fs.writeFileSync(MANIFEST, JSON.stringify(manifest, null, 2) + '\n');
   console.log(`added: ${added.join(', ') || 'none'}\nremoved: ${removed.join(', ') || 'none'}`);
@@ -73,4 +117,4 @@ async function main() {
 
 if (require.main === module) main();
 
-module.exports = { refresh, firstSentence };
+module.exports = { refresh, firstSentence, validateList, fetchJson };
