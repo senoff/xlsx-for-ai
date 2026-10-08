@@ -1,0 +1,14 @@
+{
+  "name": "xlsx-for-ai",
+  "owner": { "name": "xlsx-for-ai", "url": "https://xlsx-for-ai.dev" },
+  "description": "Claude Code plugin that sends spreadsheet work to the hosted xlsx-for-ai tools.",
+  "plugins": [
+    {
+      "name": "xlsx-for-ai",
+      "source": "./claude-code-plugin",
+      "description": "Session-start rule plus a connection to the hosted xlsx-for-ai tools: use them first for .xlsx, .xlsm, .xls, .csv, .tsv and Google Sheets. Ships no engine.",
+      "category": "productivity",
+      "tags": ["spreadsheet", "xlsx", "csv"]
+    }
+  ]
+}
