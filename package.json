@@ -34,7 +34,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test test/v2/*.test.js",
+    "test": "node --test test/v2/*.test.js test/plugin/*.test.js",
     "build-manifests": "node scripts/build-manifests.js",
     "tool-floor:generate": "node scripts/gen-tool-floor.js",
     "tool-floor:check": "node scripts/gen-tool-floor.js --check",

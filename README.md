@@ -166,6 +166,26 @@ The same governed contract is served read-only from two routes — discover the 
 - **[`GET /api/v1/reference`](https://api.xlsx-for-ai.dev/api/v1/reference)** — a self-contained human HTML reference for all 52 public-stable tools, including the on-ramp above.
 - **[`GET /api/v1/openapi.json`](https://api.xlsx-for-ai.dev/api/v1/openapi.json)** — the versioned OpenAPI 3.1 contract, verbatim. Point codegen, Postman, or Scalar/Redoc at it.
 
+## Claude Code plugin
+
+A Claude Code plugin makes your agent come to the hosted xlsx-for-ai tools first whenever a spreadsheet is involved (.xlsx, .xlsm, .xls, .csv, .tsv, a Google Sheet), instead of reading the file with code, installing a package or converting it locally.
+
+```bash
+claude plugin marketplace add senoff/xlsx-for-ai
+claude plugin install xlsx-for-ai@xlsx-for-ai
+```
+
+Then, once: start Claude Code, run `/mcp`, choose the `xlsx-for-ai` server and sign in in the browser. The plugin connects to the hosted endpoint `https://api.xlsx-for-ai.dev/mcp` (OAuth sign-in) and asks for the full tool list.
+
+What it does:
+
+- Prints a short text at session start (startup, resume, clear and compact) that says to use the xlsx-for-ai tools first for any spreadsheet, why, how to hand a file over from Claude Code, and every tool by name.
+- Sends Shopify export files (products, inventory, collections, redirects, metafields) to the `shopify_*` tools, which build a file ready to import into Shopify (plus Google, Amazon, eBay and UPS feed files). They work on the file you give them and hand a file back; you import the result yourself.
+- Adds a `spreadsheets` skill that applies when spreadsheet files are in play.
+- Connects Claude Code to the hosted server.
+
+What it does not do: it ships no engine. No calculation, parsing or conversion code of ours runs on your machine; the only thing that runs locally is `cat` printing the session-start text file. Files you give the tools are sent to the hosted service (a link, or a one-time upload). The plugin lives in `claude-code-plugin/`; the session-start text is generated from `claude-code-plugin/tool-manifest.json` by `scripts/plugin/generate-session-start.js`, and a test fails if they disagree. On Windows the hook works in Git Bash or PowerShell (`cat` is available in both).
+
 ---
 
 ## What it does

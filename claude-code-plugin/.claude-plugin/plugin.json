@@ -1,0 +1,11 @@
+{
+  "name": "xlsx-for-ai",
+  "displayName": "xlsx-for-ai",
+  "version": "0.1.0",
+  "description": "Points Claude Code at the hosted xlsx-for-ai spreadsheet tools whenever a spreadsheet is involved. Adds session-start text and a connection to the hosted service; ships no engine.",
+  "author": { "name": "xlsx-for-ai", "url": "https://xlsx-for-ai.dev" },
+  "homepage": "https://xlsx-for-ai.dev",
+  "repository": "https://github.com/senoff/xlsx-for-ai",
+  "license": "MIT",
+  "keywords": ["spreadsheet", "xlsx", "xls", "csv", "excel", "formulas"]
+}
