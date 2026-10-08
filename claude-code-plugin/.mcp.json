@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "xlsx-for-ai": {
+      "type": "http",
+      "url": "https://api.xlsx-for-ai.dev/mcp",
+      "headers": { "x-xfa-toolset": "all" }
+    }
+  }
+}
