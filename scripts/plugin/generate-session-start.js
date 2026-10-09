@@ -15,6 +15,9 @@ const PLUGIN_DIR = path.join(__dirname, '..', '..', 'claude-code-plugin');
 const MANIFEST = path.join(PLUGIN_DIR, 'tool-manifest.json');
 const OUTPUT = path.join(PLUGIN_DIR, 'hooks', 'session-start.txt');
 
+const SERVER_KEY = 'spreadsheets';
+const TOOL_PREFIX = `mcp__plugin_xlsx-for-ai_${SERVER_KEY}__`;
+
 function allTools(manifest) {
   return manifest.groups.flatMap((g) => g.tools);
 }
@@ -33,9 +36,9 @@ function generate(manifest) {
   lines.push('4. Only if those fail: show the user the upload page link from xlsx_upload_link and ask them to drop the file there.');
   lines.push('Never base64-encode a workbook into a tool argument and never pass a local file path. Every tool that makes a file returns a download link in its result; show it to the user.');
   lines.push('');
-  lines.push('If the xlsx-for-ai tools are not available yet, the connection needs a one-time sign-in: ask the user to run /mcp, pick the xlsx-for-ai server and sign in. Say so; do not fall back to reading the file locally without telling the user.');
+  lines.push('If the xlsx-for-ai tools are not available yet, the connection needs a one-time sign-in: ask the user to run /mcp, pick the spreadsheets server (plugin:xlsx-for-ai:spreadsheets) and sign in. Say so; do not fall back to reading the file locally without telling the user.');
   lines.push('');
-  lines.push(`All ${count} tools (call by exact name; they appear as mcp__plugin_xlsx-for-ai_spreadsheets__<name>):`);
+  lines.push(`All ${count} tools (call by exact name; they appear as ${TOOL_PREFIX}<name>):`);
   for (const group of manifest.groups) {
     lines.push('');
     lines.push(`${group.title}:`);
@@ -64,4 +67,4 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { generate, allTools, MANIFEST, OUTPUT };
+module.exports = { generate, allTools, MANIFEST, OUTPUT, SERVER_KEY, TOOL_PREFIX };
