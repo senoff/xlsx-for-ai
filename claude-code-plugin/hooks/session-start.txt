@@ -11,7 +11,7 @@ Never base64-encode a workbook into a tool argument and never pass a local file 
 
 If the xlsx-for-ai tools are not available yet, the connection needs a one-time sign-in: ask the user to run /mcp, pick the xlsx-for-ai server and sign in. Say so; do not fall back to reading the file locally without telling the user.
 
-All 69 tools (call by exact name; they appear as mcp__plugin_xlsx-for-ai_xlsx-for-ai__<name>):
+All 69 tools (call by exact name; they appear as mcp__plugin_xlsx-for-ai_spreadsheets__<name>):
 
 Hand a file over:
 - xlsx_upload_link: one-time upload URL for a local file; returns a file_handle for every other tool

@@ -35,7 +35,7 @@ function generate(manifest) {
   lines.push('');
   lines.push('If the xlsx-for-ai tools are not available yet, the connection needs a one-time sign-in: ask the user to run /mcp, pick the xlsx-for-ai server and sign in. Say so; do not fall back to reading the file locally without telling the user.');
   lines.push('');
-  lines.push(`All ${count} tools (call by exact name; they appear as mcp__plugin_xlsx-for-ai_xlsx-for-ai__<name>):`);
+  lines.push(`All ${count} tools (call by exact name; they appear as mcp__plugin_xlsx-for-ai_spreadsheets__<name>):`);
   for (const group of manifest.groups) {
     lines.push('');
     lines.push(`${group.title}:`);
