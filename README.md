@@ -14,7 +14,7 @@ xlsx-for-ai makes Claude reliable on real-world Excel files. Forty-plus tools co
 npm install -g xlsx-for-ai
 ```
 
-The global install puts the `xlsx-for-ai-mcp` binary on your PATH — that's what the canonical configs below point at. A pinned global install launches fast and works offline; upgrade with `npm install -g xlsx-for-ai@latest` when a new version ships.
+The global install puts the `xlsx-for-ai-mcp` binary on your PATH — that's what the canonical configs below point at. A pinned global install launches fast (it still needs an internet connection, because the files are read by the hosted service); upgrade with `npm install -g xlsx-for-ai@latest` when a new version ships.
 
 > **Upgrading from 1.5.x?** This is a re-architecture, not a feature bump: the heavy local engine is gone from the npm package. All rendering happens server-side. The `cursor-reads-xlsx` alias still works. See [Migration](#migration-from-15x) below.
 
@@ -131,7 +131,7 @@ For custom MCP clients, the binary is `xlsx-for-ai-mcp` (stdio transport). Overr
 
 ### Using the raw HTTP API
 
-The MCP client is the easy path, but every tool is also a plain HTTP endpoint you can call from any language — no SDK required. Sign in with the OAuth device flow (RFC 8628) at `https://api.xlsx-for-ai.dev/oauth` (`/oauth/reg`, `/oauth/device/auth`, `/oauth/token`, with `resource=https://api.xlsx-for-ai.dev/mcp`), then `POST https://api.xlsx-for-ai.dev/api/v1/clients` with `Authorization: Bearer <access token>` returns `{ client_id, api_key }`. Call any tool with `Authorization: Bearer <api_key>`. Anonymous keys from earlier versions still work during the transition. The free tier is **10,000 calls/month, 10 MB per file** — no billing.
+The MCP client is the easy path, but every tool is also a plain HTTP endpoint you can call from any language — no SDK required. Sign in with the OAuth device flow (RFC 8628) at `https://api.xlsx-for-ai.dev/oauth` (`/oauth/reg`, `/oauth/device/auth`, `/oauth/token`, with `resource=https://api.xlsx-for-ai.dev/mcp`), then `POST https://api.xlsx-for-ai.dev/api/v1/clients` with `Authorization: Bearer <access token>` returns `{ client_id, api_key }`. Call any tool with `Authorization: Bearer <api_key>`. Anonymous keys from earlier versions still work during the transition. See [What it costs](#what-it-costs) for the limits.
 
 ```bash
 # Legacy keyless registration (still accepted during the transition; new integrations
@@ -153,9 +153,9 @@ header = "Authorization: Bearer $KEY"
 CFG
 ```
 
-The free tier caps files at 10 MB; larger workbooks and higher volume come back as a typed JSON error with an `upgrade` field (see below).
+Files that are too large, and requests over your limit, come back as a typed JSON error with an `upgrade` field where a plan would help (see below).
 
-Beyond the free tier, rate-limited and oversize requests come back as a typed JSON error (`{ "error": { "code", "message" } }`) carrying an `upgrade` field with your options — see `GET /api/v1/reference` for the full contract.
+Rate-limited, over-limit and oversize requests come back as a typed JSON error (`{ "error": { "code", "message" } }`) carrying an `upgrade` field with your options — see `GET /api/v1/reference` for the full contract.
 
 Every error body is exactly that shape: `error.code` is the stable, machine-readable key to branch on, and `error.message` is the self-correcting detail that says what was wrong and what to change. A few codes add a documented extra field (for example `available_sheets` on a sheet-not-found refusal, or `upgrade` on a paywall refusal), but there is no finer error-subtype field on the wire; the server keeps a finer attribution for its own audit only.
 
@@ -424,7 +424,7 @@ These workflows are the reason tool descriptions are FP&A-legible: when a develo
 
 ## Privacy
 
-Files are transmitted to `https://api.xlsx-for-ai.dev` over HTTPS and processed in memory. Files are not persisted beyond the duration of a single request. Sign-in is by email link or Google; the address is used only to identify your account, and no password is stored.
+Files are transmitted to `https://api.xlsx-for-ai.dev` over HTTPS and processed in memory. Files are not persisted beyond the duration of a single request. Sign-in is with a Google account; the address is used only to identify your account, and no password is stored.
 
 See [PRIVACY.md](PRIVACY.md) for the full data-handling policy.
 
@@ -432,7 +432,7 @@ See [PRIVACY.md](PRIVACY.md) for the full data-handling policy.
 
 ## What it costs
 
-Free. All 50 tools, no paid tiers. No credit card — sign in once on first use (a link and code in your editor, or `xlsx-for-ai login` in a terminal). A volume cap (10,000 calls/month) keeps the hosted API healthy; that's the only limit.
+All the tools are included. You sign in once on first use (a link and code in your editor, or `xlsx-for-ai login` in a terminal). The first 1,000 people to sign in get 500 free files a month. After those places are taken, a new account gets a 10-file trial, and then a plan is $25 a year and covers 10,000 files a month. File-size limits are the same on every plan. The service shows these limits in its own messages when you reach them.
 
 ---
 
@@ -462,13 +462,23 @@ agent (Claude Code / Cursor / Continue / Zed / Windsurf / custom)
 xlsx-for-ai login
 ```
 
-Prints a link and a short code. Open the link in any browser, sign in (email link or Google), approve, and the CLI stores your key in `~/.xlsx-for-ai/config.json`. Running any command with no stored key in an interactive terminal starts the same flow automatically. `xlsx-for-ai login --force` signs in again.
+Prints a link and a short code. Open the link in any browser, sign in with Google, approve, and the CLI stores your key in `~/.xlsx-for-ai/config.json`. Running any command with no stored key in an interactive terminal starts the same flow automatically. `xlsx-for-ai login --force` signs in again.
 
 **Using it from an editor or desktop app (no terminal).** You do not need to run anything first. The first time you ask the assistant to use a spreadsheet tool, it replies with a sign-in link and a short code instead of an answer. Open the link in a browser, check the code matches, and approve. Then ask again: the request works, with no restart. If you ask again before approving, you get the same link and code. If the link runs out (about 15 minutes) or you decline it, the next request gives you a fresh one.
 
-In CI, and in a command-line run where you have set `XFA_NONINTERACTIVE=1`, there is nothing to click, so the command stops with `not signed in. Run xlsx-for-ai login`: sign in once on that machine (or copy the config) first.
+**A terminal command with no screen to answer on** (for example a script, or a command run by another program). The command prints the link and code to the error stream and waits up to 60 seconds for you to approve. Approve in time and it carries on with your request. If you do not, it stops and tells you to approve and then run the same command again. The second run picks up the same code, so there is nothing new to copy, and it finishes at once if you have approved in the meantime. To change the wait, set `XFA_LOGIN_WAIT_SECONDS` (for example `XFA_LOGIN_WAIT_SECONDS=120`).
 
-Keys minted by versions before 4.1.0 keep working, and the server marks their responses with a sunset notice naming the cutoff date and this login step.
+In automated runs (CI), and in any run where you set `XFA_NONINTERACTIVE=1`, nothing waits. The command stops straight away with `not signed in. Run xlsx-for-ai login`: sign in once on that machine (or copy the config) first.
+
+**If the saved key is rejected.** In an editor or desktop app, the next request shows a fresh sign-in link and keeps your saved key until you approve the new one. In a terminal, run `xlsx-for-ai login --force`.
+
+**Messages you may see.** When you hit a usage limit, the message comes from the service itself. A 402 gives its message and a link to upgrade, and a 429 gives its message and when to try again. A 501 means that feature is not built yet, so trying again will not help.
+
+**Links are not files.** This package reads files saved on your computer only. If you give it a web link or a Google Sheets link instead of a file path, it says so. Download the file and give its path, or use the hosted xlsx-for-ai connector, which can open links directly.
+
+**Running in Docker.** The image no longer skips sign-in. The first request prints a sign-in link and code. Your key is stored in the container at `/home/node/.xlsx-for-ai`, so mount a volume there to keep it between runs, for example `-v xfa-config:/home/node/.xlsx-for-ai`.
+
+Keys minted by versions before 4.1.0 keep working, and the server marks their responses with a notice recommending this login step.
 
 ## Config
 

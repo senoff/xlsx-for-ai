@@ -14,12 +14,12 @@ const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio
 const { CallToolRequestSchema, ListToolsRequestSchema } = require('@modelcontextprotocol/sdk/types.js');
 
 const { ensureRegistered } = require('./lib/register');
-const { checkSignIn, signInMessage } = require('./lib/mcp-signin');
+const { checkSignIn, signInMessage, offerSignInAfterRejection, failureSentence } = require('./lib/mcp-signin');
 const { callTool, setMcpClientInfo } = require('./lib/client');
 const { resolveCatalog }   = require('./lib/discover');
 const { applyAnnotations, sanitizeForMcp } = require('./lib/annotations');
-const { surface4xx } = require('./lib/inline-4xx');
-const { readFileToBase64 } = require('./lib/read-file');
+const { surface4xx, surface5xx } = require('./lib/inline-4xx');
+const { readFileToBase64, LINK_NOT_SUPPORTED_MESSAGE } = require('./lib/read-file');
 const fs                   = require('fs');
 const fsPromises           = require('fs/promises');
 const os                   = require('os');
@@ -1380,14 +1380,23 @@ function friendlyErrorMessage(toolName, err) {
       return `${toolName}: file path is not a regular file.`;
     case 'MISSING_TOKEN':
       return `${toolName}: required token env var is not set (see tool docs for which one).`;
+    case 'LINK_NOT_SUPPORTED':
+      return `${toolName}: ${LINK_NOT_SUPPORTED_MESSAGE}`;
+    // These two are shown inside an app or editor with no terminal, so neither
+    // may send the person to one.
     case 'LOGIN_FAILED':
-      return `${toolName}: sign-in failed. Run \`xlsx-for-ai login\` in a terminal to try again.`;
+      // Say what actually happened when it is known (declined, ran out, key not
+      // made or not saved); an unreachable service keeps the plain retry line.
+      if (err && ['declined', 'expired', 'not_issued', 'not_saved', 'failed'].includes(err.reason)) {
+        return `${toolName}: ${failureSentence(err)} Ask again and a new sign-in link will be shown.`;
+      }
+      return `${toolName}: the sign-in service did not answer. Please try again in a minute.`;
     case 'LOGIN_REQUIRED':
-      return `${toolName}: not signed in. Run \`xlsx-for-ai login\` in a terminal, then retry.`;
+      return `${toolName}: you need to sign in first. Ask again and a sign-in link will be shown.`;
     case 'API_UNREACHABLE':
       return `${toolName}: API is unreachable — check network connectivity.`;
     case 'RATE_LIMITED':
-      return `${toolName}: monthly request cap reached — resets next month.`;
+      return surface4xx(toolName, { status: 429, payload: err && err.payload, message: err && err.message });
     case 'BASE64_MISREAD':
       // SPM SPEC base64-defensive-error-and-suggested-next-call — turn the
       // base64-bash-hang class into a one-turn recovery. The error names
@@ -1426,7 +1435,7 @@ function friendlyErrorMessage(toolName, err) {
 
   // 5xx and everything else — stay generic. Security boundary preserved.
   if (code === 'API_SERVER_ERROR') {
-    return `${toolName}: API returned a server error — retry shortly.`;
+    return surface5xx(toolName, err);
   }
   return `${toolName} failed — see server-side logs (request_id in response _meta) for details.`;
 }
@@ -2085,7 +2094,18 @@ async function main() {
       const result = await dispatchTool(name, args || {});
       // Pass API response through verbatim (citation footer + _meta preserved)
       return result;
-    } catch (err) {
+    } catch (caught) {
+      let err = caught;
+      // The server turned down the stored key (401). Offer a fresh sign-in link
+      // on this same request. The stored key stays until a new one is saved.
+      if (err && err.code === 'API_CLIENT_ERROR' && Number(err.status) === 401) {
+        try {
+          const again = await offerSignInAfterRejection();
+          if (again) return { content: [{ type: 'text', text: signInMessage(again) }] };
+        } catch (signInErr) {
+          err = signInErr;
+        }
+      }
       // Error message sanitization at the MCP boundary. Raw err.message
       // can leak absolute file paths (FILE_NOT_FOUND), upstream server
       // error stacks (any thrown Error inside dispatchTool), and upstream
@@ -2161,7 +2181,8 @@ async function upgradeCatalogInBackground(server, swap) {
   const CATALOG_TIMEOUT_MS = 8_000;
 
   try {
-    await withTimeout(ensureRegistered(), REGISTRATION_TIMEOUT_MS, 'registration');
+    // signIn: false. Start-up never begins a sign-in; the first tool call does.
+    await withTimeout(ensureRegistered({ signIn: false }), REGISTRATION_TIMEOUT_MS, 'registration');
   } catch (err) {
     process.stderr.write(`xlsx-for-ai-mcp: registration deferred (${err.message})\n`);
   }

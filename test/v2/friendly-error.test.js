@@ -94,16 +94,17 @@ test('5xx stays generic (discriminating case — security boundary preserved)', 
     `5xx should return the generic server-error friendly text; got ${out}`);
 });
 
-test('429 rate-limit keeps its specific friendly text (ordering check)', () => {
+test('B1-19: 429 shows the server\'s own reason and wait, not a fixed monthly-cap line', () => {
   const err = buildClientErr({
     status: 429,
-    payload: { error: { code: 'rate_limit_exceeded', message: 'monthly limit reached' } },
+    payload: { error: { code: 'rate_limit_exceeded', message: 'Too many requests from this IP; slow down.', retry_after_seconds: 7 } },
   });
   const out = friendlyErrorMessage('xlsx_read', err);
-  assert.ok(out.includes('monthly request cap reached'),
-    `429 should map to RATE_LIMITED friendly text; got ${out}`);
-  assert.ok(!out.includes('pricing'),
-    `429 friendly text must NOT reference pricing; got ${out}`);
+  assert.ok(out.includes('Too many requests from this IP; slow down.'),
+    `429 should show the server's message; got ${out}`);
+  assert.ok(out.includes('7 seconds'), `429 should show how long to wait; got ${out}`);
+  assert.ok(!out.includes('monthly request cap') && !out.includes('next month'),
+    `a short limit must not be called a monthly cap; got ${out}`);
 });
 
 test('pre-existing client-side codes still hit their dedicated case', () => {

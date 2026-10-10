@@ -9,6 +9,45 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 
 ## [Unreleased]
 
+## [4.2.2]
+
+### Fixed
+
+- **A terminal command with no screen to answer on no longer dead-ends.** With
+  no key and no automated-run flag, the command prints the sign-in link and
+  code to stderr and waits up to 60 seconds (`XFA_LOGIN_WAIT_SECONDS` changes
+  this). If you approve in time it carries on. If not, it exits non-zero and
+  says to approve and run the same command again; the saved request means the
+  rerun uses the same code and finishes at once if you have approved.
+  `XFA_NONINTERACTIVE=1` keeps the immediate stop. The saved request is its
+  own small file (`pending-login.json`, beside `config.json`), so it never
+  touches the stored key. Two commands started together each show their own
+  code; approving either signs you in. If the config folder cannot be written,
+  the command says so and stops before asking you to approve anything.
+- `XFA_DEBUG=1` now masks tokens, keys, emails and file paths in its `Raw:`
+  line.
+- Usage-limit messages now show what the service said. A 402 shows its message
+  and upgrade link; a 429 shows its message and when to retry. A fallback is
+  used only when the service sent no message.
+- A 501 now reads "not supported yet, trying again will not help" instead of
+  "retry shortly".
+- In an editor or desktop app, a declined, failed or unsaved sign-in is
+  explained on the next request before the fresh link. If the sign-in service
+  does not answer, the message says so in plain words with no mention of a
+  terminal.
+- A saved key the service rejects (401) now offers a fresh sign-in link in an
+  editor or app, without deleting the saved key. In a terminal the message
+  names `xlsx-for-ai login --force`.
+- A web link or Google Sheets link given as a file path now says this tool
+  reads local files only and what to do instead, not "File not found".
+
+### Changed
+
+- The Docker image no longer sets `XLSX_FOR_AI_CI=1` for the running
+  container. The first request prints a sign-in link and code; mount a volume
+  at `/home/node/.xlsx-for-ai` to keep the sign-in between runs.
+- README updated to match, including the cost section.
+
 ## [4.2.1]
 
 ### Fixed
