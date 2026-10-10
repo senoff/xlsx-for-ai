@@ -38,4 +38,8 @@ The full list with one line each is in the session-start text. Every tool that m
 
 ## If the tools are missing
 
-The connection needs a one-time sign-in. Ask the user to run `/mcp`, choose the xlsx-for-ai server and sign in in the browser. Tell the user this; do not quietly fall back to reading the file locally.
+The connection needs a one-time sign-in. Ask the user to run `/mcp`, choose the spreadsheets server (`plugin:xlsx-for-ai:spreadsheets`) and sign in with Google in the browser. Tell the user this; do not quietly fall back to reading the file locally.
+
+## Limits
+
+.xlsx up to 100MB, .xls up to 100MB, .csv up to 200MB, the same on every plan. A file over its limit errors explicitly.

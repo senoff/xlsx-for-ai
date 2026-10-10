@@ -13,13 +13,15 @@ const { Server }            = require('@modelcontextprotocol/sdk/server/index.js
 const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
 const { CallToolRequestSchema, ListToolsRequestSchema } = require('@modelcontextprotocol/sdk/types.js');
 
-const { ensureRegistered } = require('./lib/register');
+const { ensureRegistered, isCiEnvironment } = require('./lib/register');
 const { checkSignIn, signInMessage, offerSignInAfterRejection, failureSentence } = require('./lib/mcp-signin');
-const { callTool, setMcpClientInfo } = require('./lib/client');
+const { callTool, setMcpClientInfo, sunsetSignal } = require('./lib/client');
 const { resolveCatalog }   = require('./lib/discover');
 const { applyAnnotations, sanitizeForMcp } = require('./lib/annotations');
-const { surface4xx, surface5xx } = require('./lib/inline-4xx');
-const { readFileToBase64, LINK_NOT_SUPPORTED_MESSAGE } = require('./lib/read-file');
+const { surface4xx, surface5xx, scrubSensitive, AUTOMATED_RUN_KEY_MESSAGE } = require('./lib/inline-4xx');
+const { readFileToBase64, LINK_NOT_SUPPORTED_MESSAGE, fileTooLargeSentence } = require('./lib/read-file');
+const { SUNSET_NOTICE_MCP, appendNotice } = require('./lib/notices');
+const { updateNotice } = require('./lib/auto-upgrade');
 const fs                   = require('fs');
 const fsPromises           = require('fs/promises');
 const os                   = require('os');
@@ -574,7 +576,7 @@ const TOOLS = [
       'soundness check on a LOCAL .xlsx file — parses the workbook with the server\'s own OOXML engine and reports whether it loads cleanly (truncated zip, encrypted container, no worksheets, or a damaged sheet body each fail), with a per-sheet structural summary.\n' +
       'Lenient readers silently turn a damaged workbook into an empty-but-valid one; xlsx_validate makes that judgment explicit.\n\n' +
       'USE WHEN: the user is about to send the workbook downstream for analysis or as an authoritative source — pre-flight check. Or for audit / regression testing across engine versions. ' +
-      'Free tier — counts against the 10k/mo cap.\n\n' +
+      'Counts as one file toward your monthly allowance.\n\n' +
       'DO NOT USE WHEN: a casual read suffices (use xlsx_read). Or for upload/attached files.',
     inputSchema: {
       type: 'object',
@@ -591,7 +593,7 @@ const TOOLS = [
       'list every cell-level data validation rule (dropdowns, numeric/date bounds, text-length caps, custom formulas) defined in a workbook — the constraints that Excel enforces when a human types into the cell.\n' +
       'No other tool can do this: pandas drops validations entirely on read; openpyxl exposes them but only on a per-cell loop; this surfaces them in one shot with target cells, formulae, error messages, and prompt text.\n\n' +
       'USE WHEN: auditing a form / data-entry workbook to know what inputs are legal. Or extracting a dropdown list for use elsewhere. Or generating fixtures that match the validation contract. ' +
-      'Free tier — counts against the 10k/mo cap.\n\n' +
+      'Counts as one file toward your monthly allowance.\n\n' +
       'DO NOT USE WHEN: just trying to read values (use xlsx_read). Or trying to enforce validations on write (xlsx_write does not write validations).',
     inputSchema: {
       type: 'object',
@@ -609,7 +611,7 @@ const TOOLS = [
       'list every hyperlink in a workbook with its anchor cell, target URL/anchor, display text, tooltip, and a kind classifier (external / internal / mailto / unknown).\n' +
       'No other tool can do this: pandas drops hyperlinks on read entirely; openpyxl gives raw access but does not classify or aggregate; this surfaces all links plus a per-kind tally for instant audit.\n\n' +
       'USE WHEN: security-auditing a workbook before opening it (what URLs does it point at?). Or extracting a reference list of URLs from a financial model / dashboard. Or finding mailto links for a contact-list workbook. ' +
-      'Free tier — counts against the 10k/mo cap.\n\n' +
+      'Counts as one file toward your monthly allowance.\n\n' +
       'DO NOT USE WHEN: trying to follow / fetch the targets (this tool does not fetch — by design, for safety). Or just reading cell text (use xlsx_read).',
     inputSchema: {
       type: 'object',
@@ -627,7 +629,7 @@ const TOOLS = [
       'one-call workbook orientation. Returns sheets × dimensions × formulas × named ranges × tables × validations × hyperlinks × merges in one shot, plus feature flags (macros / external refs / pivots / LAMBDA / dynamic arrays).\n' +
       'No other tool can do this: pandas gives you a frame per sheet but no structure; openpyxl makes you fan out across 6+ object trees to learn the same thing; this is the "what is in this workbook?" call you make first to decide which other tool to call next.\n\n' +
       'USE WHEN: an agent has just been handed a workbook and needs to orient before drilling in. Or surveying many workbooks for triage / index. Or auditing whether a workbook is "interesting" (formulas? macros? external refs?). ' +
-      'Free tier — counts against the 10k/mo cap.\n\n' +
+      'Counts as one file toward your monthly allowance.\n\n' +
       'DO NOT USE WHEN: you already know the sheet you want and just want its data (use xlsx_read or xlsx_describe).',
     inputSchema: {
       type: 'object',
@@ -644,7 +646,7 @@ const TOOLS = [
       'list every conditional formatting rule in a workbook — color scales, data bars, icon sets, formula-based highlights, top-N, duplicate / unique values, contains-text, time-period, above-average. Per rule: range, type, operator, formulae, priority, stopIfTrue.\n' +
       'No other tool can do this: pandas drops conditional formatting on read entirely; openpyxl exposes the raw CF objects but offers no rollup or classification. This surfaces every rule plus a per-type tally so an agent can answer "does this workbook use color scales?" without scanning every row.\n\n' +
       'USE WHEN: auditing a dashboard / financial model to know what visual cues a human would see. Or extracting business rules embedded as CF (e.g. "row turns red when col C > 1000" — the rule IS the spec). Or generating fixtures that match a workbook\'s CF semantics. ' +
-      'Free tier — counts against the 10k/mo cap.\n\n' +
+      'Counts as one file toward your monthly allowance.\n\n' +
       'DO NOT USE WHEN: you only care about cell values (use xlsx_read). Or you want to re-apply CF rules to a NEW workbook (xlsx_write does not write CF rules).',
     inputSchema: {
       type: 'object',
@@ -662,7 +664,7 @@ const TOOLS = [
       'list every cell comment in a workbook — both legacy notes (yellow stickies, cell.note) AND modern threaded comments (multi-author conversations stored separately in the OOXML zip). Per entry: kind, sheet, cell, author, text, plus any reply thread.\n' +
       'No other tool can do this: pandas drops both comment systems on read entirely; openpyxl reads only legacy notes (not threaded comments). xlsx_comments reads both, maps personId → display name via xl/persons/person.xml, and folds reply chains into each root comment.\n\n' +
       'USE WHEN: extracting reviewer feedback / approval threads from a spreadsheet (this is where humans hide intent). Or auditing a workbook for hidden context the values themselves don\'t carry. Or building a "show me everywhere finance flagged something" report. ' +
-      'Free tier — counts against the 10k/mo cap.\n\n' +
+      'Counts as one file toward your monthly allowance.\n\n' +
       'DO NOT USE WHEN: just reading values (use xlsx_read). Or trying to ADD comments to a workbook (xlsx_write does not write comments).',
     inputSchema: {
       type: 'object',
@@ -696,7 +698,7 @@ const TOOLS = [
       'list every form control (Check Box, Button, Drop-down, List Box, Option Button, Scroll Bar, Spinner, Label, Group Box) in a workbook with the linked cell, current value, dropdown source range, and min/max/step bounds where applicable.\n' +
       'No other tool gives this in a single call: ExcelJS doesn\'t expose form controls; pandas drops them entirely; openpyxl support is partial. xlsx_form_controls reads xl/ctrlProps/ctrlProp*.xml directly + maps to sheets via the rel chain.\n\n' +
       'USE WHEN: documenting a survey workbook, scoring rubric, dashboard, or forms-as-spreadsheets template where the interactive UI carries semantic meaning. Or auditing a workbook to find which cells human users can change via a control vs. by direct typing. ' +
-      'Free tier — counts against the 10k/mo cap.\n\n' +
+      'Counts as one file toward your monthly allowance.\n\n' +
       'DO NOT USE WHEN: just reading values (use xlsx_read).',
     inputSchema: {
       type: 'object',
@@ -730,7 +732,7 @@ const TOOLS = [
       'list every merged-cell region with master-cell value, range, span dimensions, and kind heuristic ("header" / "horizontal" / "vertical" / "block"). Pandas reads merged cells by dropping the relationship — it sees one value in the master cell and three blanks alongside. xlsx_merged_cells is the layout-aware view: "A1:D1 is ONE cell that says Q4 2024" rather than four cells where three are mysteriously empty.\n' +
       'No other tool surfaces merges with master values rolled in: pandas drops merge metadata; openpyxl exposes ranges but not the master value alongside.\n\n' +
       'USE WHEN: parsing report templates, dashboards, or form workbooks where merges encode visual hierarchy (section titles, sub-headers, banner rows). Or auditing a workbook for accidental merges that distort downstream pandas reads. ' +
-      'Free tier — counts against the 10k/mo cap.\n\n' +
+      'Counts as one file toward your monthly allowance.\n\n' +
       'DO NOT USE WHEN: you only need cell values and don\'t care about visual structure (use xlsx_read).',
     inputSchema: {
       type: 'object',
@@ -765,7 +767,7 @@ const TOOLS = [
       'surface "what would Excel print right now" per worksheet — print area, orientation, paper size (A4 / Letter / Legal / Tabloid / etc.), scale or fitToPage, margins, headers/footers split into Excel\'s L/C/R zones, print titles (rows / columns repeated on every page), manual page breaks, plus B&W / draft / centered flags.\n' +
       'No other tool can do this rolled-up: pandas drops every bit of print configuration; openpyxl exposes it but in nested object form. xlsx_print_settings is the "if a human hits Cmd+P, what comes out?" answer.\n\n' +
       'USE WHEN: about to PDF / print a workbook and want to know what it\'ll look like before doing it. Or auditing a financial / regulatory report\'s print configuration (legal sometimes cares about page-1 headers). Or extracting the print-titles row a complex workbook uses for repeating headers. ' +
-      'Free tier — counts against the 10k/mo cap.\n\n' +
+      'Counts as one file toward your monthly allowance.\n\n' +
       'DO NOT USE WHEN: just reading values (use xlsx_read).',
     inputSchema: {
       type: 'object',
@@ -799,7 +801,7 @@ const TOOLS = [
       'list every external workbook reference this file depends on — `=[Budget.xlsx]Sheet1!A1` style formulas. Per link: target path (decoded), classification (http / network share / absolute / relative), sheets pulled from the external workbook, count of cached cell values, and defined-name references.\n' +
       'No other tool can do this consistently: pandas, openpyxl, and ExcelJS all surface external links partially or inconsistently. xlsx_external_links reads xl/externalLinks/*.xml directly and warns when targets are absolute paths or network shares — those break the moment the workbook moves elsewhere.\n\n' +
       'USE WHEN: about to send a workbook somewhere and want to know if its formulas will break (broken external refs are a top-3 silent corruption mode in finance workflows). Or auditing for accidentally-leaked file paths to internal network shares. Or doing dependency analysis on a model. ' +
-      'Free tier — counts against the 10k/mo cap.\n\n' +
+      'Counts as one file toward your monthly allowance.\n\n' +
       'DO NOT USE WHEN: just reading values (use xlsx_read).',
     inputSchema: {
       type: 'object',
@@ -900,7 +902,7 @@ const TOOLS = [
       'surface cell formatting (number formats, fonts, fills, alignment) so an agent knows what a cell LOOKS like, not just its raw value. Default mode: per-sheet rollup of top-N number formats / fonts / fills with counts. Detailed mode (opt-in, capped at 1000 cells): per-cell breakdown for narrow queries.\n' +
       'No other tool can do this with this fidelity: pandas drops styles on read entirely. The single most valuable slice is number formats — pandas hands an LLM "45292" and the cell rendered as "2024-01-01" because format was "yyyy-mm-dd". xlsx_styles is what makes that recoverable.\n\n' +
       'USE WHEN: an LLM is about to interpret raw numbers (date serials, currency, percents, scientific notation) and you want the format hint that tells it what those numbers MEAN to a human. Or auditing a dashboard\'s typography. Or fingerprinting a template. ' +
-      'Free tier — counts against the 10k/mo cap.\n\n' +
+      'Counts as one file toward your monthly allowance.\n\n' +
       'DO NOT USE WHEN: you only need the data (use xlsx_read which already includes basic numFmt hints in the output).',
     inputSchema: {
       type: 'object',
@@ -921,7 +923,7 @@ const TOOLS = [
       'Alternatively pass slack_token as a tool argument (legacy; token will appear in MCP conversation history).\n' +
       'Posts via Slack\'s 3-step external upload flow (files.getUploadURLExternal → upload → files.completeUploadExternal), which is the only sanctioned path as of 2024+.\n\n' +
       'USE WHEN: the user asks "post this workbook to #channel," "share this with the team in Slack," or any other outbound-file-to-Slack request. The agent has just produced or modified a workbook and wants to deliver it. ' +
-      'Free tier — counts against the 10k/mo cap.\n\n' +
+      'Counts as one file toward your monthly allowance.\n\n' +
       'DO NOT USE WHEN: the file lives in a Slack channel and you want to READ it (that\'s the inbound Manual-Mode-Detector pattern, not this). Or when no Slack bot token is available — the user must have installed a Slack app with files:write scope.',
     inputSchema: {
       type: 'object',
@@ -1373,7 +1375,7 @@ function friendlyErrorMessage(toolName, err) {
     case 'SYMLINK_REJECTED':
       return `${toolName}: file path resolves through a symlink — provide a direct path.`;
     case 'FILE_TOO_LARGE':
-      return `${toolName}: file exceeds the XFA_MAX_FILE_MB cap (default 50 MB).`;
+      return `${toolName}: ${fileTooLargeSentence(err)}`;
     case 'FILE_NOT_FOUND':
       return `${toolName}: file not found at the supplied path.`;
     case 'NOT_REGULAR_FILE':
@@ -1387,6 +1389,8 @@ function friendlyErrorMessage(toolName, err) {
     case 'LOGIN_FAILED':
       // Say what actually happened when it is known (declined, ran out, key not
       // made or not saved); an unreachable service keeps the plain retry line.
+      // A refused request (a 4xx) will not change on a retry, so it does not say "ask again".
+      if (err && err.reason === 'refused') return `${toolName}: ${failureSentence(err)}`;
       if (err && ['declined', 'expired', 'not_issued', 'not_saved', 'failed'].includes(err.reason)) {
         return `${toolName}: ${failureSentence(err)} Ask again and a new sign-in link will be shown.`;
       }
@@ -1426,6 +1430,10 @@ function friendlyErrorMessage(toolName, err) {
   // Known specific HTTP statuses are mapped first so they keep their
   // short curated text:
   if (code === 'API_CLIENT_ERROR') {
+    // An automated run has no person to sign in: say what it needs (B2-8).
+    if (Number(err.status) === 401 && isCiEnvironment()) {
+      return `${toolName}: ${AUTOMATED_RUN_KEY_MESSAGE}`;
+    }
     // Shared 4xx surfacer (curated 429/402 first, then the sanitized
     // server message, then a graceful fallback) — see ./lib/inline-4xx.js.
     // The CLI path calls the identical function so the two surfaces can't
@@ -1437,8 +1445,14 @@ function friendlyErrorMessage(toolName, err) {
   if (code === 'API_SERVER_ERROR') {
     return surface5xx(toolName, err);
   }
-  return `${toolName} failed — see server-side logs (request_id in response _meta) for details.`;
+  // Nothing here can say more without risking a file path or server detail, and
+  // the person cannot see any log, so say what happened and what to try next.
+  return `${toolName}: something went wrong while handling this request on this computer. ` +
+    'Please try the same request again. If it fails again, restart this app and try once more, ' +
+    `and if it still fails report it at ${ISSUES_URL} with the time it happened.`;
 }
+
+const ISSUES_URL = 'https://github.com/senoff/xlsx-for-ai/issues';
 
 // ---------------------------------------------------------------------------
 // Tool dispatch
@@ -1983,13 +1997,22 @@ async function dispatchTool(name, args) {
   // nothing the caller could act on. The live catalog ADVERTISED those tools the whole
   // time. A tool the catalog offers and the relay can never dispatch is the same defect
   // in product form: it looks present, it cannot work, and nothing announces it.
-  const body = {
-    file_b64: args.file_b64 !== undefined ? args.file_b64 : fileToB64(args.file_path),
-    options: { ...(args.options || {}), ...opts },
-  };
-  // Bytes-in tools carry the original name for their prose/_meta; a path-in tool has no
-  // `filename` arg, so this is a no-op there rather than a new key on every relay.
-  if (args.filename !== undefined) body.filename = args.filename;
+  let body;
+  if (args.file_b64 === undefined && (args.file_path === undefined || args.file_path === null)) {
+    // A tool the service lists that takes no file at all (or takes its input some
+    // other way): send the arguments exactly as given and let the service answer.
+    // Reading a file here would fail before any request, with no reason a person
+    // could use (B1-24).
+    body = { ...args, options: { ...(args.options || {}), ...opts } };
+  } else {
+    body = {
+      file_b64: args.file_b64 !== undefined ? args.file_b64 : fileToB64(args.file_path),
+      options: { ...(args.options || {}), ...opts },
+    };
+    // Bytes-in tools carry the original name for their prose/_meta; a path-in tool has no
+    // `filename` arg, so this is a no-op there rather than a new key on every relay.
+    if (args.filename !== undefined) body.filename = args.filename;
+  }
   const result = await callTool(name, body);
 
   // Triage tools that mention follow-on tools in their findings get a
@@ -2003,6 +2026,27 @@ async function dispatchTool(name, args) {
 // ---------------------------------------------------------------------------
 // Server setup
 // ---------------------------------------------------------------------------
+
+// Notices that ride on a tool result, each shown once per run of the server:
+//   - the service has said the kind of key in use will stop working (B1-27);
+//   - this copy is out of date and could not update itself (B3-6).
+const noticesShown = { sunset: false, update: false };
+function withNotices(result) {
+  let out = result;
+  if (!noticesShown.sunset && sunsetSignal()) {
+    noticesShown.sunset = true;
+    out = appendNotice(out, SUNSET_NOTICE_MCP);
+  }
+  if (!noticesShown.update) {
+    let text = '';
+    try { text = updateNotice(require('./package.json').version); } catch (_) { /* no notice */ }
+    if (text) {
+      noticesShown.update = true;
+      out = appendNotice(out, text);
+    }
+  }
+  return out;
+}
 
 async function main() {
   // Swallow EPIPE on the transport. When the client disconnects while a
@@ -2092,10 +2136,17 @@ async function main() {
         return { content: [{ type: 'text', text: signInMessage(signIn) }] };
       }
       const result = await dispatchTool(name, args || {});
-      // Pass API response through verbatim (citation footer + _meta preserved)
-      return result;
+      // Pass API response through verbatim (citation footer + _meta preserved);
+      // a notice the person needs, if any, rides along as one more text block.
+      return withNotices(result);
     } catch (caught) {
       let err = caught;
+      if (!(err && err.code === 'API_CLIENT_ERROR')) {
+        // A host shows no stderr, but its log does: leave the reason there, masked.
+        try {
+          process.stderr.write(`xlsx-for-ai-mcp: ${name} failed (${(err && err.code) || (err && err.name) || 'error'}): ${scrubSensitive(String(err && err.message))}\n`);
+        } catch (_) { /* no log sink */ }
+      }
       // The server turned down the stored key (401). Offer a fresh sign-in link
       // on this same request. The stored key stays until a new one is saved.
       if (err && err.code === 'API_CLIENT_ERROR' && Number(err.status) === 401) {

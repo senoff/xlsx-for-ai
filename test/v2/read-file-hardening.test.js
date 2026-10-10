@@ -63,7 +63,7 @@ test('readFileToBase64: over-cap file throws FILE_TOO_LARGE (not OOM)', () => {
   }
   assert.ok(caught, 'expected an over-cap read to throw');
   assert.equal(caught.code, 'FILE_TOO_LARGE', `wrong code: ${caught.code}`);
-  assert.match(caught.message, /exceeds the 1 MB cap/);
+  assert.match(caught.message, /exceeds the 1 MB limit/);
 });
 
 test('readFileToBase64: a small allowed file round-trips with no false positive', () => {
@@ -121,7 +121,7 @@ test('CLI entrypoint: `xlsx-for-ai <oversize>` exits non-zero with the cap messa
   assert.notEqual(res.status, 0, `expected non-zero exit; got ${res.status}. stderr: ${res.stderr}`);
   assert.match(
     res.stderr,
-    /exceeds the XFA_MAX_FILE_MB cap/,
+    /over the 1 MB limit.*XFA_MAX_FILE_MB setting/,
     `expected the friendly FILE_TOO_LARGE message; got stderr: ${res.stderr}`,
   );
 });

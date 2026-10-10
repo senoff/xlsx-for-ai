@@ -22,7 +22,7 @@ The global install puts the `xlsx-for-ai-mcp` binary on your PATH — that's wha
 
 ## MCP configuration
 
-Add the server to your agent runtime under the name **`xfa`** (so "use xfa to read this" resolves). First run needs a one-time sign-in. In an editor or desktop app, your first request answers with a sign-in link and a short code: open the link, approve, then ask again. Or run `xlsx-for-ai login` in a terminal first (see [First-run sign-in](#first-run-sign-in)). Keys created by older versions keep working until the cutoff announced in the API response headers.
+Add the server to your agent runtime under the name **`xfa`** (so "use xfa to read this" resolves). First run needs a one-time sign-in. In an editor or desktop app, your first request answers with a sign-in link and a short code: open the link, approve, then ask again. Or run `xlsx-for-ai login` in a terminal first (see [First-run sign-in](#first-run-sign-in)). Keys created by older versions keep working for now. When that changes, the sign-in link appears in the same place, so there is nothing to do ahead of time.
 
 ### Claude Code
 
@@ -432,7 +432,7 @@ See [PRIVACY.md](PRIVACY.md) for the full data-handling policy.
 
 ## What it costs
 
-All the tools are included. You sign in once on first use (a link and code in your editor, or `xlsx-for-ai login` in a terminal). The first 1,000 people to sign in get 500 free files a month. After those places are taken, a new account gets a 10-file trial, and then a plan is $25 a year and covers 10,000 files a month. File-size limits are the same on every plan. The service shows these limits in its own messages when you reach them.
+All the tools are included. You sign in once on first use (a link and code in your editor, or `xlsx-for-ai login` in a terminal). The first 1,000 people to register get 500 files a month free. Everyone after gets 10 free files, then $25 a year for 10,000 files a month. Sign-in is with Google. File-size limits are the same on every plan: .xlsx up to 100 MB, .xls up to 100 MB, .csv up to 200 MB. The service shows these limits in its own messages when you reach them.
 
 ---
 
@@ -468,21 +468,23 @@ Prints a link and a short code. Open the link in any browser, sign in with Googl
 
 **A terminal command with no screen to answer on** (for example a script, or a command run by another program). The command prints the link and code to the error stream and waits up to 60 seconds for you to approve. Approve in time and it carries on with your request. If you do not, it stops and tells you to approve and then run the same command again. The second run picks up the same code, so there is nothing new to copy, and it finishes at once if you have approved in the meantime. To change the wait, set `XFA_LOGIN_WAIT_SECONDS` (for example `XFA_LOGIN_WAIT_SECONDS=120`).
 
-In automated runs (CI), and in any run where you set `XFA_NONINTERACTIVE=1`, nothing waits. The command stops straight away with `not signed in. Run xlsx-for-ai login`: sign in once on that machine (or copy the config) first.
+In automated runs (CI), and in any run where you set `XFA_NONINTERACTIVE=1`, nothing waits and no sign-in is started. With no key the command stops straight away and says so. For an automated run, sign in once on a computer where you have a terminal, then pass the `api_key` value from `~/.xlsx-for-ai/config.json` to the run as the environment variable `XLSX_FOR_AI_KEY` (keep it in your secret store). That variable wins over the saved file when both exist.
 
 **If the saved key is rejected.** In an editor or desktop app, the next request shows a fresh sign-in link and keeps your saved key until you approve the new one. In a terminal, run `xlsx-for-ai login --force`.
 
-**Messages you may see.** When you hit a usage limit, the message comes from the service itself. A 402 gives its message and a link to upgrade, and a 429 gives its message and when to try again. A 501 means that feature is not built yet, so trying again will not help.
+**Messages you may see.** When you hit a usage limit, the message comes from the service itself. A 402 gives its message and a link to upgrade, and a 429 gives its message and when to try again. A 501 means that function is not built yet, nothing is wrong with your file, and trying again will not help; the terminal command exits with code 5 for it (3 means the service could not be reached or had a fault, 4 means a file or link problem, 2 means a usage mistake, 1 anything else).
+
+**Updating.** If this copy cannot update itself (a read-only install, a container), the tool results say a newer version exists and give the command to update. An assistant that can run commands can do it for you; otherwise run `npm install -g xlsx-for-ai@latest` in a terminal and restart the app. Set `XFA_NO_AUTO_UPDATE=1` to turn the self-update and this notice off.
 
 **Links are not files.** This package reads files saved on your computer only. If you give it a web link or a Google Sheets link instead of a file path, it says so. Download the file and give its path, or use the hosted xlsx-for-ai connector, which can open links directly.
 
 **Running in Docker.** The image no longer skips sign-in. The first request prints a sign-in link and code. Your key is stored in the container at `/home/node/.xlsx-for-ai`, so mount a volume there to keep it between runs, for example `-v xfa-config:/home/node/.xlsx-for-ai`.
 
-Keys minted by versions before 4.1.0 keep working, and the server marks their responses with a notice recommending this login step.
+Keys minted by versions before 4.1.0 keep working for now. When the service marks a key as one that will stop, the tool result says so in plain words; no date is promised here.
 
 ## Config
 
-Stored at `~/.xlsx-for-ai/config.json`. Created automatically on first run.
+Stored at `~/.xlsx-for-ai/config.json`. Created automatically on first run. Beside it, `pending-login.json` holds a sign-in that was started and is waiting for your approval (so the rerun shows the same code); it is removed once you are signed in or the code ends. The folder can be moved with `XFA_CONFIG_DIR`.
 
 ```json
 {
