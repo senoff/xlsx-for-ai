@@ -13,8 +13,9 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 
 ### Added
 
-- **`xfa feedback "<message>"`** — send feedback to the maintainers. It is
-  anonymous, tied only to your client ID.
+- **`xfa feedback "<message>"`** — send feedback to the maintainers. No
+  sign-in is needed. The message is sent with this install's client ID; if
+  you have signed in, that ID is linked to your account.
 - **`xfa support "<email>" "<question>"`** — ask a support question. The
   email you type is used only as the reply-to address. Both commands check
   their arguments before any network call.
