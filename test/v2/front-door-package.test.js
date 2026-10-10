@@ -857,3 +857,792 @@ test('review: an app-side LOGIN_FAILED says the real reason when known, and keep
   assert.doesNotMatch(declined, /terminal|xlsx-for-ai login/i);
   assert.match(friendlyErrorMessage('xlsx_read', { code: 'LOGIN_FAILED', reason: 'unreachable' }), /did not answer/);
 });
+
+// ===========================================================================
+// XLS-3009: batch 2
+// ===========================================================================
+
+const readText = (...p) => fs.readFileSync(path.join(ROOT, ...p), 'utf8');
+const SERVER_SHOWN_AS = 'plugin:xlsx-for-ai:spreadsheets';
+
+// Code lines only: comments are explanation, not text a person sees.
+function codeLines(text) {
+  return text.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l));
+}
+function walkJs(dir, out = []) {
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (e.name === 'node_modules' || e.name === '.git') continue;
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) walkJs(p, out); else if (p.endsWith('.js')) out.push(p);
+  }
+  return out;
+}
+// A throwing stderr, loaded with `node -r`: every write to stderr fails at once.
+function throwingStderrPreload() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'xfa-preload-'));
+  const file = path.join(dir, 'closed-stderr.js');
+  fs.writeFileSync(file, "process.stderr.write = function () { throw new Error('stderr is closed'); };\n");
+  return { file, dir };
+}
+function runCliWith(args, env, nodeArgs = []) {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [...nodeArgs, CLI_PATH, ...args], { env, stdio: ['pipe', 'pipe', 'pipe'] });
+    let stdout = ''; let stderr = '';
+    child.stdout.on('data', (c) => { stdout += c; });
+    child.stderr.on('data', (c) => { stderr += c; });
+    child.stdin.end();
+    const timer = setTimeout(() => child.kill('SIGKILL'), 40000);
+    child.on('close', (code) => { clearTimeout(timer); resolve({ code, stdout, stderr }); });
+  });
+}
+// An older release, unpacked from a git tag next to the real dependencies.
+function oldCopy(tag) {
+  const ok = require('node:child_process').spawnSync('git', ['-C', ROOT, 'rev-parse', '--verify', '--quiet', `refs/tags/${tag}`]);
+  if (ok.status !== 0) return null;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `xfa-${tag}-`));
+  const tarFile = path.join(dir, 'src.tar');
+  const a = require('node:child_process').spawnSync('git', ['-C', ROOT, 'archive', '--format=tar', '-o', tarFile, tag]);
+  if (a.status !== 0) return null;
+  const t = require('node:child_process').spawnSync('tar', ['-xf', tarFile, '-C', dir]);
+  if (t.status !== 0) return null;
+  fs.rmSync(tarFile);
+  fs.symlinkSync(path.join(ROOT, 'node_modules'), path.join(dir, 'node_modules'));
+  return dir;
+}
+function runOldCli(dir, args, env) {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [path.join(dir, 'index.js'), ...args], { env, stdio: ['pipe', 'pipe', 'pipe'] });
+    let stdout = ''; let stderr = '';
+    child.stdout.on('data', (c) => { stdout += c; });
+    child.stderr.on('data', (c) => { stderr += c; });
+    child.stdin.end();
+    const timer = setTimeout(() => child.kill('SIGKILL'), 40000);
+    child.on('close', (code) => { clearTimeout(timer); resolve({ code, stdout, stderr }); });
+  });
+}
+async function startOldMcp(dir, env, csv) {
+  const child = spawn(process.execPath, [path.join(dir, 'mcp.js')], { env, stdio: ['pipe', 'pipe', 'pipe'] });
+  let buf = ''; let err = ''; let nextId = 1;
+  const waiters = new Map();
+  child.stderr.on('data', (c) => { err += c; });
+  child.stdout.on('data', (c) => {
+    buf += c.toString('utf8');
+    let i;
+    while ((i = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, i); buf = buf.slice(i + 1);
+      try { const o = JSON.parse(line); if (o.id !== undefined && waiters.has(o.id)) waiters.get(o.id)(o); } catch (_) { /* not JSON-RPC */ }
+    }
+  });
+  const rpc = (method, params) => new Promise((resolve, reject) => {
+    const id = nextId++;
+    const t = setTimeout(() => reject(new Error(`${method} did not answer`)), 60000);
+    waiters.set(id, (o) => { clearTimeout(t); resolve(o); });
+    child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n');
+  });
+  await rpc('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '0' } });
+  child.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
+  return {
+    call: async () => (await rpc('tools/call', { name: 'xlsx_list_sheets', arguments: { file_path: csv } })).result,
+    stderr: () => err,
+    stop: () => child.kill('SIGTERM'),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Plugin text and the limits line
+// ---------------------------------------------------------------------------
+
+test('plugin text: the SKILL and the session-start text name the server exactly as it is registered', () => {
+  const mcp = JSON.parse(readText('claude-code-plugin', '.mcp.json'));
+  const servers = mcp.mcpServers || mcp;
+  assert.deepEqual(Object.keys(servers), ['spreadsheets'], 'the registered key');
+  assert.equal(SERVER_SHOWN_AS, 'plugin:xlsx-for-ai:spreadsheets');
+  const skill = readText('claude-code-plugin', 'skills', 'spreadsheets', 'SKILL.md');
+  const start = readText('claude-code-plugin', 'hooks', 'session-start.txt');
+  for (const [name, text] of [['SKILL.md', skill], ['session-start.txt', start]]) {
+    assert.ok(text.includes(SERVER_SHOWN_AS), `${name} names ${SERVER_SHOWN_AS}`);
+  }
+});
+
+test('plugin text: the limits line matches the product (xlsx 100MB, xls 100MB, csv 200MB, every plan) and no "free tier" size limit', () => {
+  const skill = readText('claude-code-plugin', 'skills', 'spreadsheets', 'SKILL.md');
+  const start = readText('claude-code-plugin', 'hooks', 'session-start.txt');
+  for (const text of [skill, start]) {
+    assert.match(text, /\.xlsx up to 100MB/);
+    assert.match(text, /\.xls up to 100MB/);
+    assert.match(text, /\.csv up to 200MB/);
+    assert.match(text, /same on every plan/);
+    assert.doesNotMatch(text, /20\s?MB/i);
+    assert.doesNotMatch(text, /free tier/i);
+  }
+  const gen = require('node:child_process').spawnSync(process.execPath, [path.join(ROOT, 'scripts', 'plugin', 'generate-session-start.js'), '--check'], { encoding: 'utf8' });
+  assert.equal(gen.status, 0, `session-start.txt is what the generator makes: ${gen.stdout}${gen.stderr}`);
+});
+
+test('plugin text: "20MB on the free tier" and "Free tier" tool wording are gone from the repo (history files and fixtures excepted)', () => {
+  const skip = (p) => /CHANGELOG\.md$|mcp-registry-xlsx-for-ai-2026-07-15\.json$|front-door-package\.test\.js$/.test(p);
+  const files = [...walkJs(ROOT), path.join(ROOT, 'README.md'), path.join(ROOT, 'server.json'),
+    path.join(ROOT, 'claude-code-plugin', 'hooks', 'session-start.txt'),
+    path.join(ROOT, 'claude-code-plugin', 'skills', 'spreadsheets', 'SKILL.md')];
+  for (const f of files) {
+    if (skip(f)) continue;
+    const text = fs.readFileSync(f, 'utf8');
+    assert.doesNotMatch(text, /20\s?MB on the free tier/i, f);
+    assert.doesNotMatch(text, /Free tier\s*[—-]/, `${f}: the old tool-description lead`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// B1-12: one meaning of "signed in"
+// ---------------------------------------------------------------------------
+
+test('B1-12: a config with a key and no client_id counts as signed in everywhere, and the request sends that key', async () => {
+  await withStub(async ({ stub, cfg, csv }) => {
+    fs.writeFileSync(path.join(cfg, 'config.json'), JSON.stringify({ api_key: API_KEY }));
+    await inProcess(stub, cfg, {}, async () => {
+      delete process.env.XLSX_FOR_AI_KEY;
+      const config = require('../../lib/config');
+      assert.equal(config.hasStoredKey(), true);
+      assert.equal(config.apiKey(), API_KEY);
+      const { post: clientPost } = require('../../lib/client');
+      const out = await clientPost('/api/v1/tools/xlsx_list_sheets', { file_b64: 'AA==' });
+      assert.match(JSON.stringify(out), /STUB TOOL RESULT/);
+      assert.equal(stub.state.unauthorizedToolCalls, 0, 'the key went out as the Bearer');
+    });
+    // The terminal command: no sign-in is started, and `login` says already signed in.
+    const r = await runCli([csv], baseEnv(stub, cfg));
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(stub.state.deviceRequests, 0);
+    const l = await runCli(['login'], baseEnv(stub, cfg));
+    assert.match(l.stdout + l.stderr, /Already signed in/);
+    assert.equal(stub.state.deviceRequests, 0);
+  });
+});
+
+test('B1-12: the MCP server answers with the tool result, not a sign-in link, for a key with no client_id', async () => {
+  await withMcp(async ({ mcp, stub }) => {
+    assert.equal(textOf(await mcp.call()), 'STUB TOOL RESULT: sheets = [Sheet1]');
+    assert.equal(stub.state.deviceRequests, 0);
+  }, { setup: ({ cfg }) => fs.writeFileSync(path.join(cfg, 'config.json'), JSON.stringify({ api_key: API_KEY })) });
+});
+
+// ---------------------------------------------------------------------------
+// B1-20: file size limits match the server
+// ---------------------------------------------------------------------------
+
+test('B1-20: limits per type match the server, and the sentence has the size, the limit and "no plan changes it"', () => {
+  const rf = require('../../lib/read-file');
+  const saved = process.env.XFA_MAX_FILE_MB;
+  delete process.env.XFA_MAX_FILE_MB;
+  try {
+    assert.deepEqual(rf.SIZE_LIMITS_MB, { '.xlsx': 100, '.xlsm': 100, '.xls': 100, '.csv': 200 });
+    const s = rf.fileTooLargeSentence({ sizeMB: 120.4, limitMB: 100, ext: '.xlsx' });
+    assert.match(s, /120\.4 MB/);
+    assert.match(s, /100 MB limit for \.xlsx files/);
+    assert.match(s, /same on every plan/);
+    assert.match(s, /\.csv \(up to 200 MB\)/);
+    assert.doesNotMatch(s, /XFA_MAX_FILE_MB|environment variable|setting/);
+    const env = rf.fileTooLargeSentence({ sizeMB: 12, limitMB: 10, ext: '.ods', limitFromEnv: true });
+    assert.match(env, /XFA_MAX_FILE_MB/, 'the variable is named only when the person set it');
+  } finally {
+    if (saved !== undefined) process.env.XFA_MAX_FILE_MB = saved;
+  }
+});
+
+test('B1-20: real mcp.js, a 60 MB .xlsx goes through to the server (the old local cap was 50 MB)', async () => {
+  await withMcp(async ({ mcp, cfg, stub }) => {
+    const big = path.join(cfg, 'big.xlsx');
+    fs.closeSync(fs.openSync(big, 'w'));
+    fs.truncateSync(big, 60 * 1024 * 1024);
+    const out = textOf(await mcp.call(big));
+    assert.equal(out, 'STUB TOOL RESULT: sheets = [Sheet1]');
+    assert.equal(stub.state.toolCalls.length, 1, 'the request reached the server');
+    assert.doesNotMatch(out, /XFA_MAX_FILE_MB/);
+  }, { setup: ({ cfg }) => storeKey(cfg, API_KEY) });
+});
+
+test('B1-20: real mcp.js, over the limit: usable sentence with no variable name; each type has its own limit', async () => {
+  await withMcp(async ({ mcp, cfg, stub }) => {
+    const mk = (name, mb) => {
+      const f = path.join(cfg, name);
+      fs.closeSync(fs.openSync(f, 'w'));
+      fs.truncateSync(f, mb * 1024 * 1024);
+      return f;
+    };
+    const x = await mcp.call(mk('over.xlsx', 101));
+    assert.equal(x.isError, true);
+    assert.match(textOf(x), /over the 100 MB limit for \.xlsx files/);
+    assert.match(textOf(x), /same on every plan/);
+    assert.doesNotMatch(textOf(x), /XFA_MAX_FILE_MB/);
+    const c = await mcp.call(mk('over.csv', 201));
+    assert.match(textOf(c), /over the 200 MB limit for \.csv files/);
+    const o = await mcp.call(mk('over.tsv', 11));
+    assert.match(textOf(o), /over the 10 MB limit for \.tsv files/);
+    assert.equal(stub.state.toolCalls.length, 0, 'nothing over its limit was sent');
+  }, { setup: ({ cfg }) => storeKey(cfg, API_KEY) });
+});
+
+// ---------------------------------------------------------------------------
+// B1-24: a server-only tool and the generic failure text
+// ---------------------------------------------------------------------------
+
+test('B1-24: a tool the server lists that takes no file is relayed as given and answers with a usable sentence', async () => {
+  await withStub(async ({ stub, cfg }) => {
+    await post(stub, '/__config', { catalog: [{ name: 'server_only_ping', description: 'No file.', inputSchema: { type: 'object', properties: { topic: { type: 'string' } } } }] });
+    await inProcess(stub, cfg, {}, async () => {
+      const { dispatchTool } = require('../../mcp');
+      const result = await dispatchTool('server_only_ping', { topic: 'hello' });
+      assert.match(JSON.stringify(result), /STUB TOOL RESULT/);
+    });
+    assert.equal(stub.state.toolBodies.length, 1);
+    assert.equal(stub.state.toolBodies[0].topic, 'hello', 'the arguments went out as given');
+    assert.equal('file_b64' in stub.state.toolBodies[0], false, 'no made-up file');
+  }, { setup: ({ cfg }) => storeKey(cfg, API_KEY) });
+});
+
+test('B1-24: the generic failure text is a sentence a person can act on, with no "server-side logs"', () => {
+  const { friendlyErrorMessage } = require('../../mcp');
+  const s = friendlyErrorMessage('some_tool', new Error('boom at /Users/x/secret.js:1'));
+  assert.doesNotMatch(s, /server-side logs|request_id/);
+  assert.doesNotMatch(s, /\/Users\/x|boom/, 'no internals');
+  assert.match(s, /try the same request again/i);
+  assert.match(s, /restart this app/i);
+  assert.match(s, /github\.com\/senoff\/xlsx-for-ai\/issues/);
+});
+
+// ---------------------------------------------------------------------------
+// B1-27 / B5-3: the notice for keys that will stop reaches the person
+// ---------------------------------------------------------------------------
+
+const SUNSET_HEADERS = {
+  Sunset: 'Fri, 06 Nov 2026 00:00:00 GMT',
+  'X-XFA-Notice': 'Keys made before sign-in stop on 2026-11-06. Run npm i -g xlsx-for-ai@latest and xlsx-for-ai login.',
+};
+
+test('B1-27: MCP, the service marks the response: the tool result carries a notice, once, with no date and no terminal step', async () => {
+  await withMcp(async ({ mcp }) => {
+    const first = await mcp.call();
+    assert.notEqual(first.isError, true);
+    const out = textOf(first);
+    assert.match(out, /^STUB TOOL RESULT/, 'the real answer is first and untouched');
+    assert.match(out, /older kind of key/);
+    assert.match(out, /sign-in link \(sign in with Google\) will appear right here/);
+    assert.doesNotMatch(out, /2026|November|Nov |npm|terminal|xlsx-for-ai login/, 'no date, no terminal step, not the service text repeated');
+    assert.doesNotMatch(textOf(await mcp.call()), /older kind of key/, 'shown once per run');
+  }, { setup: async ({ stub, cfg }) => { storeKey(cfg, API_KEY); await post(stub, '/__config', { toolHeaders: SUNSET_HEADERS }); } });
+});
+
+test('B1-27: terminal, the service marks the response: one line on stderr with the one command that switches now; stdout stays the answer', async () => {
+  await withStub(async ({ stub, cfg, csv }) => {
+    const r = await runCli([csv], baseEnv(stub, cfg));
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(r.stdout.trim(), 'STUB TOOL RESULT: sheets = [Sheet1]');
+    assert.match(r.stderr, /older kind of key/);
+    assert.match(r.stderr, /`xlsx-for-ai login --force`/);
+    assert.doesNotMatch(r.stderr, /2026|November|npm i/);
+  }, { setup: async ({ stub, cfg }) => { storeKey(cfg, API_KEY); await post(stub, '/__config', { toolHeaders: SUNSET_HEADERS }); } });
+});
+
+test('B1-27: no mark from the service, no notice (a plain answer is left alone)', async () => {
+  await withMcp(async ({ mcp }) => {
+    assert.equal(textOf(await mcp.call()), 'STUB TOOL RESULT: sheets = [Sheet1]');
+  }, { setup: ({ cfg }) => storeKey(cfg, API_KEY) });
+});
+
+test('B5-3: the notice the package shows names a step the person can take where they are, and promises no date', () => {
+  const { SUNSET_NOTICE_MCP, SUNSET_NOTICE_CLI } = require('../../lib/notices');
+  assert.doesNotMatch(SUNSET_NOTICE_MCP, /20\d\d|January|February|March|April|May |June|July|August|September|October|November|December/);
+  assert.doesNotMatch(SUNSET_NOTICE_CLI, /20\d\d|November/);
+  assert.doesNotMatch(SUNSET_NOTICE_MCP, /terminal|npm|run /i, 'an app person is not sent to a terminal');
+  assert.match(SUNSET_NOTICE_MCP, /Google/);
+  assert.match(SUNSET_NOTICE_CLI, /login --force/);
+});
+
+// ---------------------------------------------------------------------------
+// B2-8: an automated run with no key
+// ---------------------------------------------------------------------------
+
+test('B2-8: terminal, CI=true and no key: says a key is needed and how to provide it (XLSX_FOR_AI_KEY)', async () => {
+  await withStub(async ({ stub, cfg, csv }) => {
+    const r = await runCli([csv], baseEnv(stub, cfg, { CI: 'true' }));
+    assert.notEqual(r.code, 0);
+    assert.match(r.stderr, /automated run, and it has no key/);
+    assert.match(r.stderr, /XLSX_FOR_AI_KEY/);
+    assert.match(r.stderr, /~\/\.xlsx-for-ai\/config\.json/);
+    assert.equal(stub.state.deviceRequests, 0, 'no sign-in is started');
+    assert.doesNotMatch(r.stderr, /Invalid or missing API key/);
+  }, { setup: () => {} });
+});
+
+test('B2-8: MCP, CI=true and no key: the same sentence in the tool result', async () => {
+  await withStub(async ({ stub, cfg, csv }) => {
+    const mcp = await startMcp(baseEnv(stub, cfg, { CI: 'true' }), csv);
+    try {
+      const r = await mcp.call();
+      assert.equal(r.isError, true);
+      assert.match(textOf(r), /automated run, and it has no key/);
+      assert.match(textOf(r), /XLSX_FOR_AI_KEY/);
+    } finally { mcp.stop(); }
+  });
+});
+
+test('B2-8: terminal, CI=true and a key sent but refused: says the key was not accepted and what to do, never "no key"', async () => {
+  for (const viaEnv of [true, false]) {
+    await withStub(async ({ stub, cfg, csv }) => {
+      const env = viaEnv ? { CI: 'true', XLSX_FOR_AI_KEY: 'xfa_old_key' } : { CI: 'true' };
+      const r = await runCli([csv], baseEnv(stub, cfg, env));
+      assert.notEqual(r.code, 0);
+      assert.match(r.stderr, /key this automated run sent was not accepted/);
+      assert.match(r.stderr, /XLSX_FOR_AI_KEY/);
+      assert.match(r.stderr, /fresh key/);
+      assert.doesNotMatch(r.stderr, /has no key/);
+      assert.doesNotMatch(r.stderr, /xfa_old_key|Invalid or missing API key/);
+    }, { setup: viaEnv ? () => {} : ({ cfg }) => storeKey(cfg, 'xfa_old_key') });
+  }
+});
+
+test('B2-8: MCP, CI=true and a key sent but refused: the same not-accepted sentence in the tool result', async () => {
+  await withStub(async ({ stub, cfg, csv }) => {
+    const mcp = await startMcp(baseEnv(stub, cfg, { CI: 'true', XLSX_FOR_AI_KEY: 'xfa_old_key' }), csv);
+    try {
+      const r = await mcp.call();
+      assert.equal(r.isError, true);
+      assert.match(textOf(r), /key this automated run sent was not accepted/);
+      assert.match(textOf(r), /XLSX_FOR_AI_KEY/);
+      assert.doesNotMatch(textOf(r), /has no key|xfa_old_key/);
+    } finally { mcp.stop(); }
+  }, { setup: () => {} });
+});
+
+test('B2-8: XLSX_FOR_AI_KEY supplies the key: the request goes out signed and succeeds, with nothing stored', async () => {
+  await withStub(async ({ stub, cfg, csv }) => {
+    const r = await runCli([csv], baseEnv(stub, cfg, { CI: 'true', XLSX_FOR_AI_KEY: API_KEY }));
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(r.stdout, /STUB TOOL RESULT/);
+    assert.equal(stub.state.unauthorizedToolCalls, 0);
+    assert.equal(hasKey(cfg), false, 'the key is not written to disk');
+    const mcp = await startMcp(baseEnv(stub, cfg, { CI: 'true', XLSX_FOR_AI_KEY: API_KEY }), csv);
+    try {
+      assert.equal(textOf(await mcp.call()), 'STUB TOOL RESULT: sheets = [Sheet1]');
+    } finally { mcp.stop(); }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// B3-5 / B3-6: updates
+// ---------------------------------------------------------------------------
+
+test('B3-5: a 4.2.0 copy in a writable place updates itself on one launch, and the next launch shows the sign-in link', async (t) => {
+  const old = oldCopy('v4.2.0');
+  if (!old) { t.skip('the v4.2.0 tag is not in this clone'); return; }
+  const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'xfa-fakenpm-'));
+  try {
+    // A stand-in for `npm install -g xlsx-for-ai@latest`: lays this checkout's files over the old copy.
+    const fake = path.join(bin, 'npm');
+    fs.writeFileSync(fake, [
+      '#!/usr/bin/env node',
+      "const fs = require('fs'); const path = require('path');",
+      "for (const e of ['package.json', 'index.js', 'mcp.js', 'lib', 'generated']) {",
+      "  fs.cpSync(path.join(process.env.FAKE_NPM_SRC, e), path.join(process.env.FAKE_NPM_DEST, e), { recursive: true, force: true });",
+      '}',
+      "fs.writeFileSync(process.env.FAKE_NPM_MARKER, process.argv.slice(2).join(' '));",
+      '',
+    ].join('\n'), { mode: 0o755 });
+    await withStub(async ({ stub, cfg, csv }) => {
+      const marker = path.join(cfg, 'npm-ran.txt');
+      const env = baseEnv(stub, cfg, {
+        PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+        XFA_LATEST_VERSION: '99.0.0',
+        FAKE_NPM_SRC: ROOT, FAKE_NPM_DEST: old, FAKE_NPM_MARKER: marker,
+      });
+      delete env.XFA_NO_AUTO_UPDATE;
+      const first = await startOldMcp(old, env, csv);
+      try {
+        assert.ok(await waitFor(() => fs.existsSync(marker), 20000), `npm was run; stderr: ${first.stderr()}`);
+        assert.equal(fs.readFileSync(marker, 'utf8'), 'install -g xlsx-for-ai@latest');
+      } finally { first.stop(); }
+      assert.equal(JSON.parse(fs.readFileSync(path.join(old, 'package.json'), 'utf8')).version, require('../../package.json').version, 'the files were replaced');
+      const second = await startOldMcp(old, env, csv);
+      try {
+        const out = textOf(await second.call());
+        assert.match(out, /oauth\/device\?user_code=STUB-0001/, 'the second launch runs the new code and shows the link');
+      } finally { second.stop(); }
+    });
+  } finally {
+    fs.rmSync(old, { recursive: true, force: true });
+    fs.rmSync(bin, { recursive: true, force: true });
+  }
+});
+
+test('B3-6: a copy that cannot update itself says so in the tool result, with the command and what to do', async () => {
+  await withStub(async ({ stub, cfg, csv }) => {
+    storeKey(cfg, API_KEY);
+    // An empty install folder name: nowhere writable to update.
+    const env = baseEnv(stub, cfg, { XFA_LATEST_VERSION: '99.0.0', XFA_INSTALL_ROOT: '' });
+    delete env.XFA_NO_AUTO_UPDATE;
+    const mcp = await startMcp(env, csv);
+    try {
+      const cache = path.join(cfg, 'upgrade-check.json');
+      assert.ok(await waitFor(() => { try { return JSON.parse(fs.readFileSync(cache, 'utf8')).manual === true; } catch (_) { return false; } }, 15000), 'the check ran');
+      const out = textOf(await mcp.call());
+      assert.match(out, /^STUB TOOL RESULT/);
+      assert.match(out, /newer xlsx-for-ai \(99\.0\.0\) is available/);
+      assert.match(out, /could not update itself/);
+      assert.match(out, /`npm install -g xlsx-for-ai@latest`/);
+      assert.match(out, /restart this app/);
+      assert.match(out, /assistant that can run commands/);
+      assert.doesNotMatch(textOf(await mcp.call()), /newer xlsx-for-ai/, 'once per run');
+    } finally { mcp.stop(); }
+  });
+});
+
+test('B3-6: updateNotice is empty when current, when the copy can update itself, and before any check', async () => {
+  await withStub(async ({ stub, cfg }) => {
+    await inProcess(stub, cfg, {}, async () => {
+      const { updateNotice } = require('../../lib/auto-upgrade');
+      const file = path.join(cfg, 'upgrade-check.json');
+      assert.equal(updateNotice('4.2.3'), '', 'no check yet');
+      fs.writeFileSync(file, JSON.stringify({ latest: '9.0.0', manual: false }));
+      assert.equal(updateNotice('4.2.3'), '', 'it can update itself');
+      fs.writeFileSync(file, JSON.stringify({ latest: '4.2.3', manual: true }));
+      assert.equal(updateNotice('4.2.3'), '', 'already the newest');
+      fs.writeFileSync(file, JSON.stringify({ latest: '9.0.0', manual: true }));
+      assert.match(updateNotice('4.2.3'), /9\.0\.0.*4\.2\.3/);
+    });
+  });
+});
+
+test('B3-6: the terminal command checks for a newer version only where a person is looking (a terminal on stderr)', () => {
+  const src = codeLines(readText('index.js')).join('\n');
+  assert.match(src, /process\.stderr\.isTTY[\s\S]{0,200}checkForUpgrade\(\{[^}]*noticeOnly: true/);
+});
+
+// ---------------------------------------------------------------------------
+// B5: people on older versions
+// ---------------------------------------------------------------------------
+
+test('B5-1: a 4.0.x copy with a stored key keeps working against the service', async (t) => {
+  const old = oldCopy('v4.0.10');
+  if (!old) { t.skip('the v4.0.10 tag is not in this clone'); return; }
+  try {
+    await withStub(async ({ stub, cfg, csv }) => {
+      const r = await runOldCli(old, [csv], baseEnv(stub, cfg));
+      assert.equal(r.code, 0, `${r.stdout}${r.stderr}`);
+      assert.match(r.stdout, /STUB TOOL RESULT/);
+    }, { setup: ({ cfg }) => storeKey(cfg, API_KEY) });
+  } finally { fs.rmSync(old, { recursive: true, force: true }); }
+});
+
+test('B5-2: a brand-new 4.0.x copy with no key: what it does today is pinned (it asks the service for a key with no account)', async (t) => {
+  const old = oldCopy('v4.0.10');
+  if (!old) { t.skip('the v4.0.10 tag is not in this clone'); return; }
+  try {
+    const reg = require('node:child_process').spawnSync('git', ['-C', ROOT, 'show', 'v4.0.10:lib/register.js'], { encoding: 'utf8' }).stdout;
+    assert.match(reg, /\/api\/v1\/clients/);
+    assert.doesNotMatch(reg, /oauth\/device|deviceLogin/i, '4.0.x has no sign-in code to fall back on');
+    await withStub(async ({ stub, cfg, csv }) => {
+      const r = await runOldCli(old, [csv], baseEnv(stub, cfg));
+      assert.notEqual(r.code, 0, 'the stand-in refuses an account-less key request, as the live service does when it requires sign-in');
+      assert.ok(`${r.stdout}${r.stderr}`.trim().length > 0, 'it prints something, not silence');
+    });
+  } finally { fs.rmSync(old, { recursive: true, force: true }); }
+});
+
+test('B5-4: with a stored key the service turns down, this version moves the person to sign-in where they are (MCP: link on the same request; terminal: the exact command)', async () => {
+  await withMcp(async ({ mcp, cfg }) => {
+    const out = textOf(await mcp.call());
+    assert.match(out, /not accepted/i);
+    assert.match(out, /oauth\/device\?user_code=STUB-0001/);
+    assert.equal(readCfg(cfg).api_key, 'xfa_old_key');
+  }, { setup: ({ cfg }) => storeKey(cfg, 'xfa_old_key') });
+  await withStub(async ({ stub, cfg, csv }) => {
+    const r = await runCli([csv], baseEnv(stub, cfg));
+    assert.match(r.stderr, /`xlsx-for-ai login --force`/);
+  }, { setup: ({ cfg }) => storeKey(cfg, 'xfa_old_key') });
+});
+
+test('B5-5: a 4.2.0 copy in a host with no key stays at the service\'s 401 text (the fix reaches it through the update in B3-5); this version shows the link', async (t) => {
+  const old = oldCopy('v4.2.0');
+  if (!old) { t.skip('the v4.2.0 tag is not in this clone'); return; }
+  try {
+    await withStub(async ({ stub, cfg, csv }) => {
+      const m = await startOldMcp(old, baseEnv(stub, cfg), csv);
+      try {
+        const r = await m.call();
+        const out = (r.content || []).map((c) => c.text).join('\n');
+        assert.doesNotMatch(out, /oauth\/device/, 'the old copy shows no sign-in link');
+        assert.match(out, /Invalid or missing API key|API key|sign/i);
+      } finally { m.stop(); }
+      const cur = await startMcp(baseEnv(stub, cfg), csv);
+      try {
+        assert.match(textOf(await cur.call()), /oauth\/device\?user_code=/);
+      } finally { cur.stop(); }
+    });
+  } finally { fs.rmSync(old, { recursive: true, force: true }); }
+});
+
+test('B5-6: the exact words a 4.2.0 person sees with no key in a host are the service\'s 401 text, with no update step', async (t) => {
+  const old = oldCopy('v4.2.0');
+  if (!old) { t.skip('the v4.2.0 tag is not in this clone'); return; }
+  try {
+    await withStub(async ({ stub, cfg, csv }) => {
+      const m = await startOldMcp(old, baseEnv(stub, cfg), csv);
+      try {
+        const r = await m.call();
+        const out = (r.content || []).map((c) => c.text).join('\n');
+        assert.match(out, /Invalid or missing API key/);
+        assert.doesNotMatch(out, /update|npm/i, 'the service sends nothing version-specific today (a server-side fix, see the PR notes)');
+      } finally { m.stop(); }
+    });
+  } finally { fs.rmSync(old, { recursive: true, force: true }); }
+});
+
+test('B5-7: 4.1.0 and 4.2.0 run the device sign-in when a terminal is attached (their register code, read from the tags)', (t) => {
+  for (const tag of ['v4.1.0', 'v4.2.0']) {
+    const r = require('node:child_process').spawnSync('git', ['-C', ROOT, 'show', `${tag}:lib/register.js`], { encoding: 'utf8' });
+    if (r.status !== 0) { t.skip(`the ${tag} tag is not in this clone`); return; }
+    assert.match(r.stdout, /isInteractive/, tag);
+    assert.match(r.stdout, /deviceLogin|login/i, tag);
+  }
+});
+
+test('B5-8: a 4.2.0 terminal command with no key and no terminal ends with a message and no link (pinned); this version waits and shows the link', async (t) => {
+  const old = oldCopy('v4.2.0');
+  if (!old) { t.skip('the v4.2.0 tag is not in this clone'); return; }
+  try {
+    await withStub(async ({ stub, cfg, csv }) => {
+      const r = await runOldCli(old, [csv], baseEnv(stub, cfg));
+      assert.notEqual(r.code, 0);
+      assert.doesNotMatch(r.stderr, /oauth\/device\?user_code=/);
+      const now = await runCli([csv], baseEnv(stub, cfg, { XFA_LOGIN_WAIT_SECONDS: '0' }));
+      assert.match(now.stderr, /oauth\/device\?user_code=STUB-/);
+      assert.match(now.stderr, /run the same command again/i);
+    });
+  } finally { fs.rmSync(old, { recursive: true, force: true }); }
+});
+
+test('B5-9: a 3.0.16 bundle: its tag exists, and what it needs from the service is not something this package can change', (t) => {
+  const r = require('node:child_process').spawnSync('git', ['-C', ROOT, 'rev-parse', '--verify', '--quiet', 'refs/tags/v3.0.16']);
+  if (r.status !== 0) { t.skip('the v3.0.16 tag is not in this clone'); return; }
+  const pkg = JSON.parse(require('node:child_process').spawnSync('git', ['-C', ROOT, 'show', 'v3.0.16:package.json'], { encoding: 'utf8' }).stdout);
+  assert.match(pkg.version, /^3\.0\.16$/);
+});
+
+// ---------------------------------------------------------------------------
+// 501: its own exit code and words
+// ---------------------------------------------------------------------------
+
+test('501: the terminal command exits 5 and says the function is not built yet and nothing is wrong with the file', async () => {
+  await withStub(async ({ stub, cfg, csv }) => {
+    const r = await runCli([csv], baseEnv(stub, cfg));
+    assert.equal(r.code, 5, r.stderr);
+    assert.match(r.stderr, /This function is not built yet\. Nothing is wrong with your file, and trying again will not help\./);
+    assert.match(r.stderr, /XLOOKUP2 is not built yet/);
+    assert.doesNotMatch(r.stderr, /retry shortly|server error/i);
+  }, { setup: SCRIPTED(501, GAP_501) });
+});
+
+test('501: the other exit codes are unchanged (500 is 3, a 400 is 1, a link is 4)', async () => {
+  await withStub(async ({ stub, cfg, csv }) => {
+    await post(stub, '/__config', { toolResponse: { status: 500, body: { error: { message: 'x' } } } });
+    assert.equal((await runCli([csv], baseEnv(stub, cfg))).code, 3);
+    await post(stub, '/__config', { toolResponse: { status: 400, body: { error: { code: 'bad_request', message: 'Bad input.' } } } });
+    assert.equal((await runCli([csv], baseEnv(stub, cfg))).code, 1);
+    assert.equal((await runCli([LINKS[0]], baseEnv(stub, cfg))).code, 4);
+  }, { setup: ({ cfg }) => storeKey(cfg, API_KEY) });
+});
+
+test('501: MCP says the same, and a bare "Not Implemented" is not repeated', async () => {
+  await withMcp(async ({ mcp }) => {
+    assert.match(textOf(await mcp.call()), /This function is not built yet\. Nothing is wrong with your file/);
+  }, { setup: SCRIPTED(501, { error: { code: 'not_implemented', message: 'Not Implemented' } }) });
+});
+
+test('501: the README documents exit code 5', () => {
+  assert.match(readText('README.md'), /exits with code 5/);
+});
+
+// ---------------------------------------------------------------------------
+// Batch-1 review leftovers
+// ---------------------------------------------------------------------------
+
+test('4a: dropPendingRequest takes only its own request: matching is removed, a newer one survives, an even newer one wins, nothing is left behind', async () => {
+  await withStub(async ({ stub, cfg }) => {
+    await inProcess(stub, cfg, {}, async () => {
+      const login = require('../../lib/login');
+      const mk = (id) => ({ clientId: 'c', resource: 'r', deviceCode: `DEV-${id}`, userCode: id, verificationUri: 'u', verificationUriComplete: 'u?c', interval: 1, expiresIn: 900 });
+      const file = login.pendingPath();
+      assert.equal(login.savePendingRequest(mk('A')), true);
+      login.dropPendingRequest(mk('A'));
+      assert.equal(fs.existsSync(file), false, 'its own request is removed');
+
+      login.savePendingRequest(mk('B'));
+      login.dropPendingRequest(mk('A'));
+      assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).userCode, 'B', 'a newer request from another command survives');
+
+      // Between the claim and the put-back, a still newer request is saved: it must win.
+      login.dropPendingRequest(mk('A'), { beforeRestore: () => login.savePendingRequest(mk('C')) });
+      assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).userCode, 'C', 'the newest request wins');
+
+      login.dropPendingRequest(null);
+      assert.equal(fs.existsSync(file), false);
+      assert.deepEqual(fs.readdirSync(cfg).filter((f) => /pending-login/.test(f)), [], 'no claim or temp file is left');
+    });
+  });
+});
+
+test('4b: two sign-ins approved together end with the SAME key: the first key saved wins, and both callers get it', async () => {
+  await withStub(async ({ stub, cfg }) => {
+    // The first key request is slow; the second answers at once, so it is saved first.
+    await post(stub, '/__config', { distinctKeys: true, clientsDelayMsByCall: [700, 0] });
+    await inProcess(stub, cfg, {}, async () => {
+      const login = require('../../lib/login');
+      const a = await login.startDeviceRequest();
+      const b = await login.startDeviceRequest();
+      await post(stub, '/__approve');
+      const fast = { sleep: () => Promise.resolve() };
+      const [ra, rb] = await Promise.all([login.pollDeviceLogin(a, fast), login.pollDeviceLogin(b, fast)]);
+      assert.equal(ra.api_key, rb.api_key, 'both callers end with one key');
+      assert.equal(readCfg(cfg).api_key, ra.api_key, 'and it is the one on disk');
+      assert.equal(ra.api_key, `${API_KEY}_2`, 'the one saved first (the quicker answer) wins');
+      assert.equal(stub.state.clientsCalls <= 2, true);
+    });
+    assert.deepEqual(leftovers(cfg), []);
+  });
+});
+
+test('4b: a sign-in that finds another already saved a key uses it and asks for none', async () => {
+  await withStub(async ({ stub, cfg }) => {
+    await inProcess(stub, cfg, {}, async () => {
+      const login = require('../../lib/login');
+      const a = await login.startDeviceRequest();
+      await post(stub, '/__approve');
+      // Another command saves its key while this one is waiting for the approval to be picked up.
+      const otherSaves = async () => { fs.writeFileSync(path.join(cfg, 'config.json'), JSON.stringify({ client_id: 'other', api_key: 'xfa_saved_by_other' })); };
+      const r = await login.pollDeviceLogin(a, { sleep: otherSaves });
+      assert.equal(r.api_key, 'xfa_saved_by_other');
+      assert.equal(stub.state.clientsCalls, 0, 'no second key was asked for');
+    });
+  });
+});
+
+test('4c: a 4xx from client registration says the service turned the request down, not "unreachable" (terminal and MCP)', async () => {
+  await withStub(async ({ stub, cfg, csv }) => {
+    const r = await runCli([csv], baseEnv(stub, cfg, { XFA_LOGIN_WAIT_SECONDS: '0' }));
+    assert.notEqual(r.code, 0);
+    assert.match(r.stderr, /turned down the request to register this command \(HTTP 403\)/);
+    assert.match(r.stderr, /Trying again will not change that/);
+    assert.match(r.stderr, /github\.com\/senoff\/xlsx-for-ai\/issues/);
+    assert.doesNotMatch(r.stderr, /unreachable|did not answer|could not be reached/i);
+    const mcp = await startMcp(baseEnv(stub, cfg), csv);
+    try {
+      const m = await mcp.call();
+      assert.equal(m.isError, true);
+      assert.match(textOf(m), /turned down the request/);
+      assert.match(textOf(m), /Update xlsx-for-ai/);
+      assert.doesNotMatch(textOf(m), /did not answer|try again in a minute/i);
+    } finally { mcp.stop(); }
+  }, { setup: async ({ stub }) => { await post(stub, '/__config', { regStatus: 403 }); } });
+});
+
+test('4c: a 5xx from client registration is still "try again in a minute"', async () => {
+  await withStub(async ({ stub, cfg, csv }) => {
+    await post(stub, '/__config', { regFailTimes: 99 });
+    const r = await runCli([csv], baseEnv(stub, cfg, { XFA_LOGIN_WAIT_SECONDS: '0' }));
+    assert.match(r.stderr, /could not register this command \(HTTP 503\)\. Try again in a minute\./);
+  });
+});
+
+test('4d: a stderr that cannot be written (decision: swallow on purpose) still lets a sign-in finish', async () => {
+  const pre = throwingStderrPreload();
+  try {
+    await withStub(async ({ stub, cfg, csv }) => {
+      const run = runCliWith([csv], baseEnv(stub, cfg, { XFA_LOGIN_WAIT_SECONDS: '20' }), ['-r', pre.file]);
+      assert.ok(await waitFor(() => stub.state.deviceRequests === 1), 'a sign-in was started');
+      await post(stub, '/__approve');
+      const r = await run;
+      assert.equal(r.code, 0, `exit 0: ${r.stdout}`);
+      assert.match(r.stdout, /STUB TOOL RESULT/);
+      assert.equal(readCfg(cfg).api_key, API_KEY);
+    });
+  } finally { fs.rmSync(pre.dir, { recursive: true, force: true }); }
+});
+
+test('4d: stderrLine reports whether the line was written, and never throws', () => {
+  const { stderrLine } = require('../../lib/login');
+  const real = process.stderr.write;
+  try {
+    process.stderr.write = () => { throw new Error('closed'); };
+    assert.equal(stderrLine('x'), false);
+    let wrote = '';
+    process.stderr.write = (s) => { wrote += s; return true; };
+    assert.equal(stderrLine('hello'), true);
+    assert.equal(wrote, 'hello\n');
+  } finally { process.stderr.write = real; }
+  assert.match(readText('lib', 'login.js'), /swallow[\s\S]{0,400}on purpose|on purpose[\s\S]{0,400}swallow/i, 'the decision is written in a comment');
+});
+
+test('4e: every place that reads XFA_DEBUG passes what it prints through scrubSensitive', async () => {
+  const sites = [];
+  for (const f of [path.join(ROOT, 'index.js'), path.join(ROOT, 'mcp.js'), ...walkJs(path.join(ROOT, 'lib'))]) {
+    const lines = codeLines(fs.readFileSync(f, 'utf8'));
+    lines.forEach((l, i) => { if (/XFA_DEBUG/.test(l)) sites.push({ f: path.relative(ROOT, f), l, near: lines.slice(Math.max(0, i - 2), i + 45).join('\n') }); });
+  }
+  assert.equal(sites.length, 1, `exactly one reader: ${JSON.stringify(sites.map((s) => s.f))}`);
+  assert.equal(sites[0].f, 'index.js');
+  assert.match(sites[0].near, /showRaw && err \? scrubSensitive\(err\.message\)/);
+  // And it behaves that way on a command other than the plain read.
+  await withStub(async ({ stub, cfg, csv }) => {
+    const r = await runCli(['heal', csv], baseEnv(stub, cfg, { XFA_DEBUG: '1' }));
+    assert.doesNotMatch(r.stderr, /person@example\.com|abcdefghijklmnop123456/);
+    assert.match(r.stderr, /^Raw: .*<email>/m);
+  }, { setup: SCRIPTED(400, { error: { code: 'bad_request', message: 'Bad input from person@example.com using Bearer abcdefghijklmnop123456' } }) });
+});
+
+test('4f: a pasted link exits 4 even when every write to stderr throws (ran red on the pre-fix code: exit 1; the older closed-pipe test passed on both)', async () => {
+  const pre = throwingStderrPreload();
+  try {
+    await withStub(async ({ stub, cfg }) => {
+      for (const args of [[LINKS[0]], ['heal', LINKS[0]], ['stamp', LINKS[0]]]) {
+        const r = await runCliWith(args, baseEnv(stub, cfg), ['-r', pre.file]);
+        assert.equal(r.code, 4, `${args[0]}: ${r.stdout}`);
+      }
+    });
+  } finally { fs.rmSync(pre.dir, { recursive: true, force: true }); }
+});
+
+test('4g: the README names pending-login.json where it describes saved state', () => {
+  const readme = readText('README.md');
+  const config = readme.slice(readme.indexOf('## Config'));
+  assert.match(config, /pending-login\.json/);
+});
+
+test('4h: scripts/__pycache__/ is ignored by git', () => {
+  assert.ok(readText('.gitignore').split('\n').includes('scripts/__pycache__/'));
+});
+
+// ---------------------------------------------------------------------------
+// Pricing words
+// ---------------------------------------------------------------------------
+
+test('pricing: README, plugin text, messages and this release\'s changelog entry say only the ruled words, and promise no sign-in cutoff date', () => {
+  const changelog = readText('CHANGELOG.md');
+  const entry = changelog.slice(changelog.indexOf('## [Unreleased]'), changelog.indexOf('## [4.2.2]'));
+  const readme = readText('README.md');
+  assert.match(readme, /first 1,000 people to register get 500 files a month free\. Everyone after gets 10 free files, then \$25 a year for 10,000 files a month\. Sign-in is with Google\./);
+  const sources = [
+    ['README.md', readme], ['CHANGELOG 4.2.3 entry', entry],
+    ['SKILL.md', readText('claude-code-plugin', 'skills', 'spreadsheets', 'SKILL.md')],
+    ['session-start.txt', readText('claude-code-plugin', 'hooks', 'session-start.txt')],
+    ['index.js', codeLines(readText('index.js')).join('\n')],
+    ['mcp.js', codeLines(readText('mcp.js')).join('\n')],
+    ...walkJs(path.join(ROOT, 'lib')).map((f) => [path.relative(ROOT, f), codeLines(fs.readFileSync(f, 'utf8')).join('\n')]),
+  ];
+  for (const [name, text] of sources) {
+    assert.doesNotMatch(text, /free tier/i, `${name}: no "free tier"`);
+    assert.doesNotMatch(text, /first 1,000 people to sign in/i, `${name}: register, not sign in`);
+    assert.doesNotMatch(text, /\$\s?\d+\s*(a|per|\/)\s*month/i, `${name}: no monthly price`);
+    assert.doesNotMatch(text, /2026-11-06|November 6|Nov(ember)? 6\b/, `${name}: no sign-in cutoff date`);
+    assert.doesNotMatch(text, /until the cutoff/i, `${name}`);
+  }
+});

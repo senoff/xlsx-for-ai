@@ -9,6 +9,52 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 
 ## [Unreleased]
 
+## [4.2.4]
+
+4.2.3 was tagged but never published: the publish workflow's own test run failed, so npm kept serving 4.2.2. 4.2.4 carries everything in 4.2.3 plus the fix below.
+
+### Fixed
+
+- **Release test no longer depends on the environment.** Since 4.2.3 a 401 in an automated run (`CI=true`, `GITHUB_ACTIONS=true` or `XLSX_FOR_AI_CI=1`) answers with a fixed "needs a key" sentence instead of the server's text, so the test that checks a Bearer token is redacted failed on the CI runner while passing on a laptop. The redaction itself was correct and is unchanged. The test now pins its environment, the redaction is also checked on a 400 in every environment, and the automated-run 401 is checked to name the key variable and never echo the token.
+
+- **An automated run whose key was refused is no longer told it has no key.** A 401 in an automated run now says "the key this automated run sent was not accepted" (with the next step) when a key was sent, and keeps the "no key" sentence only when none was; the key and the server's text are never repeated.
+
+## [4.2.3]
+
+Tagged but never published; shipped as part of 4.2.4.
+
+### Fixed
+
+- **Plugin text names the server as it is registered** (`plugin:xlsx-for-ai:spreadsheets`)
+  and states the real limits: .xlsx up to 100 MB, .xls up to 100 MB, .csv up to
+  200 MB, the same on every plan. The old size-limit wording tied to a plan is
+  gone everywhere, and the tool descriptions now say a use counts as one file
+  against the monthly allowance.
+- **File-size limits match the service.** The local default was a flat 50 MB; it
+  is now per type (100 MB, 100 MB, 200 MB, 10 MB for other types). A file over
+  its limit says how big it is, what the limit is and that changing plans will
+  not lift it; the message no longer sends an app user to set a variable.
+- **A key from the environment works everywhere.** `XLSX_FOR_AI_KEY` (an
+  automated run) and a saved key without a client id are both seen as signed
+  in; an automated run with no key says how to supply one.
+- **Tools that take no file** are relayed as given instead of being sent a
+  made-up file name; the generic failure text now says what to do next.
+- **A 501 "not built yet" answer** exits with its own code, 5, and says the
+  function is not built yet and nothing is wrong with the file.
+- **A notice for keys that will stop** now reaches the person, in the package's
+  own words and with no date: in a tool result inside an app, on stderr in the
+  terminal. A copy that cannot update itself says a newer version exists and how
+  to get it.
+- Sign-in: a 4xx from client registration is reported as the service turning the
+  request down (not as "unreachable"); two sign-ins finishing together keep the
+  first key saved; the saved-request cleanup can no longer remove a newer
+  request; a stderr that cannot be written no longer stops a sign-in.
+- `scripts/__pycache__/` is ignored by git. The README names `pending-login.json`.
+
+Pricing wording, wherever it appears: the first 1,000 people to register get 500
+files a month free; everyone after gets 10 free files, then $25 a year for
+10,000 files a month. Sign-in is with Google.
+
 ## [4.2.2]
 
 ### Fixed

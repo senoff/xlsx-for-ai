@@ -102,4 +102,4 @@ Shopify exports (file in, import-ready file out):
 - shopify_ebay_feed: products export to an eBay File Exchange file
 - shopify_ups_feed: orders export to a UPS WorldShip batch file
 
-Limits: .xlsx up to 100MB, .xls up to 100MB, .csv up to 200MB (20MB on the free tier). A file over its limit errors explicitly.
+Limits: .xlsx up to 100MB, .xls up to 100MB, .csv up to 200MB, the same on every plan. A file over its limit errors explicitly.

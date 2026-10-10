@@ -20,9 +20,11 @@ const fs   = require('fs');
 const path = require('path');
 
 const { ensureRegistered, isCiEnvironment } = require('./lib/register');
-const { callTool }         = require('./lib/client');
-const { surface4xx, surface5xx, scrubSensitive } = require('./lib/inline-4xx');
-const { readFileToBase64, looksLikeLink, LINK_NOT_SUPPORTED_MESSAGE } = require('./lib/read-file');
+const { callTool, sunsetSignal } = require('./lib/client');
+const { SUNSET_NOTICE_CLI } = require('./lib/notices');
+const { updateNotice } = require('./lib/auto-upgrade');
+const { surface4xx, surface5xx, scrubSensitive, surfaceAutomated401 } = require('./lib/inline-4xx');
+const { readFileToBase64, looksLikeLink, LINK_NOT_SUPPORTED_MESSAGE, fileTooLargeSentence } = require('./lib/read-file');
 const {
   telemetryStatus,
   enableTelemetry,
@@ -87,7 +89,7 @@ async function runClean(opts, absPath) {
     result = await callTool('xlsx_data_clean', body);
   } catch (err) {
     process.stderr.write(friendlyCliError('xlsx-for-ai --clean', err) + '\n');
-    process.exit(err.code === 'API_UNREACHABLE' || err.code === 'API_SERVER_ERROR' ? 3 : 1);
+    process.exit(exitCodeFor(err));
   }
 
   const meta = (result && result._meta) || {};
@@ -202,10 +204,13 @@ function friendlyCliError(prefix, err) {
         if (Number(err.status) === 401 && !isCiEnvironment()) {
           return `${prefix}: the saved sign-in was not accepted. Run \`xlsx-for-ai login --force\` to sign in again.`;
         }
+        // An automated run has no person to sign in, so say what it needs instead
+        // of repeating "Invalid or missing API key" (B2-8).
+        if (Number(err.status) === 401) return surfaceAutomated401(prefix);
         return surface4xx(prefix, err);
       case 'LINK_NOT_SUPPORTED':    return `${prefix}: ${LINK_NOT_SUPPORTED_MESSAGE}`;
       case 'DISALLOWED_EXTENSION':  return `${prefix}: file must be a workbook (allowed: .xlsx/.xls/.xlsm/.xlsb/.csv/.ods/.fods/.numbers/.tsv).`;
-      case 'FILE_TOO_LARGE':        return `${prefix}: file exceeds the XFA_MAX_FILE_MB cap (default 50 MB).`;
+      case 'FILE_TOO_LARGE':        return `${prefix}: ${fileTooLargeSentence(err)}`;
       case 'FILE_NOT_FOUND':        return `${prefix}: file not found.`;
       case 'SYMLINK_REJECTED':      return `${prefix}: refusing to read a symlink — pass the real file path.`;
       case 'NOT_REGULAR_FILE':      return `${prefix}: not a regular file (directory, device, or socket).`;
@@ -218,6 +223,18 @@ function friendlyCliError(prefix, err) {
   // debug line is masked (tokens, keys, emails, file paths) before it is shown.
   const raw = showRaw && err ? scrubSensitive(err.message) : '';
   return raw ? `${base}\nRaw: ${raw}` : base;
+}
+
+// Exit code for a failed request:
+//   5  the service answered 501: this function is not built yet. Nothing is wrong
+//      with the file or the command, and running it again changes nothing, so a
+//      script can tell it apart from a failure worth retrying.
+//   3  the service could not be reached, or had a server error: try again shortly.
+//   1  anything else (the request was refused, the sign-in failed, ...).
+const EXIT_NOT_BUILT_YET = 5;
+function exitCodeFor(err) {
+  if (err && err.code === 'API_SERVER_ERROR' && Number(err.status) === 501) return EXIT_NOT_BUILT_YET;
+  return err && (err.code === 'API_UNREACHABLE' || err.code === 'API_SERVER_ERROR') ? 3 : 1;
 }
 
 // A web link given where a file path goes: one message and one exit code (4) on
@@ -378,7 +395,7 @@ async function runHealSubcommand(rest) {
       // terminal or CI logs by default. Same sanitization shape
       // the other subcommands use for API failures.
       process.stderr.write(friendlyCliError('xlsx-for-ai heal --diagnose-only', err) + '\n');
-      process.exit(err.code === 'API_UNREACHABLE' || err.code === 'API_SERVER_ERROR' ? 3 : 1);
+      process.exit(exitCodeFor(err));
     }
     const meta = (result && result._meta) || {};
     if (format === 'json') {
@@ -409,7 +426,7 @@ async function runHealSubcommand(rest) {
       result = await callTool('xlsx_healer_intent', body);
     } catch (err) {
       process.stderr.write(friendlyCliError(`xlsx-for-ai heal ${healLabel}`, err) + '\n');
-      process.exit(err.code === 'API_UNREACHABLE' || err.code === 'API_SERVER_ERROR' ? 3 : 1);
+      process.exit(exitCodeFor(err));
     }
   } else {
     let cureParams = {};
@@ -436,7 +453,7 @@ async function runHealSubcommand(rest) {
       // (above) maps known codes to canned messages; raw err.message
       // only surfaces with XFA_DEBUG=1 for incident triage.
       process.stderr.write(friendlyCliError(`xlsx-for-ai heal ${healLabel}`, err) + '\n');
-      process.exit(err.code === 'API_UNREACHABLE' || err.code === 'API_SERVER_ERROR' ? 3 : 1);
+      process.exit(exitCodeFor(err));
     }
   }
 
@@ -579,7 +596,7 @@ async function callServerForStamp(tool, body, explicitOutPath, sourcePath, sidec
     result = await callTool(tool, body);
   } catch (err) {
     process.stderr.write(friendlyCliError(`xlsx-for-ai ${tool}`, err) + '\n');
-    process.exit(err.code === 'API_UNREACHABLE' || err.code === 'API_SERVER_ERROR' ? 3 : 1);
+    process.exit(exitCodeFor(err));
   }
   const meta = result._meta || {};
   if (!meta.file_b64) return result;
@@ -660,8 +677,9 @@ async function main() {
   }
   if (argv.length > 0 && argv[0] === 'login') {
     try {
-      const cfg = require('./lib/config').readConfig();
-      if (cfg && cfg.api_key && cfg.client_id && !argv.includes('--force')) {
+      // Same test the request code and the MCP sign-in check use (B1-12): a saved
+      // key counts as signed in whether or not the config also holds a client_id.
+      if (require('./lib/config').hasStoredKey() && !argv.includes('--force')) {
         process.stderr.write('Already signed in. Use `xlsx-for-ai login --force` to sign in again.\n');
         process.exit(0);
       }
@@ -715,6 +733,17 @@ async function main() {
     process.exit(1);
   }
 
+  // A person at a terminal gets the out-of-date check too (B3-6). It is looked up
+  // in the background, never installs anything, and never holds the command up.
+  // Piped runs (an assistant's shell, a script) only show what an earlier check saved.
+  if (process.stderr.isTTY) {
+    try {
+      require('./lib/auto-upgrade')
+        .checkForUpgrade({ currentVersion: require('./package.json').version, noticeOnly: true, log: () => {} })
+        .catch(() => {});
+    } catch (_) { /* never let a version check stop a command */ }
+  }
+
   await ensureRegistered();
 
   // Privacy strict: --privacy=strict flag sets the env var for this process
@@ -744,11 +773,27 @@ async function main() {
     result = await callTool('xlsx_read', body);
   } catch (err) {
     process.stderr.write(friendlyCliError('xlsx-for-ai', err) + '\n');
-    process.exit(err.code === 'API_UNREACHABLE' || err.code === 'API_SERVER_ERROR' ? 3 : 1);
+    process.exit(exitCodeFor(err));
   }
 
   const text = (result.content || []).map((c) => c.text).join('\n');
   process.stdout.write(text + '\n');
+  printNotices();
+}
+
+// Notices go to stderr, after the result, so a pipe reading stdout is unaffected:
+//   - the service has said the kind of key in use will stop working (B1-27);
+//   - this copy is out of date (B3-6).
+function printNotices() {
+  const lines = [];
+  if (sunsetSignal()) lines.push(SUNSET_NOTICE_CLI);
+  try {
+    const update = updateNotice(require('./package.json').version);
+    if (update) lines.push(update);
+  } catch (_) { /* no notice */ }
+  for (const line of lines) {
+    try { process.stderr.write(line + '\n'); } catch (_) { /* nowhere to show it */ }
+  }
 }
 
 main().catch((err) => {

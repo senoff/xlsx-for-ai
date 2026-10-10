@@ -45,7 +45,7 @@ function generate(manifest) {
     for (const tool of group.tools) lines.push(`- ${tool.name}: ${tool.description}`);
   }
   lines.push('');
-  lines.push('Limits: .xlsx up to 100MB, .xls up to 100MB, .csv up to 200MB (20MB on the free tier). A file over its limit errors explicitly.');
+  lines.push('Limits: .xlsx up to 100MB, .xls up to 100MB, .csv up to 200MB, the same on every plan. A file over its limit errors explicitly.');
   return lines.join('\n') + '\n';
 }
 
