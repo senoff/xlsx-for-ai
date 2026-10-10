@@ -498,3 +498,49 @@ test('B1-8: the sentence for each way a sign-in can end is plain and names no te
     assert.doesNotMatch(s, /terminal|xlsx-for-ai login/i);
   }
 });
+
+test('review: server.json top-level version matches package.json', () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+  const srv = JSON.parse(fs.readFileSync(path.join(ROOT, 'server.json'), 'utf8'));
+  assert.equal(srv.version, pkg.version);
+  assert.equal(srv.packages[0].version, pkg.version);
+});
+
+test('review: XFA_NONINTERACTIVE=1 is not interactive even where a terminal is attached', () => {
+  const saved = process.env.XFA_NONINTERACTIVE;
+  const tty = (v) => {
+    Object.defineProperty(process.stdin, 'isTTY', { value: v, configurable: true });
+    Object.defineProperty(process.stderr, 'isTTY', { value: v, configurable: true });
+  };
+  try {
+    tty(true);
+    const { isInteractive } = require('../../lib/register');
+    process.env.XFA_NONINTERACTIVE = '1';
+    assert.equal(isInteractive(), false);
+    delete process.env.XFA_NONINTERACTIVE;
+    assert.equal(isInteractive(), true);
+  } finally {
+    tty(false);
+    if (saved === undefined) delete process.env.XFA_NONINTERACTIVE; else process.env.XFA_NONINTERACTIVE = saved;
+  }
+});
+
+test('review: a sign-in request that cannot be saved is said so, with the folder and what to do', async (t) => {
+  if (process.platform === 'win32' || (process.getuid && process.getuid() === 0)) {
+    t.skip('read-only folders are not enforced here');
+    return;
+  }
+  await withStub(async ({ stub, cfg, csv }) => {
+    // Pre-register the device client so only the pending-request save hits the read-only folder.
+    // The config is a symlink, which the config writer refuses (the folder itself is re-tightened
+    // by the writer, so a read-only folder cannot be used to force the failure).
+    const real = path.join(cfg, 'real-config.json');
+    fs.writeFileSync(real, JSON.stringify({ oauth_device_client_ids: { [stub.base]: 'stub-device-client' } }));
+    fs.symlinkSync(real, path.join(cfg, 'config.json'));
+    const r = await runCli([csv], baseEnv(stub, cfg, { XFA_LOGIN_WAIT_SECONDS: '1.5' }));
+    assert.notEqual(r.code, 0);
+    assert.match(r.stderr, /could not be saved/i);
+    assert.match(r.stderr, /writable/i);
+    assert.doesNotMatch(r.stderr, /in a terminal/i);
+  });
+});
