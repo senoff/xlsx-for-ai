@@ -13,12 +13,17 @@ RUN npm ci --omit=dev --ignore-scripts
 
 COPY --chown=node:node . .
 
-# Hermetic runtime: production defaults, no self-upgrade check, no
-# Claude-config registration. The sole dependency (MCP SDK) is pure JS with no
-# postinstall build step, so --ignore-scripts above is safe.
+# Runtime: production defaults and no self-upgrade check. The sole dependency
+# (MCP SDK) is pure JS with no postinstall build step, so --ignore-scripts above
+# is safe.
+#
+# XLSX_FOR_AI_CI is deliberately NOT set. It marks an automated run, and a person
+# who runs this image is not one: with it set, the image skipped sign-in and every
+# request went out with no key and came back "Invalid or missing API key". Without
+# it, the first tool call answers with a sign-in link and code like any other host.
+# (To keep the sign-in between runs, mount a volume at /home/node/.xlsx-for-ai.)
 ENV NODE_ENV=production \
-    XFA_NO_AUTO_UPDATE=1 \
-    XLSX_FOR_AI_CI=1
+    XFA_NO_AUTO_UPDATE=1
 
 # Drop root: node:slim ships a non-privileged `node` user.
 USER node
