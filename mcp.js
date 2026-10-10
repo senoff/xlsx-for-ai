@@ -14,6 +14,7 @@ const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio
 const { CallToolRequestSchema, ListToolsRequestSchema } = require('@modelcontextprotocol/sdk/types.js');
 
 const { ensureRegistered } = require('./lib/register');
+const { checkSignIn, signInMessage } = require('./lib/mcp-signin');
 const { callTool, setMcpClientInfo } = require('./lib/client');
 const { resolveCatalog }   = require('./lib/discover');
 const { applyAnnotations, sanitizeForMcp } = require('./lib/annotations');
@@ -2074,6 +2075,13 @@ async function main() {
       };
     }
     try {
+      // No stored key: answer with the sign-in link instead of a dead end. A
+      // normal (non-error) result, so the host shows it as the answer rather
+      // than as a failure to apologise for or retry. See lib/mcp-signin.js.
+      const signIn = await checkSignIn();
+      if (signIn) {
+        return { content: [{ type: 'text', text: signInMessage(signIn) }] };
+      }
       const result = await dispatchTool(name, args || {});
       // Pass API response through verbatim (citation footer + _meta preserved)
       return result;
