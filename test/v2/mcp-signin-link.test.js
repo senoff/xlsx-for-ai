@@ -200,7 +200,12 @@ test('an unreachable sign-in service gives a plain error result, not a hang or c
     await rpc(1, 'initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '0' } });
     const r = await rpc(2, 'tools/call', { name: 'xlsx_list_sheets', arguments: { file_path: csv } });
     assert.equal(r.result.isError, true);
-    assert.match(r.result.content[0].text, /sign-in/i);
+    const text = r.result.content[0].text;
+    assert.match(text, /sign-in service did not answer/i);
+    assert.match(text, /try again in a minute/i);
+    // B1-7: the person is in an app with no terminal; the old text sent them to one.
+    assert.doesNotMatch(text, /terminal/i);
+    assert.doesNotMatch(text, /xlsx-for-ai login/);
   } finally {
     child.kill('SIGTERM');
     fs.rmSync(cfg, { recursive: true, force: true });

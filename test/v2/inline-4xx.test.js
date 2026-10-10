@@ -178,18 +178,27 @@ test('a URL is NOT eaten by the POSIX path pass (leading-boundary anchor, no loo
 
 // --- MEDIUM: string status still hits the curated branches -----------------
 
-test('string status "429" still maps to the rate-limit message', () => {
-  assert.ok(surface4xx('t', clientErr({ status: '429', payload: {} }))
-    .includes('monthly request cap reached'));
+test('string status "429" is handled as a limit; with no server message the fallback is not a monthly cap', () => {
+  const out = surface4xx('t', clientErr({ status: '429', payload: null, message: 'xlsx-for-ai API error 429: Too Many Requests' }));
+  assert.ok(out.includes('usage limit was reached'), `got: ${out}`);
+  assert.ok(!out.includes('monthly') && !out.includes('next month'), `got: ${out}`);
 });
-test('numeric status 429 maps to the rate-limit message', () => {
-  assert.ok(surface4xx('t', clientErr({ status: 429, payload: {} }))
-    .includes('monthly request cap reached'));
+test('numeric status 429 shows the server message and its retry time', () => {
+  const out = surface4xx('t', clientErr({ status: 429, payload: { error: { message: 'Slow down.', retry_after_seconds: 30 } } }));
+  assert.ok(out.includes('Slow down.') && out.includes('30 seconds'), `got: ${out}`);
 });
-test('string status "402" is neutralized (no subscription wording)', () => {
-  const out = surface4xx('t', clientErr({ status: '402', payload: { error: { message: 'upgrade your plan' } } }));
-  assert.ok(out.includes('that capture mode is not available'), `got: ${out}`);
-  assert.ok(!out.includes('upgrade your plan'), `402 wording must not leak; got: ${out}`);
+test('B1-16: string status "402" shows the server\'s sentence and its upgrade link', () => {
+  const out = surface4xx('t', clientErr({
+    status: '402',
+    payload: { error: { message: 'You have used your 500 free files this month.', upgrade: { url: 'https://xlsx-for-ai.dev/upgrade?r=1', plan: 'pro', reason: 'plan1_monthly_over' } } },
+  }));
+  assert.ok(out.includes('You have used your 500 free files this month.'), `got: ${out}`);
+  assert.ok(out.includes('https://xlsx-for-ai.dev/upgrade?r=1'), `the pay link must be shown; got: ${out}`);
+  assert.ok(!out.includes('capture mode'), `got: ${out}`);
+});
+test('402 with no message from the server falls back to a plain line and the site', () => {
+  const out = surface4xx('t', clientErr({ status: 402, payload: null, message: 'xlsx-for-ai API error 402: Payment Required' }));
+  assert.ok(out.includes('paid plan') && out.includes('https://xlsx-for-ai.dev'), `got: ${out}`);
 });
 
 // --- fallbacks + bounds ----------------------------------------------------
