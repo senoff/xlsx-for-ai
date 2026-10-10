@@ -17,8 +17,11 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
   sign-in is needed. The message is sent with this install's client ID; if
   you have signed in, that ID is linked to your account.
 - **`xfa support "<email>" "<question>"`** — ask a support question. The
-  email you type is used only as the reply-to address. Both commands check
-  their arguments before any network call.
+  email you type is used only as the reply-to address.
+- Both commands check their arguments before any network call: a message or
+  question of up to 8,000 characters, an email address of up to 254. Each
+  request times out after 15 seconds and is tried at most three times. The
+  server applies its own limits as well.
 - **Post-install orientation.** A fresh MCP registration, and a bare `xfa` or
   `xfa --help`, now print a short four-line block pointing at the tool list.
   A re-install stays quiet.
