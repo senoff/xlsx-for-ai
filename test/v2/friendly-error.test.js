@@ -225,6 +225,43 @@ test('401 in an automated run says it needs a key and never echoes the server te
   }
 });
 
+// B2-8: which sentence an automated-run 401 gets depends on whether a key was
+// sent (XLSX_FOR_AI_KEY or a stored key), not on the server's text.
+function withKeyEnv(key, fn) {
+  const os = require('node:os');
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'xfa-fe-'));
+  const savedKey = process.env.XLSX_FOR_AI_KEY;
+  const savedDir = process.env.XFA_CONFIG_DIR;
+  process.env.XFA_CONFIG_DIR = dir;
+  if (key === undefined) delete process.env.XLSX_FOR_AI_KEY; else process.env.XLSX_FOR_AI_KEY = key;
+  try { return fn(); } finally {
+    if (savedKey === undefined) delete process.env.XLSX_FOR_AI_KEY; else process.env.XLSX_FOR_AI_KEY = savedKey;
+    if (savedDir === undefined) delete process.env.XFA_CONFIG_DIR; else process.env.XFA_CONFIG_DIR = savedDir;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test('B2-8: automated-run 401 with no key sent says there is no key', () => {
+  const err = buildClientErr({ status: 401, payload: { error: { message: BEARER_MESSAGE } } });
+  const out = withKeyEnv(undefined, () => withEnv({ CI: 'true', GITHUB_ACTIONS: 'true' }, () => friendlyErrorMessage('xlsx_read', err)));
+  assert.match(out, /it has no key/);
+  assert.match(out, /XLSX_FOR_AI_KEY/);
+  assert.ok(!out.includes('abc123def456ghi789jkl'));
+});
+
+test('B2-8: automated-run 401 with a key sent says it was not accepted, never echoes the key or the server text', () => {
+  const secret = 'xfa_live_abcdefghijklmnop1234567890';
+  const err = buildClientErr({ status: 401, payload: { error: { message: BEARER_MESSAGE } } });
+  const out = withKeyEnv(secret, () => withEnv({ CI: 'true', GITHUB_ACTIONS: 'true' }, () => friendlyErrorMessage('xlsx_read', err)));
+  assert.match(out, /was not accepted/);
+  assert.match(out, /XLSX_FOR_AI_KEY/);
+  assert.match(out, /fresh key/);
+  assert.doesNotMatch(out, /has no key/);
+  assert.ok(!out.includes(secret) && !out.includes('abc123def456ghi789jkl') && !out.includes('unexpected auth'));
+});
+
 test('PII scrubber: Slack tokens are redacted', () => {
   const err = buildClientErr({
     status: 400,

@@ -18,7 +18,7 @@ const { checkSignIn, signInMessage, offerSignInAfterRejection, failureSentence }
 const { callTool, setMcpClientInfo, sunsetSignal } = require('./lib/client');
 const { resolveCatalog }   = require('./lib/discover');
 const { applyAnnotations, sanitizeForMcp } = require('./lib/annotations');
-const { surface4xx, surface5xx, scrubSensitive, AUTOMATED_RUN_KEY_MESSAGE } = require('./lib/inline-4xx');
+const { surface4xx, surface5xx, scrubSensitive, surfaceAutomated401 } = require('./lib/inline-4xx');
 const { readFileToBase64, LINK_NOT_SUPPORTED_MESSAGE, fileTooLargeSentence } = require('./lib/read-file');
 const { SUNSET_NOTICE_MCP, appendNotice } = require('./lib/notices');
 const { updateNotice } = require('./lib/auto-upgrade');
@@ -1432,7 +1432,7 @@ function friendlyErrorMessage(toolName, err) {
   if (code === 'API_CLIENT_ERROR') {
     // An automated run has no person to sign in: say what it needs (B2-8).
     if (Number(err.status) === 401 && isCiEnvironment()) {
-      return `${toolName}: ${AUTOMATED_RUN_KEY_MESSAGE}`;
+      return surfaceAutomated401(toolName);
     }
     // Shared 4xx surfacer (curated 429/402 first, then the sanitized
     // server message, then a graceful fallback) — see ./lib/inline-4xx.js.

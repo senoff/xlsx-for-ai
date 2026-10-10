@@ -23,7 +23,7 @@ const { ensureRegistered, isCiEnvironment } = require('./lib/register');
 const { callTool, sunsetSignal } = require('./lib/client');
 const { SUNSET_NOTICE_CLI } = require('./lib/notices');
 const { updateNotice } = require('./lib/auto-upgrade');
-const { surface4xx, surface5xx, scrubSensitive, AUTOMATED_RUN_KEY_MESSAGE } = require('./lib/inline-4xx');
+const { surface4xx, surface5xx, scrubSensitive, surfaceAutomated401 } = require('./lib/inline-4xx');
 const { readFileToBase64, looksLikeLink, LINK_NOT_SUPPORTED_MESSAGE, fileTooLargeSentence } = require('./lib/read-file');
 const {
   telemetryStatus,
@@ -206,7 +206,7 @@ function friendlyCliError(prefix, err) {
         }
         // An automated run has no person to sign in, so say what it needs instead
         // of repeating "Invalid or missing API key" (B2-8).
-        if (Number(err.status) === 401) return `${prefix}: ${AUTOMATED_RUN_KEY_MESSAGE}`;
+        if (Number(err.status) === 401) return surfaceAutomated401(prefix);
         return surface4xx(prefix, err);
       case 'LINK_NOT_SUPPORTED':    return `${prefix}: ${LINK_NOT_SUPPORTED_MESSAGE}`;
       case 'DISALLOWED_EXTENSION':  return `${prefix}: file must be a workbook (allowed: .xlsx/.xls/.xlsm/.xlsb/.csv/.ods/.fods/.numbers/.tsv).`;

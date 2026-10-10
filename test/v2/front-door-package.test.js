@@ -1186,6 +1186,34 @@ test('B2-8: MCP, CI=true and no key: the same sentence in the tool result', asyn
   });
 });
 
+test('B2-8: terminal, CI=true and a key sent but refused: says the key was not accepted and what to do, never "no key"', async () => {
+  for (const viaEnv of [true, false]) {
+    await withStub(async ({ stub, cfg, csv }) => {
+      const env = viaEnv ? { CI: 'true', XLSX_FOR_AI_KEY: 'xfa_old_key' } : { CI: 'true' };
+      const r = await runCli([csv], baseEnv(stub, cfg, env));
+      assert.notEqual(r.code, 0);
+      assert.match(r.stderr, /key this automated run sent was not accepted/);
+      assert.match(r.stderr, /XLSX_FOR_AI_KEY/);
+      assert.match(r.stderr, /fresh key/);
+      assert.doesNotMatch(r.stderr, /has no key/);
+      assert.doesNotMatch(r.stderr, /xfa_old_key|Invalid or missing API key/);
+    }, { setup: viaEnv ? () => {} : ({ cfg }) => storeKey(cfg, 'xfa_old_key') });
+  }
+});
+
+test('B2-8: MCP, CI=true and a key sent but refused: the same not-accepted sentence in the tool result', async () => {
+  await withStub(async ({ stub, cfg, csv }) => {
+    const mcp = await startMcp(baseEnv(stub, cfg, { CI: 'true', XLSX_FOR_AI_KEY: 'xfa_old_key' }), csv);
+    try {
+      const r = await mcp.call();
+      assert.equal(r.isError, true);
+      assert.match(textOf(r), /key this automated run sent was not accepted/);
+      assert.match(textOf(r), /XLSX_FOR_AI_KEY/);
+      assert.doesNotMatch(textOf(r), /has no key|xfa_old_key/);
+    } finally { mcp.stop(); }
+  }, { setup: () => {} });
+});
+
 test('B2-8: XLSX_FOR_AI_KEY supplies the key: the request goes out signed and succeeds, with nothing stored', async () => {
   await withStub(async ({ stub, cfg, csv }) => {
     const r = await runCli([csv], baseEnv(stub, cfg, { CI: 'true', XLSX_FOR_AI_KEY: API_KEY }));
