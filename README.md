@@ -22,7 +22,7 @@ The global install puts the `xlsx-for-ai-mcp` binary on your PATH — that's wha
 
 ## MCP configuration
 
-Add the server to your agent runtime under the name **`xfa`** (so "use xfa to read this" resolves). First run needs a one-time sign-in: run `xlsx-for-ai login`, open the link it prints, approve, done (see [First-run sign-in](#first-run-sign-in)). Keys created by older versions keep working until the cutoff announced in the API response headers.
+Add the server to your agent runtime under the name **`xfa`** (so "use xfa to read this" resolves). First run needs a one-time sign-in. In an editor or desktop app, your first request answers with a sign-in link and a short code: open the link, approve, then ask again. Or run `xlsx-for-ai login` in a terminal first (see [First-run sign-in](#first-run-sign-in)). Keys created by older versions keep working until the cutoff announced in the API response headers.
 
 ### Claude Code
 
@@ -432,7 +432,7 @@ See [PRIVACY.md](PRIVACY.md) for the full data-handling policy.
 
 ## What it costs
 
-Free. All 50 tools, no paid tiers. No credit card — sign in once with `xlsx-for-ai login` on first use. A volume cap (10,000 calls/month) keeps the hosted API healthy; that's the only limit.
+Free. All 50 tools, no paid tiers. No credit card — sign in once on first use (a link and code in your editor, or `xlsx-for-ai login` in a terminal). A volume cap (10,000 calls/month) keeps the hosted API healthy; that's the only limit.
 
 ---
 
@@ -462,7 +462,11 @@ agent (Claude Code / Cursor / Continue / Zed / Windsurf / custom)
 xlsx-for-ai login
 ```
 
-Prints a link and a short code. Open the link in any browser, sign in (email link or Google), approve, and the CLI stores your key in `~/.xlsx-for-ai/config.json`. Running any command with no stored key in an interactive terminal starts the same flow automatically. In CI or an MCP host with no terminal there is nothing to click, so the command fails fast with `not signed in. Run xlsx-for-ai login`: sign in once on that machine (or copy the config) first. `xlsx-for-ai login --force` signs in again.
+Prints a link and a short code. Open the link in any browser, sign in (email link or Google), approve, and the CLI stores your key in `~/.xlsx-for-ai/config.json`. Running any command with no stored key in an interactive terminal starts the same flow automatically. `xlsx-for-ai login --force` signs in again.
+
+**Using it from an editor or desktop app (no terminal).** You do not need to run anything first. The first time you ask the assistant to use a spreadsheet tool, it replies with a sign-in link and a short code instead of an answer. Open the link in a browser, check the code matches, and approve. Then ask again: the request works, with no restart. If you ask again before approving, you get the same link and code. If the link runs out (about 15 minutes) or you decline it, the next request gives you a fresh one.
+
+In CI, and in a command-line run where you have set `XFA_NONINTERACTIVE=1`, there is nothing to click, so the command stops with `not signed in. Run xlsx-for-ai login`: sign in once on that machine (or copy the config) first.
 
 Keys minted by versions before 4.1.0 keep working, and the server marks their responses with a sunset notice naming the cutoff date and this login step.
 
