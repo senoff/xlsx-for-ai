@@ -424,7 +424,7 @@ These workflows are the reason tool descriptions are FP&A-legible: when a develo
 
 ## Privacy
 
-Files are transmitted to `https://api.xlsx-for-ai.dev` over HTTPS and processed in memory. Files are not persisted beyond the duration of a single request. Sign-in is by email link or Google; the address is used only to identify your account, and no password is stored.
+Files are transmitted to `https://api.xlsx-for-ai.dev` over HTTPS and processed in memory. Files are not persisted beyond the duration of a single request. Sign-in is with a Google account; the address is used only to identify your account, and no password is stored.
 
 See [PRIVACY.md](PRIVACY.md) for the full data-handling policy.
 
@@ -432,7 +432,7 @@ See [PRIVACY.md](PRIVACY.md) for the full data-handling policy.
 
 ## What it costs
 
-All the tools are included. You sign in once on first use (a link and code in your editor, or `xlsx-for-ai login` in a terminal). New accounts get 500 free files a month, and everyone gets a 10-file trial. After that, a plan is $25 a year and covers 10,000 files a month. The service shows these limits in its own messages when you reach them.
+All the tools are included. You sign in once on first use (a link and code in your editor, or `xlsx-for-ai login` in a terminal). The first 1,000 people to sign in get 500 free files a month. After those places are taken, a new account gets a 10-file trial, and then a plan is $25 a year and covers 10,000 files a month. File-size limits are the same on every plan. The service shows these limits in its own messages when you reach them.
 
 ---
 
@@ -462,7 +462,7 @@ agent (Claude Code / Cursor / Continue / Zed / Windsurf / custom)
 xlsx-for-ai login
 ```
 
-Prints a link and a short code. Open the link in any browser, sign in (email link or Google), approve, and the CLI stores your key in `~/.xlsx-for-ai/config.json`. Running any command with no stored key in an interactive terminal starts the same flow automatically. `xlsx-for-ai login --force` signs in again.
+Prints a link and a short code. Open the link in any browser, sign in with Google, approve, and the CLI stores your key in `~/.xlsx-for-ai/config.json`. Running any command with no stored key in an interactive terminal starts the same flow automatically. `xlsx-for-ai login --force` signs in again.
 
 **Using it from an editor or desktop app (no terminal).** You do not need to run anything first. The first time you ask the assistant to use a spreadsheet tool, it replies with a sign-in link and a short code instead of an answer. Open the link in a browser, check the code matches, and approve. Then ask again: the request works, with no restart. If you ask again before approving, you get the same link and code. If the link runs out (about 15 minutes) or you decline it, the next request gives you a fresh one.
 
@@ -478,7 +478,7 @@ In automated runs (CI), and in any run where you set `XFA_NONINTERACTIVE=1`, not
 
 **Running in Docker.** The image no longer skips sign-in. The first request prints a sign-in link and code. Your key is stored in the container at `/home/node/.xlsx-for-ai`, so mount a volume there to keep it between runs, for example `-v xfa-config:/home/node/.xlsx-for-ai`.
 
-Keys minted by versions before 4.1.0 keep working, and the server marks their responses with a sunset notice naming the cutoff date and this login step.
+Keys minted by versions before 4.1.0 keep working, and the server marks their responses with a notice recommending this login step.
 
 ## Config
 
