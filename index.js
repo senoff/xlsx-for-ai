@@ -646,6 +646,26 @@ async function main() {
   if (argv.length > 0 && argv[0] === 'setup') {
     process.exit(require('./lib/setup').runSetup(argv.slice(1)));
   }
+  if (argv.length > 0 && (argv[0] === 'feedback' || argv[0] === 'support')) {
+    const { runFeedbackSubcommand, runSupportSubcommand } = require('./lib/feedback');
+    const rest = argv.slice(1);
+    const code = argv[0] === 'feedback'
+      ? await runFeedbackSubcommand(rest)
+      : await runSupportSubcommand(rest);
+    // exitCode + return (not process.exit) so buffered stdout/stderr flush
+    // when piped.
+    process.exitCode = code;
+    return;
+  }
+
+  // Bare `xfa` or `xfa --help`: show how to read a file plus the orientation
+  // block (the two inbound channels + the tool list). `--version` is handled
+  // below via parseArgs, so it doesn't fall in here. (XLS-264)
+  if (argv.length === 0 || argv.includes('--help') || argv.includes('-h')) {
+    process.stdout.write('Usage: xfa <file.xlsx> [--json] [--md] [--sheet <name>] [--evaluate]\n');
+    require('./lib/orientation').printOrientation();
+    process.exit(0);
+  }
 
   const opts = parseArgs(argv);
 
@@ -655,7 +675,7 @@ async function main() {
   if (opts.disableTelemetry) { disableTelemetry(); console.log('Telemetry disabled.'); return; }
 
   if (!opts.file) {
-    process.stderr.write('Usage: xlsx-for-ai <file.xlsx> [--json] [--md] [--sheet <name>] [--evaluate]\n');
+    process.stderr.write('Usage: xfa <file.xlsx> [--json] [--md] [--sheet <name>] [--evaluate]\n');
     process.exit(1);
   }
 
