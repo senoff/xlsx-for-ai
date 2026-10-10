@@ -126,15 +126,15 @@ test('shapeInline4xxMessage truncates very long messages with an ellipsis', () =
     `long inline message should end with the ellipsis marker; got: ${out.slice(-10)}`);
 });
 
-test('unknown / null err → conservative generic default', () => {
-  assert.equal(
-    friendlyErrorMessage('xlsx_read', null),
-    'xlsx_read failed — see server-side logs (request_id in response _meta) for details.'
-  );
-  assert.equal(
-    friendlyErrorMessage('xlsx_read', undefined),
-    'xlsx_read failed — see server-side logs (request_id in response _meta) for details.'
-  );
+test('unknown / null err → conservative generic default that says what to do next (B1-24: no pointer to logs a person cannot see)', () => {
+  for (const err of [null, undefined]) {
+    const out = friendlyErrorMessage('xlsx_read', err);
+    assert.match(out, /^xlsx_read: something went wrong while handling this request on this computer\./);
+    assert.match(out, /try the same request again/i);
+    assert.match(out, /restart this app/i);
+    assert.match(out, /github\.com\/senoff\/xlsx-for-ai\/issues/);
+    assert.doesNotMatch(out, /server-side logs|request_id/);
+  }
 });
 
 // ---------------------------------------------------------------------------

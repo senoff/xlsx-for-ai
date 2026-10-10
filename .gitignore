@@ -5,3 +5,4 @@ test/fixtures/
 dist/
 *.mcpb
 *.tgz
+scripts/__pycache__/
