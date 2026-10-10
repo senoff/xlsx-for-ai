@@ -23,7 +23,8 @@ COPY --chown=node:node . .
 # it, the first tool call answers with a sign-in link and code like any other host.
 # (To keep the sign-in between runs, mount a volume at /home/node/.xlsx-for-ai.)
 ENV NODE_ENV=production \
-    XFA_NO_AUTO_UPDATE=1
+    XFA_NO_AUTO_UPDATE=1 \
+    XFA_CONFIG_DIR=/home/node/.xlsx-for-ai
 
 # Drop root: node:slim ships a non-privileged `node` user.
 USER node

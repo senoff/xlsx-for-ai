@@ -259,7 +259,8 @@ test('B1-15: MCP, free files used up: the server\'s sentence and its upgrade lin
   await withMcp(async ({ mcp }) => {
     const out = textOf(await mcp.call());
     assert.match(out, /You have used your 500 free files this month\./);
-    assert.match(out, /https:\/\/xlsx-for-ai\.dev\/upgrade\?from=test/);
+    assert.match(out, /https:\/\/xlsx-for-ai\.dev\/upgrade(?![?\w])/);
+    assert.doesNotMatch(out, /from=test/, 'the link\'s query string is not echoed');
     assert.doesNotMatch(out, /capture mode/);
   }, { setup: SCRIPTED(402, PAYWALL_402) });
 });
@@ -269,7 +270,8 @@ test('B2-9: terminal, free files used up: the server\'s sentence and its upgrade
     const r = await runCli([csv], baseEnv(stub, cfg));
     assert.notEqual(r.code, 0);
     assert.match(r.stderr, /You have used your 500 free files this month\./);
-    assert.match(r.stderr, /https:\/\/xlsx-for-ai\.dev\/upgrade\?from=test/);
+    assert.match(r.stderr, /https:\/\/xlsx-for-ai\.dev\/upgrade(?![?\w])/);
+    assert.doesNotMatch(r.stderr, /from=test/, 'the link\'s query string is not echoed');
     assert.doesNotMatch(r.stderr, /capture mode/);
   }, { setup: SCRIPTED(402, PAYWALL_402) });
 });
@@ -543,4 +545,234 @@ test('review: a sign-in request that cannot be saved is said so, with the folder
     assert.match(r.stderr, /writable/i);
     assert.doesNotMatch(r.stderr, /in a terminal/i);
   });
+});
+
+// ---------------------------------------------------------------------------
+// Review round 3
+// ---------------------------------------------------------------------------
+
+// Point this process's config and API at a stub for an in-process call, then restore.
+async function inProcess(stub, cfg, env, fn) {
+  const keys = ['XLSX_FOR_AI_API', 'XFA_CONFIG_DIR', 'CI', 'GITHUB_ACTIONS', 'XLSX_FOR_AI_CI', 'XFA_NONINTERACTIVE', 'XFA_LOGIN_WAIT_SECONDS'];
+  const saved = {};
+  for (const k of keys) saved[k] = process.env[k];
+  process.env.XLSX_FOR_AI_API = stub.base;
+  process.env.XFA_CONFIG_DIR = cfg;
+  for (const k of keys.slice(2)) delete process.env[k];
+  Object.assign(process.env, env);
+  try { return await fn(); } finally {
+    for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  }
+}
+
+test('review: two commands started together make ONE sign-in request and end with ONE code (ran red on the old code: 2 requests)', async () => {
+  await withStub(async ({ stub, cfg, csv }) => {
+    await post(stub, '/__config', { authDelayMs: 900 });
+    const env = baseEnv(stub, cfg, { XFA_LOGIN_WAIT_SECONDS: '30' });
+    const first = runCli([csv], env);
+    await sleep(300);
+    const second = runCli([csv], env);
+    assert.ok(await waitFor(() => stub.state.deviceRequests >= 1, 15000), 'a code was issued');
+    await sleep(1500); // the second command has had time to start its own, if it were going to
+    await post(stub, '/__approve');
+    const [a, b] = await Promise.all([first, second]);
+    assert.equal(a.code, 0, `first: ${a.stderr}`);
+    assert.equal(b.code, 0, `second: ${b.stderr}`);
+    assert.equal(stub.state.deviceRequests, 1, 'only one sign-in request was made');
+    assert.match(a.stderr, /STUB-0001/);
+    assert.match(b.stderr, /STUB-0001/);
+    assert.doesNotMatch(a.stderr + b.stderr, /STUB-0002/);
+    assert.equal(readCfg(cfg).api_key, API_KEY);
+    assert.equal(fs.existsSync(path.join(cfg, 'pending-login.lock')), false, 'the lock is released');
+  });
+});
+
+test('review: a lock left by a dead command is replaced; a live lock is waited on, not broken', async () => {
+  await withStub(async ({ stub, cfg }) => {
+    await inProcess(stub, cfg, {}, async () => {
+      const { acquireSignInLock } = require('../../lib/login');
+      const lock = path.join(cfg, 'pending-login.lock');
+      fs.writeFileSync(lock, '');
+      const old = new Date(Date.now() - 10 * 60 * 1000);
+      fs.utimesSync(lock, old, old);
+      const taken = await acquireSignInLock({ lockWaitMs: 500 });
+      assert.ok(taken, 'the stale lock was replaced');
+      const started = Date.now();
+      const blocked = await acquireSignInLock({ lockWaitMs: 400 });
+      assert.equal(blocked, null, 'a live lock is not broken');
+      assert.ok(Date.now() - started >= 350, 'it waited for the lock');
+      taken.release();
+      assert.equal(fs.existsSync(lock), false);
+    });
+  });
+});
+
+test('review: a failed network call that only looks things up is tried again (up to 3 tries) (ran red on the old code: first failure ended the sign-in)', async () => {
+  await withStub(async ({ stub, cfg, csv }) => {
+    await post(stub, '/__config', { regFailTimes: 2, authFailTimes: 2 });
+    const env = baseEnv(stub, cfg, { XFA_LOGIN_WAIT_SECONDS: '30' });
+    const run = runCli([csv], env);
+    assert.ok(await waitFor(() => stub.state.deviceRequests === 1, 20000), 'a code was issued after the retries');
+    await post(stub, '/__approve');
+    const r = await run;
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(stub.state.regCalls, 3);
+    assert.equal(stub.state.authCalls, 3);
+  });
+});
+
+test('review: after 3 failed tries the message says what happened and what to do', async () => {
+  await withStub(async ({ stub, cfg, csv }) => {
+    await post(stub, '/__config', { authFailTimes: 99 });
+    const r = await runCli([csv], baseEnv(stub, cfg, { XFA_LOGIN_WAIT_SECONDS: '5' }));
+    assert.notEqual(r.code, 0);
+    assert.equal(stub.state.authCalls, 3, 'three tries, no more');
+    assert.match(r.stderr, /refused the request \(HTTP 503\)/);
+    assert.match(r.stderr, /Try again/);
+  });
+});
+
+test('review: the call that issues the key is NOT retried; the message says nothing was saved and rerunning is safe (ran red: old message had no next step)', async () => {
+  await withStub(async ({ stub, cfg, csv }) => {
+    await post(stub, '/__config', { clientsStatus: 500 });
+    const run = runCli([csv], baseEnv(stub, cfg, { XFA_LOGIN_WAIT_SECONDS: '30' }));
+    assert.ok(await waitFor(() => stub.state.deviceRequests === 1));
+    await post(stub, '/__approve');
+    const r = await run;
+    assert.notEqual(r.code, 0);
+    assert.equal(stub.state.clientsCalls, 1, 'one try only: a second could mint a second key');
+    assert.match(r.stderr, /approved the sign-in/);
+    assert.match(r.stderr, /Nothing was saved/);
+    assert.match(r.stderr, /same command again is safe/);
+    assert.equal(hasKey(cfg), false);
+  });
+});
+
+test('review: XFA_NONINTERACTIVE=1 on a terminal fails fast before any sign-in branch (already right on the old code; this pins it, so it did not run red)', async () => {
+  await withStub(async ({ stub, cfg }) => {
+    const tty = (v) => {
+      Object.defineProperty(process.stdin, 'isTTY', { value: v, configurable: true });
+      Object.defineProperty(process.stderr, 'isTTY', { value: v, configurable: true });
+    };
+    await inProcess(stub, cfg, { XFA_NONINTERACTIVE: '1' }, async () => {
+      try {
+        tty(true);
+        const { ensureRegistered } = require('../../lib/register');
+        await assert.rejects(ensureRegistered(), { code: 'LOGIN_REQUIRED' });
+        await assert.rejects(ensureRegistered({ signIn: true }), { code: 'LOGIN_REQUIRED' });
+        assert.equal(stub.state.deviceRequests, 0);
+      } finally { tty(false); }
+    });
+  });
+});
+
+test('review: wait text is singular for a count of 1 in every unit (ran red on the old code: describeWait was not exported)', () => {
+  const { describeWait, pluralUnit } = require('../../lib/inline-4xx');
+  assert.equal(describeWait(1), '1 second');
+  assert.equal(describeWait(59), '59 seconds');
+  assert.equal(describeWait(90), '2 minutes');
+  assert.equal(describeWait(5340), '89 minutes');
+  assert.equal(describeWait(5400), '2 hours');
+  assert.equal(pluralUnit(1, 'minute'), '1 minute');
+  assert.equal(pluralUnit(1, 'hour'), '1 hour');
+  assert.equal(pluralUnit(2, 'hour'), '2 hours');
+  assert.equal(pluralUnit(0, 'second'), '0 seconds');
+});
+
+test('review: an upgrade link is shown only if it is https on xlsx-for-ai.dev, and without its query or fragment', () => {
+  const { extractUpgradeUrl } = require('../../lib/inline-4xx');
+  const wrap = (url) => ({ error: { upgrade: { url } } });
+  assert.equal(extractUpgradeUrl(wrap('https://xlsx-for-ai.dev/upgrade?from=x&email=a@b.c#frag')), 'https://xlsx-for-ai.dev/upgrade');
+  assert.equal(extractUpgradeUrl(wrap('https://www.xlsx-for-ai.dev/pricing')), 'https://www.xlsx-for-ai.dev/pricing');
+  assert.equal(extractUpgradeUrl(wrap('https://xlsx-for-ai.dev/?token=abc')), 'https://xlsx-for-ai.dev');
+  for (const bad of ['https://evil.example/pay?token=abc', 'http://xlsx-for-ai.dev/upgrade', 'https://xlsx-for-ai.dev.evil.example/x',
+    'https://user:pw@xlsx-for-ai.dev/x', 'https://xlsx-for-ai.dev:8443/x', 'not a url', 'javascript:alert(1)']) {
+    assert.equal(extractUpgradeUrl(wrap(bad)), '', bad);
+  }
+});
+
+test('review: a paywall answer with an untrusted upgrade link shows the plans page, not the link', async () => {
+  const body = { error: { code: 'upgrade_required', message: 'You have used your free files.', upgrade: { url: 'https://evil.example/pay?token=SECRET123' } } };
+  await withStub(async ({ stub, cfg, csv }) => {
+    const r = await runCli([csv], baseEnv(stub, cfg));
+    assert.notEqual(r.code, 0);
+    assert.doesNotMatch(r.stderr, /evil\.example|SECRET123/);
+    assert.match(r.stderr, /See the plans at https:\/\/xlsx-for-ai\.dev\./);
+  }, { setup: SCRIPTED(402, body) });
+});
+
+test('review: the same exit code (4) for a pasted link on every command (ran red on the old code: the plain read exited 1)', async () => {
+  await withStub(async ({ stub, cfg }) => {
+    for (const args of [[LINKS[0]], ['heal', LINKS[0]], ['stamp', LINKS[0]]]) {
+      const r = await runCli(args, baseEnv(stub, cfg));
+      assert.equal(r.code, 4, `${args[0]}: ${r.stderr}`);
+      assert.match(r.stderr, /files saved on this computer only/);
+    }
+  });
+});
+
+test('review: the "sign-in is waiting" text carries one prefix, added where it is shown (ran red on the old code: the message came pre-prefixed)', async () => {
+  await withStub(async ({ stub, cfg, csv }) => {
+    await inProcess(stub, cfg, {}, async () => {
+      const { deviceLoginWithWindow } = require('../../lib/login');
+      await assert.rejects(deviceLoginWithWindow({ waitMs: 0, out: () => {} }), (err) => {
+        assert.equal(err.code, 'LOGIN_PENDING');
+        assert.doesNotMatch(err.message, /^xlsx-for-ai/);
+        assert.match(err.message, /^sign-in is waiting for you/);
+        return true;
+      });
+    });
+    const r = await runCli([csv], baseEnv(stub, cfg, { XFA_LOGIN_WAIT_SECONDS: '0' }));
+    assert.match(r.stderr, /^xlsx-for-ai: sign-in is waiting for you/m);
+    assert.doesNotMatch(r.stderr, /xlsx-for-ai[^\n]*xlsx-for-ai: sign-in/);
+  });
+});
+
+test('review: XFA_LOGIN_WAIT_SECONDS is capped at 900, bad values fall back to 60, and the raw value is never printed (ran red: 99999 was used as given)', () => {
+  const { signInWaitMs } = require('../../lib/login');
+  const saved = process.env.XFA_LOGIN_WAIT_SECONDS;
+  const notes = [];
+  try {
+    const wait = (v) => { process.env.XFA_LOGIN_WAIT_SECONDS = v; return signInWaitMs((s) => notes.push(s)); };
+    assert.equal(wait('30'), 30000);
+    assert.equal(wait('900'), 900000);
+    assert.equal(wait('99999'), 900000);
+    assert.equal(wait('abc-secret'), 60000);
+    assert.equal(wait('-5'), 60000);
+    assert.equal(wait('   '), 60000);
+    assert.equal(notes.length, 4);
+    for (const n of notes) assert.doesNotMatch(n, /99999|abc-secret|-5/, 'raw value not printed');
+    delete process.env.XFA_LOGIN_WAIT_SECONDS;
+    assert.equal(signInWaitMs(), 60000);
+  } finally {
+    if (saved === undefined) delete process.env.XFA_LOGIN_WAIT_SECONDS; else process.env.XFA_LOGIN_WAIT_SECONDS = saved;
+  }
+});
+
+test('review: when the sign-in client id cannot be remembered, one line on stderr says so (ran red on the old code: silent)', async (t) => {
+  if (process.platform === 'win32') { t.skip('symlink'); return; }
+  await withStub(async ({ stub, cfg, csv }) => {
+    const real = path.join(cfg, 'real-config.json');
+    fs.writeFileSync(real, '{}');
+    fs.symlinkSync(real, path.join(cfg, 'config.json'));
+    const r = await runCli([csv], baseEnv(stub, cfg, { XFA_LOGIN_WAIT_SECONDS: '0' }));
+    const lines = r.stderr.split('\n').filter((l) => /could not remember the sign-in client/.test(l));
+    assert.equal(lines.length, 1, r.stderr);
+    assert.match(lines[0], /writable/);
+  });
+});
+
+test('review: the Docker image names the config folder it already reads (XFA_CONFIG_DIR) (ran red on the old code: not set)', () => {
+  const docker = fs.readFileSync(path.join(ROOT, 'Dockerfile'), 'utf8')
+    .split('\n').filter((l) => !l.trim().startsWith('#')).join('\n');
+  assert.match(docker, /XFA_CONFIG_DIR=\/home\/node\/\.xlsx-for-ai\b/);
+  assert.match(fs.readFileSync(path.join(ROOT, 'lib', 'config.js'), 'utf8'), /process\.env\.XFA_CONFIG_DIR/);
+});
+
+test('review: an app-side LOGIN_FAILED says the real reason when known, and keeps the plain retry line for an unreachable service', () => {
+  const { friendlyErrorMessage } = require('../../mcp');
+  const declined = friendlyErrorMessage('xlsx_read', { code: 'LOGIN_FAILED', reason: 'declined' });
+  assert.match(declined, /declined/);
+  assert.doesNotMatch(declined, /terminal|xlsx-for-ai login/i);
+  assert.match(friendlyErrorMessage('xlsx_read', { code: 'LOGIN_FAILED', reason: 'unreachable' }), /did not answer/);
 });

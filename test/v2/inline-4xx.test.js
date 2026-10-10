@@ -193,7 +193,8 @@ test('B1-16: string status "402" shows the server\'s sentence and its upgrade li
     payload: { error: { message: 'You have used your 500 free files this month.', upgrade: { url: 'https://xlsx-for-ai.dev/upgrade?r=1', plan: 'pro', reason: 'plan1_monthly_over' } } },
   }));
   assert.ok(out.includes('You have used your 500 free files this month.'), `got: ${out}`);
-  assert.ok(out.includes('https://xlsx-for-ai.dev/upgrade?r=1'), `the pay link must be shown; got: ${out}`);
+  // The link is shown without its query string (it could carry anything).
+  assert.ok(out.includes('https://xlsx-for-ai.dev/upgrade') && !out.includes('r=1'), `the pay link must be shown without its query; got: ${out}`);
   assert.ok(!out.includes('capture mode'), `got: ${out}`);
 });
 test('402 with no message from the server falls back to a plain line and the site', () => {

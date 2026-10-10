@@ -22,6 +22,9 @@ const API_KEY = 'xfa_stub_key';
 function startStub() {
   const state = {
     deviceRequests: 0,
+    regCalls: 0,
+    clientsCalls: 0,
+    authCalls: 0,
     codes: [],
     approved: false,
     expired: false,
@@ -48,8 +51,21 @@ function startStub() {
         return send(200, state.cfg);
       }
 
-      if (req.url === '/oauth/reg') return send(201, { client_id: 'stub-device-client' });
+      if (req.url === '/oauth/reg') {
+        state.regCalls += 1;
+        if (state.regCalls <= (state.cfg.regFailTimes || 0)) return send(503, {});
+        return send(201, { client_id: 'stub-device-client' });
+      }
       if (req.url === '/oauth/device/auth') {
+        state.authCalls += 1;
+        if (state.authCalls <= (state.cfg.authFailTimes || 0)) return send(503, {});
+        if (state.cfg.authDelayMs) {
+          // Slow answer, so two commands started together overlap here.
+          return setTimeout(() => issueCode(), state.cfg.authDelayMs);
+        }
+        return issueCode();
+      }
+      function issueCode() {
         state.deviceRequests += 1;
         state.approved = false;
         state.expired = false;
@@ -72,6 +88,7 @@ function startStub() {
         return send(200, { access_token: 'AT.stub.value', token_type: 'Bearer' });
       }
       if (req.url === '/api/v1/clients') {
+        state.clientsCalls += 1;
         if (req.headers.authorization !== 'Bearer AT.stub.value') return send(401, {});
         if (state.cfg.clientsStatus) return send(state.cfg.clientsStatus, { error: { message: 'stub: cannot issue a key' } });
         return send(201, { client_id: 'stub-client-1', api_key: API_KEY });

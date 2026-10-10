@@ -183,7 +183,7 @@ function friendlyCliError(prefix, err) {
       case 'LOGIN_REQUIRED':        return `${prefix}: not signed in. Run \`xlsx-for-ai login\`, then retry.`;
       // The sign-in is waiting for the person: the message already carries the
       // link, the code and "run the same command again".
-      case 'LOGIN_PENDING':         return err.message;
+      case 'LOGIN_PENDING':         return `${prefix}: ${err.message}`;
       // The sign-in messages are fixed text from lib/login.js (no paths, no
       // tokens), so the real reason (declined, expired, not saved) is shown.
       case 'LOGIN_FAILED':          return `${prefix}: ${String(err.message || 'sign-in failed.').replace(/^login:\s*/i, '')}`;
@@ -701,7 +701,7 @@ async function main() {
 
   if (looksLikeLink(opts.file)) {
     process.stderr.write(`xlsx-for-ai: ${LINK_NOT_SUPPORTED_MESSAGE}\n`);
-    process.exit(1);
+    process.exit(4); // same code as the heal and stamp commands
   }
   const absPath = path.resolve(opts.file);
   if (!fs.existsSync(absPath)) {

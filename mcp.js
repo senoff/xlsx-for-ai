@@ -14,7 +14,7 @@ const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio
 const { CallToolRequestSchema, ListToolsRequestSchema } = require('@modelcontextprotocol/sdk/types.js');
 
 const { ensureRegistered } = require('./lib/register');
-const { checkSignIn, signInMessage, offerSignInAfterRejection } = require('./lib/mcp-signin');
+const { checkSignIn, signInMessage, offerSignInAfterRejection, failureSentence } = require('./lib/mcp-signin');
 const { callTool, setMcpClientInfo } = require('./lib/client');
 const { resolveCatalog }   = require('./lib/discover');
 const { applyAnnotations, sanitizeForMcp } = require('./lib/annotations');
@@ -1385,6 +1385,11 @@ function friendlyErrorMessage(toolName, err) {
     // These two are shown inside an app or editor with no terminal, so neither
     // may send the person to one.
     case 'LOGIN_FAILED':
+      // Say what actually happened when it is known (declined, ran out, key not
+      // made or not saved); an unreachable service keeps the plain retry line.
+      if (err && ['declined', 'expired', 'not_issued', 'not_saved', 'failed'].includes(err.reason)) {
+        return `${toolName}: ${failureSentence(err)} Ask again and a new sign-in link will be shown.`;
+      }
       return `${toolName}: the sign-in service did not answer. Please try again in a minute.`;
     case 'LOGIN_REQUIRED':
       return `${toolName}: you need to sign in first. Ask again and a sign-in link will be shown.`;
