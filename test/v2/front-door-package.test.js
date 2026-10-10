@@ -53,6 +53,12 @@ function readCfg(cfg) {
   try { return JSON.parse(fs.readFileSync(path.join(cfg, 'config.json'), 'utf8')); } catch (_) { return null; }
 }
 const hasKey = (cfg) => Boolean(readCfg(cfg) && readCfg(cfg).api_key);
+// The sign-in request waiting for approval has its own file beside the config.
+const pendingFile = (cfg) => path.join(cfg, 'pending-login.json');
+function readPending(cfg) {
+  try { return JSON.parse(fs.readFileSync(pendingFile(cfg), 'utf8')); } catch (_) { return null; }
+}
+const leftovers = (cfg) => fs.readdirSync(cfg).filter((f) => /\.tmp$|\.lock$/.test(f));
 const post = (stub, p, body) => fetch(stub.base + p, { method: 'POST', body: JSON.stringify(body || {}) });
 
 async function withStub(fn, { setup } = {}) {
@@ -159,7 +165,8 @@ test('B2-2: no terminal, no key: link and code on stderr, the command waits, and
     assert.match(r.stdout, /STUB TOOL RESULT/, 'the command did its work in the same run');
     assert.equal(stub.state.unauthorizedToolCalls, 0, 'no request went out without a key');
     assert.equal(readCfg(cfg).api_key, API_KEY);
-    assert.equal(readCfg(cfg).pending_login, undefined, 'the saved request is dropped once used');
+    assert.equal(fs.existsSync(pendingFile(cfg)), false, 'the saved request is dropped once used');
+    assert.deepEqual(leftovers(cfg), [], 'no temp or lock file is left behind');
   });
 });
 
@@ -175,7 +182,12 @@ test('B2-2: not approved in time: exits non-zero with "approve, then run the sam
     assert.doesNotMatch(r.stderr, /in a terminal/i, 'never sends the person somewhere they are not');
     assert.equal(r.stdout, '', 'stdout stays clean');
     assert.equal(hasKey(cfg), false);
-    assert.ok(readCfg(cfg).pending_login, 'the pending request is saved for the rerun');
+    assert.equal(readPending(cfg).userCode, 'STUB-0001', 'the pending request is saved for the rerun');
+    assert.equal((readCfg(cfg) || {}).pending_login, undefined, 'it is kept out of the config file that holds the key');
+    if (process.platform !== 'win32') {
+      assert.equal(fs.statSync(pendingFile(cfg)).mode & 0o077, 0, 'only the owner can read the saved request');
+    }
+    assert.deepEqual(leftovers(cfg), []);
   });
 });
 
@@ -195,7 +207,7 @@ test('B2-2: the rerun resumes the SAME code and finishes at once when it was app
     assert.equal(stub.state.deviceRequests, 1, 'no second sign-in request');
     assert.ok(Date.now() - started < 8000, 'finished at once, without waiting out the window');
     assert.equal(readCfg(cfg).api_key, API_KEY);
-    assert.equal(readCfg(cfg).pending_login, undefined);
+    assert.equal(fs.existsSync(pendingFile(cfg)), false);
   });
 });
 
@@ -208,15 +220,33 @@ test('B2-2: a saved request that has run out is dropped and a fresh code is show
     assert.notEqual(again.code, 0);
     assert.equal(stub.state.deviceRequests, 2, 'a second request was started');
     assert.match(again.stderr, /STUB-0002/, 'the fresh code is shown');
-    assert.equal(readCfg(cfg).pending_login.userCode, 'STUB-0002');
+    assert.equal(readPending(cfg).userCode, 'STUB-0002');
 
-    // A saved request whose time is already up is dropped without asking the service.
-    const c = readCfg(cfg);
-    c.pending_login.expiresAtMs = Date.now() - 1000;
-    fs.writeFileSync(path.join(cfg, 'config.json'), JSON.stringify(c));
+    // A saved request whose time is already up is not used, without asking the service.
+    const p = readPending(cfg);
+    p.expiresAtMs = Date.now() - 1000;
+    fs.writeFileSync(pendingFile(cfg), JSON.stringify(p));
+    const polls = stub.state.tokenPolls;
     const third = await runCli([csv], env);
     assert.notEqual(third.code, 0);
     assert.match(third.stderr, /STUB-0003/);
+    assert.doesNotMatch(third.stderr, /STUB-0002/);
+    assert.equal(readPending(cfg).userCode, 'STUB-0003', 'the fresh request replaced the old file');
+    assert.ok(stub.state.tokenPolls - polls <= 2, 'the run-out code was not polled');
+  });
+});
+
+test('B2-2: a saved request that is damaged or for another service is not used; a fresh code is shown', async () => {
+  await withStub(async ({ stub, cfg, csv }) => {
+    const env = baseEnv(stub, cfg, { XFA_LOGIN_WAIT_SECONDS: '0' });
+    fs.writeFileSync(pendingFile(cfg), '{"origin": "http://127.0.0.1:1", "deviceCo');
+    const first = await runCli([csv], env);
+    assert.match(first.stderr, /STUB-0001/);
+    assert.match(first.stderr, /run the same command again/i);
+    fs.writeFileSync(pendingFile(cfg), JSON.stringify({ ...readPending(cfg), origin: 'https://other.example' }));
+    const second = await runCli([csv], env);
+    assert.match(second.stderr, /STUB-0002/, 'a request saved for another service address is not resumed');
+    assert.doesNotMatch(second.stderr, /Unexpected|SyntaxError|at .*\.js:\d+/);
   });
 });
 
@@ -527,23 +557,22 @@ test('review: XFA_NONINTERACTIVE=1 is not interactive even where a terminal is a
   }
 });
 
-test('review: a sign-in request that cannot be saved is said so, with the folder and what to do', async (t) => {
-  if (process.platform === 'win32' || (process.getuid && process.getuid() === 0)) {
-    t.skip('read-only folders are not enforced here');
-    return;
-  }
+test('review: a sign-in that cannot be saved stops BEFORE the person is asked to approve, and says which folder to fix', async () => {
   await withStub(async ({ stub, cfg, csv }) => {
-    // Pre-register the device client so only the pending-request save hits the read-only folder.
-    // The config is a symlink, which the config writer refuses (the folder itself is re-tightened
-    // by the writer, so a read-only folder cannot be used to force the failure).
-    const real = path.join(cfg, 'real-config.json');
-    fs.writeFileSync(real, JSON.stringify({ oauth_device_client_ids: { [stub.base]: 'stub-device-client' } }));
-    fs.symlinkSync(real, path.join(cfg, 'config.json'));
-    const r = await runCli([csv], baseEnv(stub, cfg, { XFA_LOGIN_WAIT_SECONDS: '1.5' }));
+    // A folder sitting where the request file goes: the save cannot land.
+    fs.mkdirSync(pendingFile(cfg));
+    fs.writeFileSync(path.join(pendingFile(cfg), 'keep'), '');
+    const r = await runCli([csv], baseEnv(stub, cfg, { XFA_LOGIN_WAIT_SECONDS: '20' }));
     assert.notEqual(r.code, 0);
-    assert.match(r.stderr, /could not be saved/i);
+    assert.match(r.stderr, /could not be saved in /i);
+    assert.ok(r.stderr.includes(cfg), 'names the folder');
     assert.match(r.stderr, /writable/i);
+    assert.match(r.stderr, /run the same command again/i);
+    assert.doesNotMatch(r.stderr, /STUB-0001|open this page/i, 'no code is shown for a sign-in that could not be kept');
     assert.doesNotMatch(r.stderr, /in a terminal/i);
+    assert.equal(stub.state.tokenPolls, 0, 'nothing waited on an approval');
+    assert.equal(hasKey(cfg), false);
+    assert.deepEqual(leftovers(cfg), [], 'the temp file is cleaned up');
   });
 });
 
@@ -565,45 +594,58 @@ async function inProcess(stub, cfg, env, fn) {
   }
 }
 
-test('review: two commands started together make ONE sign-in request and end with ONE code (ran red on the old code: 2 requests)', async () => {
+test('review: two commands started together do not get in each other\'s way: each has its own code, both finish, the config is whole, and there is no lock', async () => {
   await withStub(async ({ stub, cfg, csv }) => {
-    await post(stub, '/__config', { authDelayMs: 900 });
+    // A slow answer from the service, so the two commands overlap at every step.
+    await post(stub, '/__config', { authDelayMs: 600 });
     const env = baseEnv(stub, cfg, { XFA_LOGIN_WAIT_SECONDS: '30' });
     const first = runCli([csv], env);
-    await sleep(300);
     const second = runCli([csv], env);
-    assert.ok(await waitFor(() => stub.state.deviceRequests >= 1, 15000), 'a code was issued');
-    await sleep(1500); // the second command has had time to start its own, if it were going to
+    assert.ok(await waitFor(() => stub.state.deviceRequests === 2, 15000), 'each command asked for its own code');
+    const saved = readPending(cfg);
+    assert.ok(saved && /^STUB-000[12]$/.test(saved.userCode), 'the saved request is one whole request, whichever was saved last');
+    assert.equal(fs.existsSync(path.join(cfg, 'pending-login.lock')), false, 'no lock file exists while they run');
     await post(stub, '/__approve');
     const [a, b] = await Promise.all([first, second]);
     assert.equal(a.code, 0, `first: ${a.stderr}`);
     assert.equal(b.code, 0, `second: ${b.stderr}`);
-    assert.equal(stub.state.deviceRequests, 1, 'only one sign-in request was made');
-    assert.match(a.stderr, /STUB-0001/);
-    assert.match(b.stderr, /STUB-0001/);
-    assert.doesNotMatch(a.stderr + b.stderr, /STUB-0002/);
-    assert.equal(readCfg(cfg).api_key, API_KEY);
-    assert.equal(fs.existsSync(path.join(cfg, 'pending-login.lock')), false, 'the lock is released');
+    assert.match(a.stdout, /STUB TOOL RESULT/);
+    assert.match(b.stdout, /STUB TOOL RESULT/);
+    const codes = [a, b].map((r) => r.stderr.match(/STUB-000\d/)[0]).sort();
+    assert.deepEqual(codes, ['STUB-0001', 'STUB-0002'], 'each showed its own code');
+    const c = readCfg(cfg);
+    assert.equal(c.api_key, API_KEY, 'the key is saved');
+    assert.equal(c.client_id, 'stub-client-1');
+    assert.equal(c.pending_login, undefined);
+    assert.equal(fs.existsSync(pendingFile(cfg)), false, 'the saved request is gone once signed in');
+    assert.deepEqual(leftovers(cfg), [], 'no temp or lock file is left behind');
   });
 });
 
-test('review: a lock left by a dead command is replaced; a live lock is waited on, not broken', async () => {
-  await withStub(async ({ stub, cfg }) => {
-    await inProcess(stub, cfg, {}, async () => {
-      const { acquireSignInLock } = require('../../lib/login');
-      const lock = path.join(cfg, 'pending-login.lock');
-      fs.writeFileSync(lock, '');
-      const old = new Date(Date.now() - 10 * 60 * 1000);
-      fs.utimesSync(lock, old, old);
-      const taken = await acquireSignInLock({ lockWaitMs: 500 });
-      assert.ok(taken, 'the stale lock was replaced');
-      const started = Date.now();
-      const blocked = await acquireSignInLock({ lockWaitMs: 400 });
-      assert.equal(blocked, null, 'a live lock is not broken');
-      assert.ok(Date.now() - started >= 350, 'it waited for the lock');
-      taken.release();
-      assert.equal(fs.existsSync(lock), false);
-    });
+test('review: a sign-in that ends for good drops its OWN saved request and leaves a newer one from another command alone', async () => {
+  await withStub(async ({ stub, cfg, csv }) => {
+    await post(stub, '/__config', { declineOnApprove: true });
+    const env = baseEnv(stub, cfg, { XFA_LOGIN_WAIT_SECONDS: '30' });
+
+    // Its own request: dropped, so the rerun is not sent back to a declined code.
+    let run = runCli([csv], env);
+    assert.ok(await waitFor(() => Boolean(readPending(cfg))), 'request 1 saved');
+    await post(stub, '/__approve');
+    let r = await run;
+    assert.notEqual(r.code, 0);
+    assert.match(r.stderr, /declined/);
+    assert.equal(fs.existsSync(pendingFile(cfg)), false, 'the declined request is not kept');
+
+    // Another command saved a newer request meanwhile: that one stays.
+    run = runCli([csv], env);
+    assert.ok(await waitFor(() => Boolean(readPending(cfg))), 'request 2 saved');
+    const newer = { ...readPending(cfg), deviceCode: 'DEV-OTHER', userCode: 'OTHER-0001' };
+    fs.writeFileSync(pendingFile(cfg), JSON.stringify(newer));
+    await post(stub, '/__approve');
+    r = await run;
+    assert.notEqual(r.code, 0);
+    assert.match(r.stderr, /declined/);
+    assert.equal(readPending(cfg).userCode, 'OTHER-0001', 'the other command\'s request is untouched');
   });
 });
 
@@ -689,6 +731,45 @@ test('review: an upgrade link is shown only if it is https on xlsx-for-ai.dev, a
     'https://user:pw@xlsx-for-ai.dev/x', 'https://xlsx-for-ai.dev:8443/x', 'not a url', 'javascript:alert(1)']) {
     assert.equal(extractUpgradeUrl(wrap(bad)), '', bad);
   }
+});
+
+test('review: an upgrade link\'s path is plain named segments only; `..`, `.`, `//`, escapes and backslashes never reach the screen (ran red on the old code: /a/../b was shown as /b, /..x and /a//b as sent)', () => {
+  const { extractUpgradeUrl } = require('../../lib/inline-4xx');
+  const wrap = (url) => ({ error: { upgrade: { url } } });
+  const SITE = 'https://xlsx-for-ai.dev';
+  assert.equal(extractUpgradeUrl(wrap(`${SITE}/plans/pro.html`)), `${SITE}/plans/pro.html`);
+  assert.equal(extractUpgradeUrl(wrap(`${SITE}/upgrade/`)), `${SITE}/upgrade`);
+  assert.equal(extractUpgradeUrl(wrap(SITE)), SITE);
+  for (const odd of ['/a/../b', '/../admin', '/upgrade/..', '/./upgrade', '/..x', '/x..', '/a//b', '//evil.example/x',
+    '/%2e%2e/admin', '/a/%2E%2E/b', '/a\\..\\b', '/.hidden', '/a/.', `/${'a'.repeat(200)}`, '/a/b/c/d/e/f/g/h/i']) {
+    const shown = extractUpgradeUrl(wrap(`${SITE}${odd}?token=abc`));
+    assert.equal(shown, SITE, `${odd} -> ${shown}`);
+  }
+});
+
+test('review: XFA_DEBUG=1 masks tokens, keys, emails and file paths in its "Raw:" line (ran red on the old code: shown as sent)', async () => {
+  const secret = 'Bearer abcdefghijklmnop123456';
+  const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.c2lnbmF0dXJlLXZhbHVl';
+  const body = { error: { code: 'bad_request', message: `Bad input from person@example.com using ${secret} and ${jwt} at /Users/someone/secret/book.xlsx` } };
+  await withStub(async ({ stub, cfg, csv }) => {
+    const r = await runCli([csv], baseEnv(stub, cfg, { XFA_DEBUG: '1' }));
+    assert.notEqual(r.code, 0);
+    assert.match(r.stderr, /^Raw: /m, 'the debug line is still there');
+    assert.doesNotMatch(r.stderr, /person@example\.com|abcdefghijklmnop123456|eyJhbGciOiJIUzI1NiJ9|\/Users\/someone/);
+    assert.match(r.stderr, /<email>/);
+    assert.match(r.stderr, /<bearer>/);
+  }, { setup: SCRIPTED(400, body) });
+});
+
+test('review: a pasted link exits 4 with its message even when stderr is closed (no uncaught exception)', async () => {
+  await withStub(async ({ stub, cfg }) => {
+    const code = await new Promise((resolve) => {
+      const child = spawn(process.execPath, [CLI_PATH, LINKS[0]], { env: baseEnv(stub, cfg), stdio: ['ignore', 'ignore', 'pipe'] });
+      child.stderr.destroy();
+      child.on('close', resolve);
+    });
+    assert.equal(code, 4);
+  });
 });
 
 test('review: a paywall answer with an untrusted upgrade link shows the plans page, not the link', async () => {

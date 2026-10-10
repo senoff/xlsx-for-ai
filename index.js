@@ -21,7 +21,7 @@ const path = require('path');
 
 const { ensureRegistered, isCiEnvironment } = require('./lib/register');
 const { callTool }         = require('./lib/client');
-const { surface4xx, surface5xx } = require('./lib/inline-4xx');
+const { surface4xx, surface5xx, scrubSensitive } = require('./lib/inline-4xx');
 const { readFileToBase64, looksLikeLink, LINK_NOT_SUPPORTED_MESSAGE } = require('./lib/read-file');
 const {
   telemetryStatus,
@@ -174,7 +174,8 @@ function metaForStdout(meta) {
 // else collapses to a generic message. err.message can carry absolute
 // file paths, upstream stack traces, and third-party HTTP response
 // bodies — none of those belong in user-facing CLI stderr or in CI logs.
-// Set XFA_DEBUG=1 to see the raw underlying message (for incident triage).
+// Set XFA_DEBUG=1 to add the underlying message for incident triage, with
+// tokens, keys, emails and file paths masked.
 function friendlyCliError(prefix, err) {
   const code = err && err.code;
   const showRaw = process.env.XFA_DEBUG === '1';
@@ -184,15 +185,17 @@ function friendlyCliError(prefix, err) {
       // The sign-in is waiting for the person: the message already carries the
       // link, the code and "run the same command again".
       case 'LOGIN_PENDING':         return `${prefix}: ${err.message}`;
-      // The sign-in messages are fixed text from lib/login.js (no paths, no
-      // tokens), so the real reason (declined, expired, not saved) is shown.
+      // The sign-in messages are fixed text from lib/login.js, never a server's
+      // words and never a token, so the real reason (declined, expired, not
+      // saved) is shown. The one path they can name is the person's own config
+      // folder, when that folder is what has to be fixed.
       case 'LOGIN_FAILED':          return `${prefix}: ${String(err.message || 'sign-in failed.').replace(/^login:\s*/i, '')}`;
       case 'API_UNREACHABLE':       return `${prefix}: API is unreachable — check network connectivity.`;
       case 'API_SERVER_ERROR':      return surface5xx(prefix, err);
       // 4xx: surface the server's validation message (the caller's own
       // input shape, e.g. `Sheet "X" not found. Available sheets: ...`)
       // through the SAME sanitizer the MCP path uses. 5xx above stays
-      // generic. XFA_DEBUG=1 still appends the raw message via `showRaw`.
+      // generic. XFA_DEBUG=1 still appends the masked underlying message.
       case 'API_CLIENT_ERROR':
         // The server turned the stored key down: name the one command that fixes it.
         // (An automated run has no person to sign in, so it keeps the server's words.)
@@ -211,7 +214,19 @@ function friendlyCliError(prefix, err) {
       default:                     return `${prefix}: request failed${code ? ` (code=${code})` : ''}.`;
     }
   })();
-  return showRaw && err && err.message ? `${base}\nRaw: ${err.message}` : base;
+  // The underlying message can hold whatever a server sent back, so even the
+  // debug line is masked (tokens, keys, emails, file paths) before it is shown.
+  const raw = showRaw && err ? scrubSensitive(err.message) : '';
+  return raw ? `${base}\nRaw: ${raw}` : base;
+}
+
+// A web link given where a file path goes: one message and one exit code (4) on
+// every command. The write is guarded so a closed stderr cannot turn the exit
+// into an uncaught exception.
+function exitIfLink(arg) {
+  if (!looksLikeLink(arg)) return;
+  try { process.stderr.write(`xlsx-for-ai: ${LINK_NOT_SUPPORTED_MESSAGE}\n`); } catch (_) { /* nowhere to show it */ }
+  process.exit(4);
 }
 
 function nextRequiredArg(argv, i, flag) {
@@ -267,10 +282,7 @@ async function runHealSubcommand(rest) {
     );
     process.exit(2);
   }
-  if (looksLikeLink(rest[0])) {
-    process.stderr.write(`xlsx-for-ai: ${LINK_NOT_SUPPORTED_MESSAGE}\n`);
-    process.exit(4);
-  }
+  exitIfLink(rest[0]);
   const filePath = path.resolve(rest[0]);
   if (!fs.existsSync(filePath)) {
     process.stderr.write(`File not found: ${filePath}\n`);
@@ -471,10 +483,7 @@ async function runStampSubcommand(subcmd, rest) {
     process.stderr.write(`Usage: xlsx-for-ai ${subcmd} <path> [...]\n`);
     process.exit(2);
   }
-  if (looksLikeLink(rest[0])) {
-    process.stderr.write(`xlsx-for-ai: ${LINK_NOT_SUPPORTED_MESSAGE}\n`);
-    process.exit(4);
-  }
+  exitIfLink(rest[0]);
   const filePath = path.resolve(rest[0]);
   if (!fs.existsSync(filePath)) {
     process.stderr.write(`File not found: ${filePath}\n`);
@@ -699,10 +708,7 @@ async function main() {
     process.exit(1);
   }
 
-  if (looksLikeLink(opts.file)) {
-    process.stderr.write(`xlsx-for-ai: ${LINK_NOT_SUPPORTED_MESSAGE}\n`);
-    process.exit(4); // same code as the heal and stamp commands
-  }
+  exitIfLink(opts.file);
   const absPath = path.resolve(opts.file);
   if (!fs.existsSync(absPath)) {
     process.stderr.write(`File not found: ${absPath}\n`);

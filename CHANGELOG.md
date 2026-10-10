@@ -19,7 +19,13 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
   this). If you approve in time it carries on. If not, it exits non-zero and
   says to approve and run the same command again; the saved request means the
   rerun uses the same code and finishes at once if you have approved.
-  `XFA_NONINTERACTIVE=1` keeps the immediate stop.
+  `XFA_NONINTERACTIVE=1` keeps the immediate stop. The saved request is its
+  own small file (`pending-login.json`, beside `config.json`), so it never
+  touches the stored key. Two commands started together each show their own
+  code; approving either signs you in. If the config folder cannot be written,
+  the command says so and stops before asking you to approve anything.
+- `XFA_DEBUG=1` now masks tokens, keys, emails and file paths in its `Raw:`
+  line.
 - Usage-limit messages now show what the service said. A 402 shows its message
   and upgrade link; a 429 shows its message and when to retry. A fallback is
   used only when the service sent no message.
