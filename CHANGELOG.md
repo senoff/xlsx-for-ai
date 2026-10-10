@@ -9,7 +9,19 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 
 ## [Unreleased]
 
+## [4.2.4]
+
+4.2.3 was tagged but never published: the publish workflow's own test run failed, so npm kept serving 4.2.2. 4.2.4 carries everything in 4.2.3 plus the fix below.
+
+### Fixed
+
+- **Release test no longer depends on the environment.** Since 4.2.3 a 401 in an automated run (`CI=true`, `GITHUB_ACTIONS=true` or `XLSX_FOR_AI_CI=1`) answers with a fixed "needs a key" sentence instead of the server's text, so the test that checks a Bearer token is redacted failed on the CI runner while passing on a laptop. The redaction itself was correct and is unchanged. The test now pins its environment, the redaction is also checked on a 400 in every environment, and the automated-run 401 is checked to name the key variable and never echo the token.
+
+- **An automated run whose key was refused is no longer told it has no key.** A 401 in an automated run now says "the key this automated run sent was not accepted" (with the next step) when a key was sent, and keeps the "no key" sentence only when none was; the key and the server's text are never repeated.
+
 ## [4.2.3]
+
+Tagged but never published; shipped as part of 4.2.4.
 
 ### Fixed
 
