@@ -55,7 +55,7 @@ test('the Shopify group lists exactly the served commerce tools and the text poi
 
 test('manifest endpoint equals the .mcp.json URL, and nothing positions against another product', () => {
   const mcp = JSON.parse(fs.readFileSync(path.join(ROOT, 'claude-code-plugin', '.mcp.json'), 'utf8'));
-  assert.equal(manifest.endpoint, mcp.mcpServers['xlsx-for-ai'].url);
+  assert.equal(manifest.endpoint, mcp.mcpServers['spreadsheets'].url);
   const text = fs.readFileSync(OUTPUT, 'utf8');
   assert.ok(!/libreoffice|excel is|than excel/i.test(text));
 });

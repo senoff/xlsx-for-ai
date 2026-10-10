@@ -175,7 +175,9 @@ claude plugin marketplace add senoff/xlsx-for-ai
 claude plugin install xlsx-for-ai@xlsx-for-ai
 ```
 
-Then, once: start Claude Code, run `/mcp`, choose the `xlsx-for-ai` server and sign in in the browser. The plugin connects to the hosted endpoint `https://api.xlsx-for-ai.dev/mcp` (OAuth sign-in) and asks for the full tool list.
+Then, once: start Claude Code, run `/mcp`, choose the `plugin:xlsx-for-ai:spreadsheets` server and sign in in the browser. The plugin connects to the hosted endpoint `https://api.xlsx-for-ai.dev/mcp` (OAuth sign-in) and asks for the full tool list.
+
+Version 0.1.1 renamed the server key in the plugin's `.mcp.json` from `xlsx-for-ai` to `spreadsheets`, so `/mcp` now shows `plugin:xlsx-for-ai:spreadsheets` instead of `plugin:xlsx-for-ai:xlsx-for-ai`. Claude Code reads the key from the plugin's own `.mcp.json` and nothing else reads it. If you are on 0.1.0, sign in once after updating, because the server has a new name.
 
 What it does:
 

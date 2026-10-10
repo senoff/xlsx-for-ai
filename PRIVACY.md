@@ -25,7 +25,7 @@ For every tool call, the client sends:
 
 We do not send or collect:
 
-- Email address (we never ask for one).
+- Email address (tool calls and registration never ask for one — the only exception is if you choose to run `xfa support`, which sends the email you type as a reply-to; see [Feedback and support](#feedback-and-support)).
 - Cell content beyond what is in the file bytes during the request (the bytes are not stored after the request completes).
 - File metadata beyond size and sheet count, which are captured for telemetry.
 - File names or paths — the client sends bytes only; the local path never leaves your machine.
@@ -73,6 +73,17 @@ xlsx-for-ai --telemetry-status    # check current setting
 ```
 
 The telemetry setting is stored in `~/.xlsx-for-ai/config.json` under the `telemetry` key. It persists across upgrades.
+
+---
+
+## Feedback and support
+
+Two optional commands send a message to us. Neither sends any workbook content.
+
+- **`xfa feedback "<message>"`** — anonymous. Your message is stored tied only to your anonymous client_id; we do not ask for or send an email address.
+- **`xfa support "<email>" "<question>"`** — the email you type is transmitted and stored as the reply-to so we can answer you. It is used only to reply to your question.
+
+Both run only when you invoke them; nothing is sent otherwise.
 
 ---
 
