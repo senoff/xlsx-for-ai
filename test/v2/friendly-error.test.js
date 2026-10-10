@@ -179,15 +179,50 @@ test('PII scrubber: JWT-shaped tokens are redacted', () => {
   assert.ok(out.includes('<jwt>'));
 });
 
-test('PII scrubber: Bearer auth header value is redacted', () => {
-  const err = buildClientErr({
-    status: 401,
-    payload: { error: { message: 'unexpected auth: Bearer abc123def456ghi789jkl' } },
-  });
-  const out = friendlyErrorMessage('xlsx_write', err);
+// Since 4.2.3 a 401 in an automated run (CI=true, GITHUB_ACTIONS=true or
+// XLSX_FOR_AI_CI=1) answers with a fixed "needs a key" sentence instead of the
+// server's text, so the 401 tests below pin the environment they mean to test.
+const CI_VARS = ['CI', 'GITHUB_ACTIONS', 'XLSX_FOR_AI_CI'];
+function withEnv(values, fn) {
+  const saved = {};
+  for (const k of CI_VARS) saved[k] = process.env[k];
+  for (const k of CI_VARS) {
+    if (values[k] === undefined) delete process.env[k]; else process.env[k] = values[k];
+  }
+  try { return fn(); } finally {
+    for (const k of CI_VARS) {
+      if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k];
+    }
+  }
+}
+
+const BEARER_MESSAGE = 'unexpected auth: Bearer abc123def456ghi789jkl';
+
+test('PII scrubber: Bearer auth header value is redacted (401, person at the keyboard)', () => {
+  const err = buildClientErr({ status: 401, payload: { error: { message: BEARER_MESSAGE } } });
+  const out = withEnv({}, () => friendlyErrorMessage('xlsx_write', err));
   assert.ok(!out.includes('abc123def456ghi789jkl'),
     `Bearer token must be redacted; got ${out}`);
   assert.ok(out.includes('<bearer>'));
+});
+
+test('PII scrubber: Bearer auth header value is redacted (400, whatever the environment)', () => {
+  const err = buildClientErr({ status: 400, payload: { error: { message: BEARER_MESSAGE } } });
+  for (const env of [{}, { CI: 'true', GITHUB_ACTIONS: 'true' }, { XLSX_FOR_AI_CI: '1' }]) {
+    const out = withEnv(env, () => friendlyErrorMessage('xlsx_write', err));
+    assert.ok(!out.includes('abc123def456ghi789jkl'), `Bearer token must be redacted; got ${out}`);
+    assert.ok(out.includes('<bearer>'), `expected <bearer> placeholder; got ${out}`);
+  }
+});
+
+test('401 in an automated run says it needs a key and never echoes the server text', () => {
+  const err = buildClientErr({ status: 401, payload: { error: { message: BEARER_MESSAGE } } });
+  for (const env of [{ CI: 'true' }, { GITHUB_ACTIONS: 'true' }, { XLSX_FOR_AI_CI: '1' }]) {
+    const out = withEnv(env, () => friendlyErrorMessage('xlsx_write', err));
+    assert.match(out, /automated run/);
+    assert.match(out, /XLSX_FOR_AI_KEY/);
+    assert.ok(!out.includes('abc123def456ghi789jkl'), `token leaked in automated run; got ${out}`);
+  }
 });
 
 test('PII scrubber: Slack tokens are redacted', () => {
