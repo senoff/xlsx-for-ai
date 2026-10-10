@@ -5,7 +5,8 @@
  * in lib/login.js. Three first-run cases:
  *   1. stored (older-version, anonymous) key  -> used as-is, no network
  *   2. no key, interactive terminal           -> OAuth device login, key stored
- *   3. no key, non-interactive                -> LOGIN_REQUIRED fast, no network, no anonymous mint
+ *   3. no key, no terminal                    -> link + code on stderr, short wait, "run again" (XLS-3001)
+ *      no key, XFA_NONINTERACTIVE=1           -> LOGIN_REQUIRED fast, no network, no anonymous mint
  */
 
 const { test, before, after, beforeEach } = require('node:test');
@@ -88,24 +89,37 @@ test('stored anonymous key from an older version keeps working, no network call'
   assert.equal(hits.length, 0);
 });
 
-test('no key + non-interactive: LOGIN_REQUIRED immediately, no anonymous mint, no network', async () => {
+test('B2-3: no key + no terminal (not an automated run): shows the link and code, never a dead end, no anonymous mint', async () => {
   setTty(false);
-  const { ensureRegistered } = fresh('../../lib/register');
-  await assert.rejects(ensureRegistered(), (e) => {
-    assert.equal(e.code, 'LOGIN_REQUIRED');
-    assert.match(e.message, /xlsx-for-ai login/);
-    return true;
-  });
-  assert.equal(hits.filter((h) => h.url === '/api/v1/clients').length, 0);
-  assert.equal(hits.length, 0);
+  process.env.XFA_LOGIN_WAIT_SECONDS = '0'; // one look at the approval, then "not yet"
+  const origWrite = process.stderr.write;
+  let shown = '';
+  process.stderr.write = (s) => { shown += s; return true; };
+  try {
+    const { ensureRegistered } = fresh('../../lib/register');
+    await assert.rejects(ensureRegistered(), (e) => {
+      assert.equal(e.code, 'LOGIN_PENDING', 'waiting for the person, not LOGIN_REQUIRED');
+      assert.match(e.message, /ABCD-EFGH/);
+      assert.match(e.message, /run the same command again/);
+      assert.doesNotMatch(e.message, /terminal/i);
+      return true;
+    });
+  } finally {
+    process.stderr.write = origWrite;
+    delete process.env.XFA_LOGIN_WAIT_SECONDS;
+  }
+  assert.match(shown, /oauth\/device\?user_code=ABCD-EFGH/, 'link printed on stderr');
+  assert.equal(hits.filter((h) => h.url === '/api/v1/clients').length, 0, 'no anonymous mint');
+  assert.ok(hits.some((h) => h.url === '/oauth/device/auth'), 'a device request was made');
 });
 
-test('XFA_NONINTERACTIVE=1 forces the non-interactive error even on a TTY', async () => {
+test('XFA_NONINTERACTIVE=1 forces the non-interactive error even on a TTY: fail fast, no network', async () => {
   setTty(true);
   process.env.XFA_NONINTERACTIVE = '1';
   const { ensureRegistered } = fresh('../../lib/register');
   await assert.rejects(ensureRegistered(), { code: 'LOGIN_REQUIRED' });
   setTty(false);
+  assert.equal(hits.length, 0);
 });
 
 test('no key + interactive: device flow prints the URL, polls, stores an OAuth-bound key', async () => {
