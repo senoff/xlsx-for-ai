@@ -9,6 +9,28 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 
 ## [Unreleased]
 
+## [4.2.1]
+
+### Fixed
+
+- **New users of the MCP server no longer hit a dead end.** Since 4.1.0, an
+  editor or desktop app with no terminal could not sign in, so the first tool
+  call failed and told the user to run `xlsx-for-ai login` in a terminal they
+  were not using. The first tool call now replies with a sign-in link and a
+  short code. Open the link, approve, and ask again: the next request works
+  with no restart. Asking again before you approve shows the same link and
+  code; a link that expired or was declined is replaced with a fresh one on
+  the next request.
+- Nothing about start-up changes: the tool list still answers with no key, and
+  the server still writes only protocol messages to stdout.
+
+### Changed
+
+- Internal: the terminal sign-in is split into "ask for a code" and "wait for
+  approval" so the terminal command and the MCP server share one flow. The
+  terminal command, the CI skip and stored keys behave as before; no anonymous
+  keys are created.
+
 ## [4.2.0]
 
 ### Added
