@@ -1,11 +1,11 @@
 {
-  "$comment": "Triaged advisories that audit.yml will not fail the build on. Each entry MUST include a reassess date. A PR that adds an entry here is a security-policy change — review accordingly.",
+  "$comment": "Triaged advisories that audit.yml will not fail the build on. Each entry MUST include a reassess date. A PR that adds an entry here is a security-policy change \u2014 review accordingly. Sign-off for this PR's entries: xlsx-board owner / SPM, 2026-08-09 \u2014 stdio-only client, the HTTP-server-transport paths that would reach ip-address/fast-uri on untrusted input never execute; unreachability triage independently re-verified. See PR description for the recorded security-policy grace-override.",
   "advisories": [
     {
       "ghsa": "GHSA-7p8r-x3mc-p8w7",
       "package": "fast-uri",
       "severity": "high",
-      "reason": "Transitive: @modelcontextprotocol/sdk > ajv > fast-uri. ajv uses fast-uri only to resolve $id/$ref URIs inside JSON schemas, and this CLI validates against static, first-party schemas (MCP SDK + our own tool definitions) — no attacker-controlled schema URI ever reaches fast-uri. The host-confusion path is unreachable in a thin stdio client. No fixed fast-uri is available under the pinned ajv@8.20.0 range without bumping the MCP SDK (out of scope; material dep change to a published client).",
+      "reason": "Transitive: @modelcontextprotocol/sdk > ajv > fast-uri. ajv uses fast-uri only to resolve $id/$ref URIs inside JSON schemas, and this CLI validates against static, first-party schemas (MCP SDK + our own tool definitions) \u2014 no attacker-controlled schema URI ever reaches fast-uri. The host-confusion path is unreachable in a thin stdio client. No fixed fast-uri is available under the pinned ajv@8.20.0 range without bumping the MCP SDK (out of scope; material dep change to a published client).",
       "owner": "xlsx-board",
       "reassess": "2026-11-05"
     },
@@ -13,7 +13,7 @@
       "ghsa": "GHSA-v2v4-37r5-5v8g",
       "package": "ip-address",
       "severity": "high",
-      "reason": "Transitive: @modelcontextprotocol/sdk > express-rate-limit > ip-address. express-rate-limit is server-side middleware used only by the MCP SDK's HTTP server transport; this CLI runs the stdio transport exclusively, so that code path never executes. The XSS is in Address6 HTML-emitting methods — this is a terminal client that emits no HTML. Unreachable.",
+      "reason": "Transitive: @modelcontextprotocol/sdk > express-rate-limit > ip-address. express-rate-limit is server-side middleware used only by the MCP SDK's HTTP server transport; this CLI runs the stdio transport exclusively, so that code path never executes. The XSS is in Address6 HTML-emitting methods \u2014 this is a terminal client that emits no HTML. Unreachable.",
       "owner": "xlsx-board",
       "reassess": "2026-11-05"
     },

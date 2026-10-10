@@ -1,0 +1,103 @@
+name: tool-floor drift
+
+# XLS-979 — give the baked tool-floor drift guard a STANDING home.
+#
+# Before this, floor-content drift was caught ONLY inside publish.yml (a
+# `tool-floor:check` step gated behind a manual workflow_dispatch). So a cold-start
+# agent could be shipped a floor that silently lacks a live tool for as long as
+# nobody published — and, because /api/v1/tools/list carries no `description`,
+# mergeTools fills descriptions from that floor even ONLINE, so the missing tool
+# reaches the agent description-less and Claude Desktop drops it. The gap ships
+# silent. This workflow makes it RED.
+#
+# TWO arms, matching the two halves of the guard:
+#   guard   — the no-network half: the committed floor's structural invariants
+#             PLUS the XLS-979 mutation proof (diffFloor REDs when inventory gains
+#             a tool the floor lacks). Deterministic; always fails closed.
+#   live    — the live half: `tool-floor:check` diffs the baked floor against the
+#             REAL inventory. Its exit contract is honoured exactly (0 no-drift ·
+#             1/3 real failure = block · 2 unreachable = warn-and-proceed) so prod
+#             being down never blocks a PR, but real drift always does.
+#
+# The schedule is not decoration: floor drift's likeliest cause is the SERVER
+# growing its inventory (a newly deployed tool) with NO commit in this repo to
+# trigger a push/PR run. Only a scheduled live check catches that class.
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  schedule:
+    # Offset off audit.yml (11:17) and upgrade-verify so the three don't pile up
+    # on the same runner minute. Daily sweep catches a server-side inventory
+    # growth even when this repo has no PRs.
+    - cron: "37 11 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    name: floor guard (no-network structural + mutation proof)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install with locked integrity
+        run: npm ci --ignore-scripts
+
+      # Runs the committed-floor invariants AND the XLS-979 positive/negative/stale
+      # controls proving diffFloor has teeth. Pure; no network. Fails closed.
+      - name: Floor structural + drift-predicate guard
+        run: node --test test/v2/tool-floor.test.js
+
+  live:
+    name: floor == live inventory (drift check)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install with locked integrity
+        run: npm ci --ignore-scripts
+
+      # Honour gen-tool-floor.js's exit contract precisely:
+      #   0        -> no drift, pass.
+      #   2        -> could not reach live inventory (prod down / transient). This
+      #               is NOT drift and NOT a code fault — warn and pass, exactly as
+      #               publish.yml does, so infra flakiness never blocks a PR.
+      #   1 or 3   -> real drift (1) or a broken check / 4xx / bad shape (3). Block.
+      - name: Check baked floor against live inventory
+        run: |
+          set +e
+          npm run --silent tool-floor:check
+          code=$?
+          set -e
+          if [ "$code" -eq 0 ]; then
+            echo "::notice::tool-floor: baked floor matches live inventory — no drift."
+            exit 0
+          elif [ "$code" -eq 2 ]; then
+            echo "::warning::tool-floor: could not reach live inventory (exit 2) — skipping the live drift assertion, not blocking. Re-run when inventory is reachable."
+            exit 0
+          else
+            echo "::error::tool-floor: drift or broken check (exit $code). Regenerate the floor with 'npm run tool-floor:generate' and commit generated/tool-floor.generated.js."
+            exit "$code"
+          fi

@@ -19,7 +19,7 @@ This means: **workbook bytes leave your machine and travel to our server for eve
 For every tool call, the client sends:
 
 - **File bytes** (base64-encoded) — the xlsx file your agent asked to process.
-- **Anonymous client_id** — a UUID generated locally on first run. Not linked to an email address, name, or any identifying information.
+- **client_id** — an identifier issued when you sign in. From version 4.1.0 it is linked to the account you sign in with (email link or Google). Keys created by earlier versions are anonymous and not linked to an email address.
 - **Platform and version** — e.g., `darwin-arm64`, `2.0.0`. Used for compatibility telemetry.
 - **Tool name and options** — which tool you called and the parameters you passed (sheet name, format, etc.).
 
@@ -48,19 +48,17 @@ Captures are never used to train language models, never shared with third partie
 
 ---
 
-## Anonymous UUID registration
+## Sign-in and registration
 
-On first run, the client generates a UUID locally and sends it to `POST /api/v1/clients` with your platform and client version. The server returns an opaque API key. Both are stored in `~/.xlsx-for-ai/config.json`.
+From version 4.1.0 the client signs in with the OAuth device flow: `xlsx-for-ai login` prints a link, you approve it in a browser (email link or Google), and the server issues an API key bound to that account via `POST /api/v1/clients`. The key and client ID are stored in `~/.xlsx-for-ai/config.json`. The email address is stored encrypted and used only to identify the account. No password is stored.
 
-The UUID is anonymous by design. We do not ask for an email address, phone number, or any other identifying information. The UUID is a random identifier — it cannot be traced back to you without your cooperation.
+Versions before 4.1.0 registered anonymously: the server issued a random client ID and key with no email or other identifying information. Those keys keep working during the transition; the server marks their responses with a sunset notice naming the cutoff date.
 
-**To delete your registration:** remove the config file.
+**To sign out on a machine:** remove the config file. The next use will ask you to sign in again.
 
 ```bash
 rm ~/.xlsx-for-ai/config.json
 ```
-
-The next tool call will generate a new UUID and register a new client. Your previous usage history (audit log entries) will remain associated with the old UUID, but the old UUID cannot be linked to the new one or to you.
 
 ---
 

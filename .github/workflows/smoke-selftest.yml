@@ -1,0 +1,46 @@
+name: MCP smoke harness self-test
+
+# Mutation proof for scripts/mcp_smoke.py — the post-publish MCP-stdio smoke harness
+# (used by publish.yml). It runs the SAME harness against two controlled servers with
+# no network, no registry, and no publish, proving both arms without re-firing the
+# publish workflow (XLS-988):
+#   * GREEN — a mock server emitting a >64KB tools/list line: harness must exit 0
+#     (the old sleep()+terminate() harness truncated it into a false-RED).
+#   * RED   — /bin/cat as a broken server: harness must exit non-zero (still has teeth).
+# POSIX-only by construction (the truncation bug lived on the macOS/POSIX spawn path).
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "scripts/mcp_smoke.py"
+      - "test/smoke/**"
+      - ".github/workflows/smoke-selftest.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  selftest:
+    name: harness self-test (green drains >64KB, red fails closed)
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run harness self-test
+        run: python test/smoke/selftest.py

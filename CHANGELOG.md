@@ -7,6 +7,45 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 
 ---
 
+## [Unreleased]
+
+## [4.1.0]
+
+### Added
+
+- **`xlsx-for-ai login`** — one-time sign-in using the OAuth device flow.
+  It prints a link and a short code; approve it in any browser and the key
+  is stored in `~/.xlsx-for-ai/config.json`. `--force` signs in again.
+
+### Changed
+
+- **First run now needs a sign-in.** This version no longer creates an
+  anonymous key on first use.
+  - A key already stored by an earlier version keeps working as-is.
+  - No stored key in an interactive terminal: the sign-in starts
+    automatically and prints the link.
+  - No stored key and no terminal (CI, an MCP host): the command fails
+    straight away with `not signed in. Run xlsx-for-ai login`. It does not
+    wait or prompt.
+
+- **`xlsx_validate` is now a soundness check, not a two-engine cross-check.**
+  The hosted server dropped its second renderer when it moved workbook
+  parsing onto its own OOXML engine. `xlsx_validate` now parses the
+  workbook once with that engine and reports whether it loads cleanly. A
+  truncated zip, an encrypted container, a workbook with no worksheets, or
+  a damaged sheet body each fail, and the report includes a per-sheet
+  structural summary. It no longer reports cell-level divergences between
+  two renderers.
+  - The tool name, arguments and output envelope are unchanged.
+  - The MCP tool description, the annotation title, the README rows and the
+    `samples` demo prompt now say what the tool actually does.
+- **Dependency lockfile refreshed** (`npm audit fix`, lockfile only) for
+  transitive advisories in the MCP SDK's HTTP-transport dependencies
+  (ip-address, proxy-addr and others). The stdio client never runs that
+  code. `package.json` ranges are unchanged.
+
+---
+
 ## [3.2.1] - 2026-06-10
 
 Thin-client consolidation: completes the move to a hosted-API-only client and

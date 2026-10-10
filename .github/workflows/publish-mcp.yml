@@ -1,21 +1,22 @@
 name: Publish to MCP Registry
 
-# Submits server.json to the MCP Registry. Two trigger modes:
-#   1. push of a v* tag (e.g. v2.0.0) — automatic on every release
-#   2. workflow_dispatch — manual trigger from CLI or GitHub UI for the
-#      one-off case where a tag was already pushed before the workflow existed
+# MANUAL RECOVERY / RECONCILE lever — NOT the per-release path (XLS-504).
 #
-# Auth: GitHub OIDC (no PAT, no device flow). The MCP Registry verifies that
-# the OIDC token's repo claim matches the `name` field in server.json
-# (must start with "io.github.senoff/" — see d08a2e1 commit message).
+# The authoritative per-release MCP Registry sync now lives in publish.yml, gated LOUD on
+# every release. This workflow's automatic `push: tags: v*` trigger is RETIRED: releases are
+# tagless `workflow_dispatch`es (version_bump=none), so v* tags stopped at v3.2.5 while npm
+# went to 3.2.9 — the tag trigger never fired for 3.2.6–3.2.9 and the registry silently
+# stranded 8 releases behind npm. A trigger that depends on tag discipline the release path
+# doesn't keep is not an auto-sync; it's a false sense of one. Keeping it live alongside
+# publish.yml's sync would just re-create two paths that disagree.
 #
-# The npm package itself is published by .github/workflows/publish.yml.
-# This workflow ONLY publishes the server.json metadata.
+# What remains is a DISPATCH-ONLY tool: reconcile the registry out-of-band (e.g. after a sync
+# failed and publish.yml's release already went red) WITHOUT cutting a whole new npm release.
+# It reads server.json@main (authoritative — bumped in the same PR as package.json) and submits
+# it. Auth: GitHub OIDC (no PAT, no device flow); the registry verifies the OIDC repo claim
+# matches server.json's `name` ("io.github.senoff/…"). Publishes ONLY the server.json metadata.
 
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch: {}
 
 permissions:
@@ -26,9 +27,30 @@ jobs:
   publish:
     name: mcp-publisher publish
     runs-on: ubuntu-latest
+    timeout-minutes: 10   # a hung OIDC login / registry submit must not pin a runner for hours
     steps:
+      # This tool's contract is "submit server.json@main". checkout defaults to the dispatched
+      # ref, so without this a dispatch from a feature branch would submit THAT branch's
+      # server.json to the live registry. Enforce main FIRST, before checkout reads the tree.
+      - name: Enforce main-only dispatch
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::publish-mcp.yml must be dispatched against main (got: $GITHUB_REF)."
+            echo "This tool submits server.json@main to the live registry. Reconcile from main,"
+            echo "not another ref — otherwise it would sync a tree that never landed."
+            exit 1
+          fi
+          echo "Dispatch ref is main."
+
       - name: Checkout
         uses: actions/checkout@v4
+
+      # This workflow reads versions with `node -p` (the verify + submit steps). Pin the runtime
+      # rather than lean on the runner image's ambient node — same node 22 publish.yml pins.
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
 
       - name: Install mcp-publisher
         # Pinned to a specific upstream release + sha256. Without the pin a
@@ -66,23 +88,59 @@ jobs:
           chmod +x ./mcp-publisher
           ./mcp-publisher --help | head -5
 
-      - name: Sync server.json version to package.json
+      # Submit server.json@main AS COMMITTED — it is authoritative (bumped in the same reviewed
+      # PR as package.json; publish.yml's release path verifies they agree). XLS-504 removed the
+      # old in-runner `jq` mutation that rewrote server.json from package.json: an ephemeral write
+      # whose result never landed was the whole reason main's server.json rotted at 3.2.1. Here we
+      # only VERIFY the tree we're about to submit is coherent, and refuse if it isn't — a mismatch
+      # means main is half-bumped and the fix is a PR, not a runner-local rewrite.
+      - name: Verify server.json matches package.json
         run: |
-          # Authoritative version source: package.json (which publish.yml bumps
-          # and pushes). On tag-push events GITHUB_REF is the tag (we could
-          # parse it instead), but using package.json works uniformly for both
-          # push events AND workflow_dispatch reruns from any ref. This is
-          # what unblocked the 'cannot publish duplicate version' bug we hit
-          # when re-running on a tag where the repo's server.json was still
-          # at the old version.
-          VERSION=$(jq -r '.version' package.json)
-          echo "Sync version: ${VERSION}"
-          jq --arg v "$VERSION" '.version = $v | .packages[0].version = $v' \
-            server.json > server.tmp && mv server.tmp server.json
-          cat server.json
+          # set -e so a node failure aborts the step; the empty-guard so a node that returns
+          # "" (or absent 'undefined') can't make all three compare equal and pass the check
+          # OPEN — an unmeasured version is not a matching one.
+          set -euo pipefail
+          PKG_V="$(node -p "require('./package.json').version")"
+          SRV_V="$(node -p "require('./server.json').version")"
+          SRV_PKG_V="$(node -p "require('./server.json').packages[0].version")"
+          echo "package.json=${PKG_V}  server.json=${SRV_V}  server.json.packages[0]=${SRV_PKG_V}"
+          for pair in "package.json:${PKG_V}" "server.json:${SRV_V}" "server.json.packages[0]:${SRV_PKG_V}"; do
+            val="${pair#*:}"
+            if [ -z "$val" ] || [ "$val" = "undefined" ]; then
+              echo "::error::could not read a version from ${pair%%:*} (got '${val}') — refusing to submit an unverified tree."
+              exit 1
+            fi
+          done
+          if [ "$SRV_V" != "$PKG_V" ] || [ "$SRV_PKG_V" != "$PKG_V" ]; then
+            echo "::error::server.json (version=$SRV_V, packages[0]=$SRV_PKG_V) != package.json ($PKG_V) on this ref."
+            echo "Bump server.json in the same PR as package.json, then reconcile. This tool submits"
+            echo "server.json@main as committed; it will not paper over a half-bumped tree (XLS-504)."
+            exit 1
+          fi
+          echo "Submitting server.json at ${PKG_V}."
 
-      - name: Authenticate via GitHub OIDC
-        run: ./mcp-publisher login github-oidc
-
-      - name: Publish to MCP Registry
-        run: ./mcp-publisher publish
+      # OIDC login + submit, guarded: per-call timeout so a hung login/publish can't stall the
+      # runner, bounded retries for a transient registry hiccup, and fail LOUD if all attempts
+      # fail (this is a reconcile tool — a silent failure would leave the drift it exists to fix).
+      # The outcome is recorded to the immutable run summary as an audit entry for this
+      # security-relevant operation (OIDC-authenticated publish to the live registry).
+      - name: Authenticate and submit to MCP Registry (OIDC)
+        run: |
+          set -euo pipefail
+          V="$(node -p "require('./package.json').version")"
+          published=false
+          for attempt in 1 2 3; do
+            if timeout 60s ./mcp-publisher login github-oidc && timeout 60s ./mcp-publisher publish; then
+              published=true
+              echo "mcp-publisher publish succeeded (attempt $attempt)."
+              break
+            fi
+            echo "mcp-publisher attempt $attempt failed." >&2
+            [ "$attempt" -lt 3 ] && sleep $((attempt * 2))
+          done
+          if [ "$published" != true ]; then
+            echo "::error::mcp-publisher failed after 3 attempts — the registry was NOT reconciled to ${V}."
+            echo "- **MCP Registry reconcile:** **FAILED** at \`${V}\`" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "- **MCP Registry reconcile:** submitted \`${V}\`" >> "$GITHUB_STEP_SUMMARY"

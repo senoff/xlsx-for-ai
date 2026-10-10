@@ -18,6 +18,7 @@ const { callTool, setMcpClientInfo } = require('./lib/client');
 const { resolveCatalog }   = require('./lib/discover');
 const { applyAnnotations, sanitizeForMcp } = require('./lib/annotations');
 const { surface4xx } = require('./lib/inline-4xx');
+const { readFileToBase64 } = require('./lib/read-file');
 const fs                   = require('fs');
 const fsPromises           = require('fs/promises');
 const os                   = require('os');
@@ -222,7 +223,7 @@ const TOOLS = [
   // -------------------------------------------------------------------------
   // Pandas-shaped analysis tools — work where pandas can't:
   //   - preserves merged cells, named ranges, conditional formatting
-  //   - reads workbooks with cross-engine validation (some tools)
+  //   - soundness-checks workbooks before analysis (xlsx_validate)
   //   - dtype inference reports confidence per column instead of guessing
   // All free; the 10k/month cap is the throttle, not gating.
   // -------------------------------------------------------------------------
@@ -452,7 +453,7 @@ const TOOLS = [
   {
     name: 'xlsx_eval',
     description:
-      'evaluate Excel formulas against a LOCAL .xlsx file via HyperFormula. xlwings-style.\n' +
+      'evaluate Excel formulas against a LOCAL .xlsx file with our own recalc engine. xlwings-style.\n' +
       'Two modes: pass `formulas` (array of "=SUM(A1:A10)" expressions to compute against the workbook) or `cells` (array of "Sheet1!A1" cell refs to fresh-evaluate). Replaces pandas\' "trust the cached value" behavior with a real eval — if the cache is stale or missing, this still produces the right answer.\n\n' +
       'USE WHEN: the user wants the live computed value of a formula, not the cached one. Or when a workbook has formulas that depend on external data the cache might be stale on. ' +
       'Engine omits INDIRECT/HYPERLINK/WEBSERVICE/RTD/DDE by design — no I/O risk.\n\n' +
@@ -569,8 +570,8 @@ const TOOLS = [
   {
     name: 'xlsx_validate',
     description:
-      'cross-engine consistency check on a LOCAL .xlsx file — runs the workbook through TWO independent renderers (@protobi/exceljs and @cj-tech-master/excelts) and reports cell-level divergences.\n' +
-      'No other tool can do this: pandas trusts cached values, openpyxl is single-engine, and Excel-itself disagrees with everything else on edge cases like LAMBDA, dynamic arrays, and timezone handling. xlsx_validate is the only way to know whether two engines agree on what your workbook says.\n\n' +
+      'soundness check on a LOCAL .xlsx file — parses the workbook with the server\'s own OOXML engine and reports whether it loads cleanly (truncated zip, encrypted container, no worksheets, or a damaged sheet body each fail), with a per-sheet structural summary.\n' +
+      'Lenient readers silently turn a damaged workbook into an empty-but-valid one; xlsx_validate makes that judgment explicit.\n\n' +
       'USE WHEN: the user is about to send the workbook downstream for analysis or as an authoritative source — pre-flight check. Or for audit / regression testing across engine versions. ' +
       'Free tier — counts against the 10k/mo cap.\n\n' +
       'DO NOT USE WHEN: a casual read suffices (use xlsx_read). Or for upload/attached files.',
@@ -1239,117 +1240,45 @@ const TOOLS = [
   },
 ];
 
+// XLS-849 — append the GENERATED floor entries (the tier-2-funnel import/feed
+// producers + xlsx_pii_scan + xlsx_vault_scan) so a cold-start client (no
+// network, no cache) still exposes the full server inventory, and so
+// mergeTools has a baked description to fill in for tools the /api/v1/tools/list
+// wire shape carries without one. Generated from live inventory by
+// scripts/gen-tool-floor.js; drift-guarded by `--check`. Guarded require: if the
+// generated file is absent (e.g. a from-source checkout before first generate)
+// the client still boots on the hand-authored floor.
+try {
+  const { GENERATED_FLOOR_TOOLS } = require('./generated/tool-floor.generated.js');
+  if (Array.isArray(GENERATED_FLOOR_TOOLS)) {
+    const known = new Set(TOOLS.map((t) => t.name));
+    for (const t of GENERATED_FLOOR_TOOLS) {
+      if (t && typeof t.name === 'string' && !known.has(t.name)) {
+        TOOLS.push(t);
+        known.add(t.name);
+      }
+    }
+  }
+} catch (e) {
+  // Swallow ONLY "the generated floor isn't there" (from-source checkout before
+  // first generate). A syntax error or partial write in the generated module is
+  // a REAL corruption that would silently drop 15 tools — rethrow it loudly.
+  if (!(e && e.code === 'MODULE_NOT_FOUND' && /generated[\\/]tool-floor\.generated\.js/.test(e.message))) {
+    throw e;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // File → base64 helper
 //
-// Security: only spreadsheet extensions are permitted. Any path that resolves
-// to a non-allowed extension (or does not exist) is rejected immediately so a
-// misbehaving agent cannot exfiltrate arbitrary local files via a tool call.
-//
-// Stability: a size cap is enforced before the synchronous read so a giant
-// workbook can't OOM-kill the MCP server (which would disconnect every tool
-// for the user). Override via XFA_MAX_FILE_MB; default is 50 MB.
+// The hardened reader now lives in ./lib/read-file.js (XLS-815) so the CLI
+// (index.js) and this stdio server share ONE local-file read path — same size
+// cap, symlink refusal, extension allowlist, and TOCTOU-safe fd read. The
+// local `fileToB64` name is kept as an alias so every tool handler below
+// calls through unchanged.
 // ---------------------------------------------------------------------------
 
-const ALLOWED_READ_EXTENSIONS = new Set(['.xlsx', '.xls', '.xlsm', '.xlsb', '.csv', '.ods', '.fods', '.numbers', '.tsv']);
-const DEFAULT_MAX_FILE_MB = 50;
-
-function getMaxFileMB() {
-  const raw = process.env.XFA_MAX_FILE_MB;
-  if (!raw) return DEFAULT_MAX_FILE_MB;
-  const parsed = parseInt(raw, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_MAX_FILE_MB;
-  return parsed;
-}
-
-// Expand a leading `~` to the user's home dir so tilde-prefixed paths the
-// model passes ("~/Desktop/foo.xlsx") don't dead-end with ENOENT. SPM P1
-// 2026-06-06 "secondary" finding — a cheap friction-reducer.
-// Only the leading character; we don't try to resolve `~user/foo` patterns.
-function expandTilde(p) {
-  if (typeof p !== 'string' || p.length === 0) return p;
-  if (p === '~') return os.homedir();
-  if (p.startsWith('~/')) return path.join(os.homedir(), p.slice(2));
-  return p;
-}
-
-function fileToB64(filePath) {
-  const resolved = path.resolve(expandTilde(filePath));
-
-  // Open the file once and operate on the fd from here on. fstatSync and the
-  // subsequent read both bind to the inode the fd points at, so even if the
-  // path is swapped after the size check the bytes we hash are the bytes we
-  // sized — the size-cap TOCTOU is closed.
-  // O_NOFOLLOW (where available) refuses symlinks at open time; it's undefined
-  // on Windows, where we fall back to 0 (symlink semantics differ there and
-  // the spreadsheet-extension allowlist is the load-bearing guard anyway).
-  const O_NOFOLLOW = fs.constants.O_NOFOLLOW || 0;
-  let fd;
-  try {
-    fd = fs.openSync(resolved, fs.constants.O_RDONLY | O_NOFOLLOW);
-  } catch (e) {
-    if (e && e.code === 'ENOENT') {
-      const err = new Error(`File not found: ${resolved}`);
-      err.code = 'FILE_NOT_FOUND';
-      throw err;
-    }
-    if (e && e.code === 'ELOOP') {
-      const err = new Error(`Refusing to read symlink: ${resolved}`);
-      err.code = 'SYMLINK_REJECTED';
-      throw err;
-    }
-    throw e;
-  }
-
-  try {
-    const stat = fs.fstatSync(fd);
-
-    if (!stat.isFile()) {
-      const err = new Error(`Not a regular file: ${resolved}`);
-      err.code = 'NOT_REGULAR_FILE';
-      throw err;
-    }
-
-    const ext = path.extname(resolved).toLowerCase();
-    if (!ALLOWED_READ_EXTENSIONS.has(ext)) {
-      const err = new Error(
-        `Blocked: "${ext}" is not an allowed spreadsheet extension. ` +
-        `Allowed: ${[...ALLOWED_READ_EXTENSIONS].join(', ')}`
-      );
-      err.code = 'DISALLOWED_EXTENSION';
-      throw err;
-    }
-
-    const maxMB = getMaxFileMB();
-    if (stat.size > maxMB * 1024 * 1024) {
-      const sizeMB = stat.size / (1024 * 1024);
-      const err = new Error(
-        `File too large: ${sizeMB.toFixed(1)} MB exceeds the ${maxMB} MB cap. ` +
-        `Set XFA_MAX_FILE_MB to a higher value to allow larger workbooks. ` +
-        `(The cap protects the MCP server from OOM on synchronous base64 load — ` +
-        `a 200 MB workbook would allocate ~267 MB of base64 before any API call.)`
-      );
-      err.code = 'FILE_TOO_LARGE';
-      throw err;
-    }
-
-    // Read exactly stat.size bytes from the fd into a pre-sized buffer. If
-    // the file grows between fstat and now, the extra bytes are NOT read —
-    // we never allocate more than the validated cap. If the file shrinks
-    // (short read), we encode what we got and stop. This closes the
-    // grow-after-stat bypass on the size cap.
-    const buf = Buffer.alloc(stat.size);
-    let bytesRead = 0;
-    while (bytesRead < stat.size) {
-      const chunk = fs.readSync(fd, buf, bytesRead, stat.size - bytesRead, null);
-      if (chunk === 0) break;
-      bytesRead += chunk;
-    }
-    return buf.subarray(0, bytesRead).toString('base64');
-  } finally {
-    try { fs.closeSync(fd); } catch (_) { /* best effort */ }
-  }
-}
+const fileToB64 = readFileToBase64;
 
 // ---------------------------------------------------------------------------
 // File-save helper for tools that return _meta.file_b64
@@ -1450,6 +1379,10 @@ function friendlyErrorMessage(toolName, err) {
       return `${toolName}: file path is not a regular file.`;
     case 'MISSING_TOKEN':
       return `${toolName}: required token env var is not set (see tool docs for which one).`;
+    case 'LOGIN_FAILED':
+      return `${toolName}: sign-in failed. Run \`xlsx-for-ai login\` in a terminal to try again.`;
+    case 'LOGIN_REQUIRED':
+      return `${toolName}: not signed in. Run \`xlsx-for-ai login\` in a terminal, then retry.`;
     case 'API_UNREACHABLE':
       return `${toolName}: API is unreachable — check network connectivity.`;
     case 'RATE_LIMITED':
@@ -2259,13 +2192,50 @@ async function upgradeCatalogInBackground(server, swap) {
 
 // Guard: don't auto-start when required by tests
 if (require.main === module) {
+  // L1 backstops (XLS-815): this is a long-running stdio server. A detached
+  // async throw NOT covered by withTimeout — an unhandled rejection or an
+  // uncaughtException from a stray callback — would otherwise crash the process
+  // with only Node's default stack, dropping every tool mid-session. Install
+  // last-resort handlers that write ONE diagnostic line to stderr (never stdout
+  // — stdout carries the JSON-RPC frames) and exit non-zero, so the client sees
+  // a clean disconnect instead of a corrupt frame or a hung pipe. Installed only
+  // in the entrypoint branch, so requiring mcp.js from tests never registers
+  // global handlers that would swallow the test runner's own rejections.
+  // (The compiled server has these at src/index.ts:165,186; this is the
+  // npm-package-only residue.)
+  // Emit ONLY the error class name + code — never the message, stack, or a
+  // serialized reason. stderr on a stdio server is captured into the client's
+  // logs, and an upstream error's MESSAGE can carry a path, token, or request
+  // fragment (the repo's error-body sanitization rule). The class name (e.g.
+  // "TypeError") and code (e.g. "ECONNRESET") are structural, not user data,
+  // and are enough to triage a crash; full detail belongs in server-side logs.
+  process.on('uncaughtException', (err) => {
+    const detail = err instanceof Error
+      ? `${err.name}${err.code ? ` (${err.code})` : ''}`
+      : 'non-error throw';
+    process.stderr.write(`xlsx-for-ai MCP uncaughtException: ${detail}\n`);
+    process.exit(1);
+  });
+  process.on('unhandledRejection', (reason) => {
+    const detail = reason instanceof Error
+      ? `${reason.name}${reason.code ? ` (${reason.code})` : ''}`
+      : `non-error rejection (${typeof reason})`;
+    process.stderr.write(`xlsx-for-ai MCP unhandledRejection: ${detail}\n`);
+    process.exit(1);
+  });
+
   // `xlsx-for-ai-mcp setup ...` wires Claude Code instead of starting the
   // stdio server — intercept before main() opens the transport.
   if (process.argv[2] === 'setup') {
     process.exit(require('./lib/setup').runSetup(process.argv.slice(3)));
   }
   main().catch((err) => {
-    process.stderr.write(`xlsx-for-ai MCP fatal: ${err.message}\n`);
+    // Same sanitization as the backstops above: class name + code only, never
+    // the message (it can carry a path/token/request fragment into client logs).
+    const detail = err instanceof Error
+      ? `${err.name}${err.code ? ` (${err.code})` : ''}`
+      : 'non-error throw';
+    process.stderr.write(`xlsx-for-ai MCP fatal: ${detail}\n`);
     process.exit(1);
   });
 }
@@ -2275,4 +2245,4 @@ if (require.main === module) {
 // script use TOOLS as the single source of truth for the mcp-tools.json
 // snapshot consumed by the MSFT plugin manifest, and to expose helpers
 // under test.
-module.exports = { applyFileB64, dispatchTool, TOOLS, friendlyErrorMessage };
+module.exports = { applyFileB64, dispatchTool, TOOLS, friendlyErrorMessage, validateToolArgs };

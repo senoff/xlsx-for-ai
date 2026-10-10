@@ -1,8 +1,8 @@
 {
   "name": "xlsx-for-ai",
   "mcpName": "io.github.senoff/xlsx-for-ai",
-  "version": "3.2.7",
-  "description": "Let your agent work across all your spreadsheets. The MCP server that makes LLMs reliable on real-world Excel spreadsheets — thin npm client over a hosted API to read, write, diff, redact, and supervise .xlsx files from any MCP-aware agent.",
+  "version": "4.1.0",
+  "description": "The missing reliability layer for spreadsheet work in LLM agents. Read, write, diff, validate, and analyze .xlsx files end-to-end — with merged cells, formulas, named ranges, conditional formatting, pivots, and charts preserved.",
   "main": "index.js",
   "bin": {
     "xfa": "index.js",
@@ -20,12 +20,15 @@
     "lib/feedback.js",
     "lib/orientation.js",
     "lib/inline-4xx.js",
+    "lib/read-file.js",
     "lib/discover.js",
     "lib/register.js",
+    "lib/login.js",
     "lib/mcp-register.js",
     "lib/setup.js",
     "lib/installer-cleanup.js",
     "scripts/postinstall.js",
+    "generated/tool-floor.generated.js",
     "samples/reporting-pack-v1.xlsx",
     "samples/reporting-pack-v2.xlsx",
     "README.md",
@@ -33,8 +36,10 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test test/v2/*.test.js",
+    "test": "node --test test/v2/*.test.js test/plugin/*.test.js",
     "build-manifests": "node scripts/build-manifests.js",
+    "tool-floor:generate": "node scripts/gen-tool-floor.js",
+    "tool-floor:check": "node scripts/gen-tool-floor.js --check",
     "check-publish-allowlist": "node scripts/check-publish-allowlist.js",
     "prepublishOnly": "node scripts/check-publish-allowlist.js",
     "postinstall": "node scripts/postinstall.js"
@@ -71,6 +76,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0"
   },
   "overrides": {
-    "tmp": ">=0.2.6"
+    "tmp": ">=0.2.6",
+    "fast-uri": ">=3.1.7 <4.0.0"
   }
 }

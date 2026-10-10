@@ -88,6 +88,52 @@ test('mergeTools: baked-in inputSchema + description survive when remote omits t
   assert.deepEqual(merged[0].inputSchema, baked[0].inputSchema);
 });
 
+test('mergeTools: baked file_path inputSchema wins when remote sends a conflicting file_b64 schema (XLS-973/XLS-873 regression)', () => {
+  // The regression that shipped in 4.0.0-4.0.1: the hosted /tools/list route
+  // began returning a FULL inputSchema — the raw route contract, which requires
+  // file_b64 — and a plain {...baked, ...remote} let that overwrite the baked
+  // file_path schema. A spec-following client then sent base64 the handler
+  // ignores (it reads file_path), and the tool was dead for ~3 weeks.
+  // The carve-out in mergeTools makes a KNOWN (baked) tool's inputSchema
+  // baked-authoritative. This proves it: remote conflicts, baked file_path wins.
+  const remote = [
+    {
+      name: 'xlsx_eval',
+      category: 'compute',
+      endpoint: 'POST /api/v1/tools/xlsx_eval',
+      inputSchema: {
+        type: 'object',
+        properties: { file_b64: { type: 'string' } },
+        required: ['file_b64'],
+      },
+    },
+  ];
+  const baked = [
+    {
+      name: 'xlsx_eval',
+      description: 'baked eval',
+      inputSchema: {
+        type: 'object',
+        properties: { file_path: { type: 'string' } },
+        required: ['file_path'],
+      },
+    },
+  ];
+  const merged = _internal.mergeTools(remote, baked);
+  assert.equal(merged.length, 1);
+  // Remote-only fields still win (category/endpoint), proving this is a
+  // field-by-field merge, not a wholesale baked-wins revert.
+  assert.equal(merged[0].category, 'compute');
+  assert.equal(merged[0].endpoint, 'POST /api/v1/tools/xlsx_eval');
+  // But the inputSchema is the BAKED one: file_path required, file_b64 gone.
+  assert.deepEqual(merged[0].inputSchema, baked[0].inputSchema);
+  assert.deepEqual(merged[0].inputSchema.required, ['file_path']);
+  assert.ok(
+    !(merged[0].inputSchema.required || []).includes('file_b64'),
+    'file_b64 must NOT be a required arg on a known tool — that was the shipped bug',
+  );
+});
+
 test('mergeTools: dedupes within remote; first occurrence wins', () => {
   const remote = [
     { name: 'xlsx_dup', description: 'first wins' },

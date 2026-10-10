@@ -4,11 +4,11 @@
 
 *Short name: **xfa** — a real CLI command (`xfa <file>`, `xfa samples`, `xfa --version`) and the prompt shorthand (e.g. "use xfa to read this file"). Same entrypoint as `xlsx-for-ai`; matches the internal `xfa_*` / `XFA_*` brand surface.*
 
-**Let your agent work across all your spreadsheets for you.**
+**Verified values, preserved structure, up to 100MB**
 
-**The missing reliability layer that makes spreadsheet reasoning production-grade for LLMs.**
+The missing reliability layer for spreadsheet work in LLM agents. Read, write, diff, validate, and analyze .xlsx files end-to-end — with merged cells, formulas, named ranges, conditional formatting, pivots, and charts preserved.
 
-A thin npm client over a hosted API. Install once, add to your agent config, and your agent gets 50 production-grade tools for reading, writing, diffing, redacting, healing, and cryptographically attesting `.xlsx` files — engine complexity runs server-side, engine IP stays private.
+xlsx-for-ai makes Claude reliable on real-world Excel files. Forty-plus tools cover the structural surface that pandas-style sandboxes drop on the floor: merged cells, named ranges, formulas with results, conditional formatting, pivots, slicers, charts, comments, data validations, hyperlinks, cross-sheet topology, external links, form controls, VBA macros, document properties, and protection settings. A soundness check (`xlsx_validate`) flags corruption other readers silently mask. A hosted recalc engine computes served values in-house — no third-party formula engine in the serve path.
 
 ```bash
 npm install -g xlsx-for-ai
@@ -22,7 +22,7 @@ The global install puts the `xlsx-for-ai-mcp` binary on your PATH — that's wha
 
 ## MCP configuration
 
-Add the server to your agent runtime under the name **`xfa`** (so "use xfa to read this" resolves). First invocation auto-registers an anonymous client UUID — no email, no signup, no friction.
+Add the server to your agent runtime under the name **`xfa`** (so "use xfa to read this" resolves). First run needs a one-time sign-in: run `xlsx-for-ai login`, open the link it prints, approve, done (see [First-run sign-in](#first-run-sign-in)). Keys created by older versions keep working until the cutoff announced in the API response headers.
 
 ### Claude Code
 
@@ -38,7 +38,7 @@ If your environment skips install scripts (`--ignore-scripts`, CI, or a sudo ins
 claude mcp add xfa -- xlsx-for-ai-mcp
 ```
 
-Verify: in a new Claude Code session, ask "what MCP tools do you have?" — 50 `xlsx_*` tools should appear, including `xlsx_doctor` (one-call health report — try it first on any unknown workbook).
+Verify: in a new Claude Code session, ask "what MCP tools do you have?" — 52 `xlsx_*` tools should appear, including `xlsx_doctor` (one-call health report — try it first on any unknown workbook).
 
 Then run `xfa samples` (shorthand for `xlsx-for-ai samples`) to drop two demo workbooks in your working directory and get paste-ready prompts to try.
 
@@ -56,7 +56,7 @@ Config file: `~/.cursor/mcp.json`
 }
 ```
 
-Verify: open Cursor settings → MCP → confirm `xfa` shows 50 `xlsx_*` tools.
+Verify: open Cursor settings → MCP → confirm `xfa` shows 52 `xlsx_*` tools.
 
 ### Continue
 
@@ -89,7 +89,7 @@ Pass `--mcp-server` on the command line, or add to your Codex config:
 }
 ```
 
-Verify: run `codex --list-tools` and confirm 50 `xlsx_*` tools are listed.
+Verify: run `codex --list-tools` and confirm 52 `xlsx_*` tools are listed.
 
 ### Zed
 
@@ -129,11 +129,70 @@ Verify: open Windsurf → Cascade → settings, confirm `xfa` is listed as an ac
 
 For custom MCP clients, the binary is `xlsx-for-ai-mcp` (stdio transport). Override the API base URL with the `XLSX_FOR_AI_API` env var for local dev against `http://localhost:3000`.
 
+### Using the raw HTTP API
+
+The MCP client is the easy path, but every tool is also a plain HTTP endpoint you can call from any language — no SDK required. Sign in with the OAuth device flow (RFC 8628) at `https://api.xlsx-for-ai.dev/oauth` (`/oauth/reg`, `/oauth/device/auth`, `/oauth/token`, with `resource=https://api.xlsx-for-ai.dev/mcp`), then `POST https://api.xlsx-for-ai.dev/api/v1/clients` with `Authorization: Bearer <access token>` returns `{ client_id, api_key }`. Call any tool with `Authorization: Bearer <api_key>`. Anonymous keys from earlier versions still work during the transition. The free tier is **10,000 calls/month, 10 MB per file** — no billing.
+
+```bash
+# Legacy keyless registration (still accepted during the transition; new integrations
+# should use the device-flow sign-in above), then convert report.xlsx to Markdown.
+# Needs jq, and bash or zsh. The base64 body is passed to curl through a
+# process-substitution fd and the token through a --config heredoc on stdin, which
+# keeps both out of the argument list. -fsS --max-time makes curl fail loudly on an
+# HTTP error or a hang; the guard line stops on a failed key issuance.
+KEY=$(curl -fsS --max-time 30 -XPOST https://api.xlsx-for-ai.dev/api/v1/clients \
+  -H 'Content-Type: application/json' \
+  -d '{"client_version":"2.0.0","platform":"cli"}' | jq -r .api_key)
+[ -n "$KEY" ] && [ "$KEY" != null ] || { echo "key issuance failed"; exit 1; }
+
+curl -fsS --max-time 120 -XPOST https://api.xlsx-for-ai.dev/api/v1/tools/xlsx_convert \
+  --data-binary @<(base64 < report.xlsx | tr -d '\n' | jq -Rs '{file_b64: ., to: "md"}') \
+  -H 'Content-Type: application/json' \
+  --config - <<CFG
+header = "Authorization: Bearer $KEY"
+CFG
+```
+
+The free tier caps files at 10 MB; larger workbooks and higher volume come back as a typed JSON error with an `upgrade` field (see below).
+
+Beyond the free tier, rate-limited and oversize requests come back as a typed JSON error (`{ "error": { "code", "message" } }`) carrying an `upgrade` field with your options — see `GET /api/v1/reference` for the full contract.
+
+Every error body is exactly that shape: `error.code` is the stable, machine-readable key to branch on, and `error.message` is the self-correcting detail that says what was wrong and what to change. A few codes add a documented extra field (for example `available_sheets` on a sheet-not-found refusal, or `upgrade` on a paywall refusal), but there is no finer error-subtype field on the wire; the server keeps a finer attribution for its own audit only.
+
+**Convert can refuse with a typed `501`.** `xlsx_convert` converts `xlsx`, `xls`, `csv` and `json` inputs with the server's own engine only. When that engine declines a conversion of one of those inputs (for example some `to=csv` conversions of an `.xlsx` whose cells use a display format or an uncached formula the engine cannot reproduce exactly; the same file usually still converts with `to=xlsx` or `to=json`), the API returns HTTP `501` with `error.code` `capability_gap` and a message of the form "xlsx_convert isn't yet supported by our own engine for .xlsx files, and we don't fall back to a full-workbook recompute on this file type ...". It does not silently fall back to a compatibility library. It is not a client error and not transient, so retrying the same file does not help. Through the hosted MCP connector the same refusal arrives as a tool result with `isError: true` carrying that message. Exotic formats (`ods`, `xlsb`, `fods`, and the `xls`/BIFF8 write target) are still served by the legacy path and are unaffected.
+
+The same governed contract is served read-only from two routes — discover the whole API without a key:
+
+- **[`GET /api/v1/reference`](https://api.xlsx-for-ai.dev/api/v1/reference)** — a self-contained human HTML reference for all 52 public-stable tools, including the on-ramp above.
+- **[`GET /api/v1/openapi.json`](https://api.xlsx-for-ai.dev/api/v1/openapi.json)** — the versioned OpenAPI 3.1 contract, verbatim. Point codegen, Postman, or Scalar/Redoc at it.
+
+## Claude Code plugin
+
+A Claude Code plugin makes your agent come to the hosted xlsx-for-ai tools first whenever a spreadsheet is involved (.xlsx, .xlsm, .xls, .csv, .tsv, a Google Sheet), instead of reading the file with code, installing a package or converting it locally.
+
+```bash
+claude plugin marketplace add senoff/xlsx-for-ai
+claude plugin install xlsx-for-ai@xlsx-for-ai
+```
+
+Then, once: start Claude Code, run `/mcp`, choose the `plugin:xlsx-for-ai:spreadsheets` server and sign in in the browser. The plugin connects to the hosted endpoint `https://api.xlsx-for-ai.dev/mcp` (OAuth sign-in) and asks for the full tool list.
+
+Version 0.1.1 renamed the server key in the plugin's `.mcp.json` from `xlsx-for-ai` to `spreadsheets`, so `/mcp` now shows `plugin:xlsx-for-ai:spreadsheets` instead of `plugin:xlsx-for-ai:xlsx-for-ai`. Claude Code reads the key from the plugin's own `.mcp.json` and nothing else reads it. If you are on 0.1.0, sign in once after updating, because the server has a new name.
+
+What it does:
+
+- Prints a short text at session start (startup, resume, clear and compact) that says to use the xlsx-for-ai tools first for any spreadsheet, why, how to hand a file over from Claude Code, and every tool by name.
+- Sends Shopify export files (products, inventory, collections, redirects, metafields) to the `shopify_*` tools, which build a file ready to import into Shopify (plus Google, Amazon, eBay and UPS feed files). They work on the file you give them and hand a file back; you import the result yourself.
+- Adds a `spreadsheets` skill that applies when spreadsheet files are in play.
+- Connects Claude Code to the hosted server.
+
+What it does not do: it ships no engine. No calculation, parsing or conversion code of ours runs on your machine; the only thing that runs locally is `cat` printing the session-start text file. Files you give the tools are sent to the hosted service (a link, or a one-time upload). The plugin lives in `claude-code-plugin/`; the session-start text is generated from `claude-code-plugin/tool-manifest.json` by `scripts/plugin/generate-session-start.js`, and a test fails if they disagree. On Windows the hook works in Git Bash or PowerShell (`cat` is available in both).
+
 ---
 
 ## What it does
 
-50 tools registered in `tools/list`. Descriptions are intentionally rich — an agent reading a transcript can tell what each tool does and when to reach for it, without extra docs.
+52 tools registered in `tools/list`. Descriptions are intentionally rich — an agent reading a transcript can tell what each tool does and when to reach for it, without extra docs.
 
 ### Triage / orient
 
@@ -151,14 +210,14 @@ For custom MCP clients, the binary is `xlsx-for-ai-mcp` (stdio transport). Overr
 
 | Tool | What it does |
 |---|---|
-| `xlsx_read` | Read a workbook — text, JSON, or markdown. Formulas, named ranges, layout, and data types preserved. |
+| `xlsx_read` | Read a workbook — text, JSON, or markdown. Formulas, named ranges, layout, and data types preserved. Also reads a **live Google Sheet** by id (`source:"gsheets"`), read-only, with a read-only Google OAuth token you supply. |
 | `xlsx_read_handle` | Read by server-side handle instead of bytes — for session flows where the workbook has already been uploaded and shouldn't be transferred again. |
 | `xlsx_write` | Create or update a workbook from a structured spec. Multi-sheet, formulas, named ranges, table definitions. |
 | `xlsx_data_clean` | Normalize messy data in place — trim whitespace, coerce types, dedupe rows, fix obvious encoding artifacts. Returns a cleaned copy + a change log. Save-As shape; never mutates the input. |
 | `xlsx_diff` | Semantic diff between two workbooks — cell-level deltas, formula changes, structural shifts. Deterministic output. |
 | `xlsx_redact` | Redact PII from a workbook before sharing. Server-side detection; returns redacted copy plus audit manifest. |
-| `xlsx_convert` | 25+ in / 16 out formats (csv, tsv, html, ods, xls, xlsb, dif, sylk, prn, txt, dbf, eth, json, markdown, xlsx, etc.). |
-| `xlsx_validate` | Cross-engine consistency check — runs the workbook through TWO independent renderers and reports cell-level divergences. |
+| `xlsx_convert` | 25+ in / 16 out formats (csv, tsv, html, ods, xls, xlsb, dif, sylk, prn, txt, dbf, eth, json, markdown, xlsx, etc.). For xlsx, xls, csv and json inputs there is no compatibility-engine fallback: if our own engine declines, the call fails with a typed `501` `capability_gap`. |
+| `xlsx_validate` | Soundness check — parses the workbook with the server's own OOXML engine and reports whether it loads cleanly, with a per-sheet structural summary. |
 | `xlsx_session_set_validations` | Configure per-session validation rules the server will apply to subsequent calls in the same session (e.g., reject rows missing required columns). Stateful — affects this session only. |
 
 ### Pandas-parity (compute fresh aggregates)
@@ -170,7 +229,7 @@ For custom MCP clients, the binary is `xlsx-for-ai-mcp` (stdio transport). Overr
 | `xlsx_sort` | Multi-column sort with ascending / descending per column. |
 | `xlsx_value_counts` | Frequency table for a column (pandas `.value_counts()`). |
 | `xlsx_pivot` | Compute a fresh pivot table from raw data — pandas `pivot_table()` shape. |
-| `xlsx_eval` | Evaluate freeform formulas or recompute cell refs via HyperFormula (BSD pure-JS, ~390 functions, no I/O). |
+| `xlsx_eval` | Evaluate freeform formulas or recompute cell refs with our own recalc engine — no third-party formula engine. A formula using a function we haven't implemented yet returns an honest "not supported yet" error, never a wrong value. |
 
 ### Structure-preservation — the moat (pandas drops every one of these on read)
 
@@ -186,7 +245,7 @@ For custom MCP clients, the binary is `xlsx-for-ai-mcp` (stdio transport). Overr
 | `xlsx_comments` | Both legacy notes AND threaded conversations (multi-author, with display-name resolution). |
 | `xlsx_protection` | Sheet locks + per-cell locked/hidden flags + workbook structure/window locks. |
 | `xlsx_merged_cells` | Layout-aware merge listing with master values + kind heuristic (header / horizontal / vertical / block). |
-| `xlsx_charts` | Chart spec (type, title, series formula refs, axis titles) — ExcelJS doesn't expose these at all. |
+| `xlsx_charts` | Chart spec (type, title, series formula refs, axis titles) — read straight from the chart XML parts most spreadsheet libraries ignore. |
 | `xlsx_images` | Embedded image inventory (format, size, sheet, anchor cells). |
 | `xlsx_pivot_tables` | Pre-existing pivot definitions — location, source, row/col/page/data fields with agg functions. |
 | `xlsx_slicers_timelines` | Modern Excel filter UI — slicers (table/pivot bound) + timelines (date-range with selection). |
@@ -228,13 +287,13 @@ Tool responses include a citation footer and a `_meta` block (tool name, version
 
 ## Tools
 
-All **50 tools** the MCP server exposes (generated from `tools/list`). Invoke any by asking your agent in plain English, or call the API/CLI directly.
+All **52 tools** the MCP server exposes (generated from `tools/list`). Invoke any by asking your agent in plain English, or call the API/CLI directly.
 
 **Read & explore**
 
-- `xlsx_read` — read an .xlsx file by path and return a rendered markdown/JSON/SQL representation.
+- `xlsx_read` — read an .xlsx file by path and return a rendered markdown/JSON/SQL representation. Also reads a **live Google Sheet**: pass `source:"gsheets"` with the `spreadsheet_id` and a read-only Google OAuth token you supply (token-injected — read-only, no write; the server never mints or brokers Google credentials). Same rendered output as reading the equivalent `.xlsx`.
 - `xlsx_read_handle` — read a workbook that has already been uploaded to the server via the chunked upload flow, by its server-side cache handle, WITHOUT re-transferring the bytes. Returns the same shape as xlsx_read (text / json / markdown) but skips the file_b64 round-trip.
-- `xlsx_validate` — cross-engine consistency check on a LOCAL .xlsx file — runs the workbook through TWO independent renderers (@protobi/exceljs and @cj-tech-master/excelts) and reports cell-level divergences.
+- `xlsx_validate` — soundness check on a LOCAL .xlsx file — parses the workbook with the server's own OOXML engine and reports whether it loads cleanly (truncated zip, encrypted container, no worksheets, or a damaged sheet body each fail), with a per-sheet structural summary.
 
 **Inspect structure**
 
@@ -266,7 +325,7 @@ All **50 tools** the MCP server exposes (generated from `tools/list`). Invoke an
 
 - `xlsx_aggregate` — pandas-style df.groupby([cols]).agg({col: func}) on a LOCAL .xlsx file. funcs: sum / mean / min / max / count / count_distinct.
 - `xlsx_diff` — compute a semantic diff between two LOCAL .xlsx files — cell-level deltas, formula changes, added/removed rows.
-- `xlsx_eval` — evaluate Excel formulas against a LOCAL .xlsx file via HyperFormula. xlwings-style.
+- `xlsx_eval` — evaluate Excel formulas against a LOCAL .xlsx file with our own recalc engine. xlwings-style.
 - `xlsx_filter` — pandas-style row filter on a LOCAL .xlsx file with predicates AND-combined: eq/ne/gt/gte/lt/lte/contains/in/is_null/not_null.
 - `xlsx_pivot` — pandas-style pivot_table() on a LOCAL .xlsx file — reshape a flat table into a 2D matrix where rows are unique values of `index`, columns are unique values of `columns`, and cells are an aggregation of `values`.
 - `xlsx_sort` — pandas-style df.sort_values() on a LOCAL .xlsx file with multi-column sort and per-column direction (asc/desc, default asc).
@@ -314,17 +373,7 @@ All **50 tools** the MCP server exposes (generated from `tools/list`). Invoke an
 
 ## Functions
 
-`xlsx_eval` recalculates formulas with [HyperFormula](https://hyperformula.handsontable.com) v3.2.0 — **382 Excel functions** across these categories:
-
-- **Math & trig** (101) — ABS, ACOS, ACOSH, ACOT, ACOTH, ARABIC, ASIN, ASINH, ATAN, ATAN2, ATANH, AVERAGE, AVERAGEA, AVERAGEIF, CEILING, CEILING.MATH, CEILING.PRECISE, COMBIN, COMBINA, COS, COSH, COT, COTH, COUNT, COUNTA, COUNTBLANK, COUNTIF, COUNTIFS, COUNTUNIQUE, CSC, CSCH, DEGREES, EVEN, EXP, FACT, FACTDOUBLE, FLOOR, FLOOR.MATH, FLOOR.PRECISE, GCD, INT, ISO.CEILING, LCM, LN, LOG, LOG10, MAX, MAXA, MAXIFS, MIN, MINA, MINIFS, MOD, MROUND, MULTINOMIAL, ODD, PI, POWER, PRODUCT, QUOTIENT, RADIANS, RAND, RANDBETWEEN, ROMAN, ROUND, ROUNDDOWN, ROUNDUP, SEC, SECH, SERIESSUM, SIGN, SIN, SINH, SQRT, SQRTPI, STDEV, STDEV.P, STDEV.S, STDEVA, STDEVP, STDEVPA, STDEVS, SUBTOTAL, SUM, SUMIF, SUMIFS, SUMPRODUCT, SUMSQ, SUMX2MY2, SUMX2PY2, SUMXMY2, TAN, TANH, TRUNC, VAR, VAR.P, VAR.S, VARA, VARP, VARPA, VARS
-- **Statistical** (108) — AVEDEV, BESSELI, BESSELJ, BESSELK, BESSELY, BETA.DIST, BETA.INV, BETADIST, BETAINV, BINOM.DIST, BINOM.INV, BINOMDIST, CHIDIST, CHIDISTRT, CHIINV, CHIINVRT, CHISQ.DIST, CHISQ.DIST.RT, CHISQ.INV, CHISQ.INV.RT, CHISQ.TEST, CHITEST, CONFIDENCE, CONFIDENCE.NORM, CONFIDENCE.T, CORREL, COVAR, COVARIANCE.P, COVARIANCE.S, COVARIANCEP, COVARIANCES, CRITBINOM, DEVSQ, ERF, ERFC, EXPON.DIST, EXPONDIST, F.DIST, F.DIST.RT, F.INV, F.INV.RT, F.TEST, FDIST, FDISTRT, FINV, FINVRT, FISHER, FISHERINV, FTEST, GAMMA, GAMMA.DIST, GAMMA.INV, GAMMADIST, GAMMAINV, GAMMALN, GAMMALN.PRECISE, GAUSS, GEOMEAN, HARMEAN, HYPGEOM.DIST, HYPGEOMDIST, LARGE, LOGINV, LOGNORM.DIST, LOGNORM.INV, LOGNORMDIST, LOGNORMINV, MEDIAN, NEGBINOM.DIST, NEGBINOMDIST, NORM.DIST, NORM.INV, NORM.S.DIST, NORM.S.INV, NORMDIST, NORMINV, NORMSDIST, NORMSINV, PEARSON, PHI, POISSON, POISSON.DIST, POISSONDIST, RSQ, SKEW, SKEW.P, SKEWP, SLOPE, SMALL, STANDARDIZE, STEYX, T.DIST, T.DIST.2T, T.DIST.RT, T.INV, T.INV.2T, T.TEST, TDIST, TDIST2T, TDISTRT, TINV, TINV2T, TTEST, WEIBULL, WEIBULL.DIST, WEIBULLDIST, Z.TEST, ZTEST
-- **Financial** (28) — CUMIPMT, CUMPRINC, DB, DDB, DOLLARDE, DOLLARFR, EFFECT, FV, FVSCHEDULE, IPMT, IRR, ISPMT, MIRR, NOMINAL, NPER, NPV, PDURATION, PMT, PPMT, PV, RATE, RRI, SLN, SYD, TBILLEQ, TBILLPRICE, TBILLYIELD, XNPV
-- **Date & time** (27) — DATE, DATEDIF, DATEVALUE, DAY, DAYS, DAYS360, EDATE, EOMONTH, HOUR, INTERVAL, ISOWEEKNUM, MINUTE, MONTH, NETWORKDAYS, NETWORKDAYS.INTL, NOW, SECOND, TEXT, TIME, TIMEVALUE, TODAY, WEEKDAY, WEEKNUM, WORKDAY, WORKDAY.INTL, YEAR, YEARFRAC
-- **Text** (26) — CHAR, CLEAN, CODE, CONCATENATE, EXACT, FIND, FORMULATEXT, HYPERLINK, LEFT, LEN, LOWER, MID, N, PROPER, REPLACE, REPT, RIGHT, SEARCH, SPLIT, SUBSTITUTE, T, TRIM, UNICHAR, UNICODE, UPPER, VALUE
-- **Logical** (12) — AND, CHOOSE, FALSE, IF, IFERROR, IFNA, IFS, NOT, OR, SWITCH, TRUE, XOR
-- **Lookup & reference** (13) — ADDRESS, ARRAYFORMULA, ARRAY_CONSTRAIN, FILTER, HLOOKUP, MATCH, MAXPOOL, MEDIANPOOL, MMULT, OFFSET, TRANSPOSE, VLOOKUP, XLOOKUP
-- **Information** (21) — COLUMN, COLUMNS, INDEX, ISBINARY, ISBLANK, ISERR, ISERROR, ISEVEN, ISFORMULA, ISLOGICAL, ISNA, ISNONTEXT, ISNUMBER, ISODD, ISREF, ISTEXT, NA, ROW, ROWS, SHEET, SHEETS
-- **Engineering** (46) — BASE, BIN2DEC, BIN2HEX, BIN2OCT, BITAND, BITLSHIFT, BITOR, BITRSHIFT, BITXOR, COMPLEX, DEC2BIN, DEC2HEX, DEC2OCT, DECIMAL, DELTA, HEX2BIN, HEX2DEC, HEX2OCT, IMABS, IMAGINARY, IMARGUMENT, IMCONJUGATE, IMCOS, IMCOSH, IMCOT, IMCSC, IMCSCH, IMDIV, IMEXP, IMLN, IMLOG10, IMLOG2, IMPOWER, IMPRODUCT, IMREAL, IMSEC, IMSECH, IMSIN, IMSINH, IMSQRT, IMSUB, IMSUM, IMTAN, OCT2BIN, OCT2DEC, OCT2HEX
+`xlsx_eval` recalculates formulas with our own recalc engine — **128 Excel functions today, and growing** (we certify more each week). Coverage spans the standard function families: Math & trig, Statistical, Financial, Date & time, Text, Logical, Lookup & reference, Information, and Engineering.
 
 The engine has no `INDIRECT`, `WEBSERVICE`, `RTD`, `DDE` — there is no dynamic-reference, network, or external-data function in the set, so a recalc can't reach off-workbook. The absent functions are the sandbox boundary.
 
@@ -375,7 +424,7 @@ These workflows are the reason tool descriptions are FP&A-legible: when a develo
 
 ## Privacy
 
-Files are transmitted to `https://api.xlsx-for-ai.dev` over HTTPS and processed in memory. Files are not persisted beyond the duration of a single request. No email is collected. Registration is anonymous UUID only.
+Files are transmitted to `https://api.xlsx-for-ai.dev` over HTTPS and processed in memory. Files are not persisted beyond the duration of a single request. Sign-in is by email link or Google; the address is used only to identify your account, and no password is stored.
 
 See [PRIVACY.md](PRIVACY.md) for the full data-handling policy.
 
@@ -383,7 +432,7 @@ See [PRIVACY.md](PRIVACY.md) for the full data-handling policy.
 
 ## What it costs
 
-Free. All 50 tools, no paid tiers. No credit card, no email — registration is an anonymous client UUID created on first call. A volume cap (10,000 calls/month) keeps the hosted API healthy; that's the only limit.
+Free. All 50 tools, no paid tiers. No credit card — sign in once with `xlsx-for-ai login` on first use. A volume cap (10,000 calls/month) keeps the hosted API healthy; that's the only limit.
 
 ---
 
@@ -400,12 +449,22 @@ agent (Claude Code / Cursor / Continue / Zed / Windsurf / custom)
   └── MCP stdio
         └── xlsx-for-ai-mcp  (this package, ~200 lines)
               └── POST /api/v1/tools/<name>  →  api.xlsx-for-ai.dev
-                    └── server-side engine (ExcelJS, formula eval, schema inference, redaction)
+                    └── server-side engine (own OOXML/CSV engine, formula eval, schema inference, redaction)
 ```
 
 **Requirements:** Node.js 22+. 1.5.x line stays maintained on `main` for users who cannot upgrade.
 
 ---
+
+## First-run sign-in
+
+```bash
+xlsx-for-ai login
+```
+
+Prints a link and a short code. Open the link in any browser, sign in (email link or Google), approve, and the CLI stores your key in `~/.xlsx-for-ai/config.json`. Running any command with no stored key in an interactive terminal starts the same flow automatically. In CI or an MCP host with no terminal there is nothing to click, so the command fails fast with `not signed in. Run xlsx-for-ai login`: sign in once on that machine (or copy the config) first. `xlsx-for-ai login --force` signs in again.
+
+Keys minted by versions before 4.1.0 keep working, and the server marks their responses with a sunset notice naming the cutoff date and this login step.
 
 ## Config
 

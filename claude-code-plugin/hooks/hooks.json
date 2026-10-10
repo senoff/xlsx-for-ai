@@ -1,0 +1,17 @@
+{
+  "description": "Prints the xlsx-for-ai session-start text (plain text, generated from tool-manifest.json)",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cat \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.txt\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

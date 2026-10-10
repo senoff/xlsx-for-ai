@@ -5,29 +5,18 @@
 //
 // Models often pass paths with a leading `~/` ("~/Desktop/foo.xlsx").
 // Node's fs APIs don't expand `~` — the path opens a literal file at
-// `<cwd>/~/Desktop/foo.xlsx` and ENOENTs. We expand the leading `~` in
-// fileToB64 so tilde paths just work.
+// `<cwd>/~/Desktop/foo.xlsx` and ENOENTs. We expand the leading `~` in the
+// shared read helper so tilde paths just work for both entrypoints.
 
 const { test } = require('node:test');
 const assert = require('node:assert');
-const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const MCP_PATH = path.join(__dirname, '..', '..', 'mcp.js');
-
-// Pull the (unexported) expandTilde via require-cache + module re-eval. The
-// mcp.js module side-effects on load are limited to defining TOOLS + helpers;
-// we read the source and extract the function body.
-function extractExpandTilde() {
-  const src = fs.readFileSync(MCP_PATH, 'utf8');
-  const match = src.match(/function expandTilde\([^)]*\)\s*\{[\s\S]*?^\}/m);
-  assert.ok(match, 'expandTilde not found in mcp.js');
-  // eslint-disable-next-line no-new-func
-  return new Function('os', 'path', `${match[0]}; return expandTilde;`)(os, path);
-}
-
-const expandTilde = extractExpandTilde();
+// expandTilde now lives in — and is exported from — the shared hardened reader
+// (XLS-815: lib/read-file.js is the single local-file read path for both the
+// MCP server and the CLI). Pull it directly; no source-scrape needed.
+const { expandTilde } = require('../../lib/read-file');
 
 test('expandTilde: leaves non-tilde paths unchanged', () => {
   assert.equal(expandTilde('/Users/bob/Desktop/foo.xlsx'), '/Users/bob/Desktop/foo.xlsx');

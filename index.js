@@ -22,6 +22,7 @@ const path = require('path');
 const { ensureRegistered } = require('./lib/register');
 const { callTool }         = require('./lib/client');
 const { surface4xx }       = require('./lib/inline-4xx');
+const { readFileToBase64 } = require('./lib/read-file');
 const {
   telemetryStatus,
   enableTelemetry,
@@ -76,7 +77,7 @@ function parseArgs(argv) {
 // ---------------------------------------------------------------------------
 
 async function runClean(opts, absPath) {
-  const fileB64 = fs.readFileSync(absPath).toString('base64');
+  const fileB64 = readFileToBase64(absPath);
   const body = { file_b64: fileB64, mode: opts.execute ? 'execute' : 'diagnose' };
   if (opts.sheet) body.sheets = [opts.sheet];
   if (opts.detectors) body.detectors = opts.detectors.split(',').map((s) => s.trim()).filter(Boolean);
@@ -179,6 +180,8 @@ function friendlyCliError(prefix, err) {
   const showRaw = process.env.XFA_DEBUG === '1';
   const base = (() => {
     switch (code) {
+      case 'LOGIN_REQUIRED':        return `${prefix}: not signed in. Run \`xlsx-for-ai login\` in a terminal, then retry.`;
+      case 'LOGIN_FAILED':          return `${prefix}: sign-in failed. Run \`xlsx-for-ai login\` to try again.`;
       case 'API_UNREACHABLE':       return `${prefix}: API is unreachable — check network connectivity.`;
       case 'API_SERVER_ERROR':      return `${prefix}: API returned a server error — retry shortly.`;
       // 4xx: surface the server's validation message (the caller's own
@@ -189,6 +192,8 @@ function friendlyCliError(prefix, err) {
       case 'DISALLOWED_EXTENSION':  return `${prefix}: file must be a workbook (allowed: .xlsx/.xls/.xlsm/.xlsb/.csv/.ods/.fods/.numbers/.tsv).`;
       case 'FILE_TOO_LARGE':        return `${prefix}: file exceeds the XFA_MAX_FILE_MB cap (default 50 MB).`;
       case 'FILE_NOT_FOUND':        return `${prefix}: file not found.`;
+      case 'SYMLINK_REJECTED':      return `${prefix}: refusing to read a symlink — pass the real file path.`;
+      case 'NOT_REGULAR_FILE':      return `${prefix}: not a regular file (directory, device, or socket).`;
       case 'MISSING_TOKEN':         return `${prefix}: required token env var is not set.`;
       case 'RATE_LIMITED':          return `${prefix}: monthly request cap reached — resets next month.`;
       default:                      return `${prefix}: request failed${code ? ` (code=${code})` : ''}.`;
@@ -330,7 +335,7 @@ async function runHealSubcommand(rest) {
   }
 
   await ensureRegistered();
-  const fileB64 = fs.readFileSync(filePath).toString('base64');
+  const fileB64 = readFileToBase64(filePath);
 
   // ---- diagnose path -----------------------------------------------------
   if (diagnoseOnly) {
@@ -456,7 +461,7 @@ async function runStampSubcommand(subcmd, rest) {
     process.exit(4);
   }
   await ensureRegistered();
-  const fileB64 = fs.readFileSync(filePath).toString('base64');
+  const fileB64 = readFileToBase64(filePath);
 
   if (subcmd === 'stamp') {
     let checksPath = null, outPath = null, supervisor = null;
@@ -601,7 +606,7 @@ function runSamplesSubcommand(rest) {
   process.stdout.write(
     '\nDemo workbooks ready. Try these in your AI agent:\n\n' +
     `  • "Diff ${path.basename(v1)} against ${path.basename(v2)} and tell me what changed."\n` +
-    `  • "Validate ${path.basename(v2)} across two engines and report any cell divergences."\n` +
+    `  • "Validate ${path.basename(v2)} and report whether it loads cleanly."\n` +
     `  • "Redact any PII in ${path.basename(v2)} and show me a manifest of what was found."\n` +
     `  • "Give me a one-call health report on ${path.basename(v1)}."  (xlsx_doctor)\n\n`,
   );
@@ -624,6 +629,20 @@ async function main() {
   if (argv.length > 0 && argv[0] === 'samples') {
     process.exit(runSamplesSubcommand(argv.slice(1)));
   }
+  if (argv.length > 0 && argv[0] === 'login') {
+    try {
+      const cfg = require('./lib/config').readConfig();
+      if (cfg && cfg.api_key && cfg.client_id && !argv.includes('--force')) {
+        process.stderr.write('Already signed in. Use `xlsx-for-ai login --force` to sign in again.\n');
+        process.exit(0);
+      }
+      await require('./lib/login').deviceLogin();
+      process.exit(0);
+    } catch (err) {
+      process.stderr.write(`${err && err.message ? err.message : 'login failed'}\n`);
+      process.exit(1);
+    }
+  }
   if (argv.length > 0 && argv[0] === 'setup') {
     process.exit(require('./lib/setup').runSetup(argv.slice(1)));
   }
@@ -633,7 +652,10 @@ async function main() {
     const code = argv[0] === 'feedback'
       ? await runFeedbackSubcommand(rest)
       : await runSupportSubcommand(rest);
-    process.exit(code);
+    // exitCode + return (not process.exit) so buffered stdout/stderr flush
+    // when piped.
+    process.exitCode = code;
+    return;
   }
 
   // Bare `xfa` or `xfa --help`: show how to read a file plus the orientation
@@ -678,7 +700,7 @@ async function main() {
     return;
   }
 
-  const fileB64 = fs.readFileSync(absPath).toString('base64');
+  const fileB64 = readFileToBase64(absPath);
   // Server format enum is 'md' | 'json' | 'sql'. The legacy CLI default 'text'
   // maps to the server's default (md). Don't send 'text' — server rejects it.
   const apiFormat = opts.format === 'text' ? undefined : opts.format;

@@ -24,15 +24,21 @@ name: publish
 #   1. PR the version bump -> land it (main now carries the new version)
 #   2. dispatch this workflow with version_bump=none
 #
-# Setup prereqs (one-time, can't be automated — needs the package owner):
-#   - npm: account 2FA = "Authorization only" (not "Authorization and writes")
-#   - npm: package MFA = automation (`npm access set mfa=automation xlsx-for-ai`)
-#   - npm: granular access token, scope = "Read and Publish" on xlsx-for-ai,
-#          type = automation (the "bypass 2FA" checkbox in the UI)
-#   - GitHub repo: Secrets and variables → Actions → XLSX_NPM = the granular token
+# AUTH IS OIDC TRUSTED PUBLISHING — NO NPM TOKEN, EVER (XLS-959, 2026-08-17). Bob:
+# "v4.0.0 ships AS the first trusted publish; no more npm tokens ever." `npm publish`
+# authenticates to the registry with the workflow's short-lived GitHub OIDC identity
+# (permissions.id-token: write, below) — there is no NODE_AUTH_TOKEN and no XLSX_NPM
+# secret. Provenance is generated automatically under trusted publishing, so the
+# supply-chain attestation the old `--provenance` flag bought is now inherent.
 #
-# Without ALL of {account-mode, package-mfa, automation-token}, npm will
-# reject the publish with EOTP even when the token claims to bypass.
+# Setup prereqs (one-time, needs the package owner — done in the npm UI, not here):
+#   - npm: package → Settings → Trusted Publishers → add this repo + workflow
+#          (senoff/xlsx-for-ai, .github/workflows/publish.yml). That, plus id-token:
+#          write below, IS the entire auth path — no account-mode / MFA / token dance.
+#   - Trusted publishing requires npm >= 11.5.1 (asserted at runtime, below).
+#
+# The ONLY secret this workflow references is XFA_SMOKE_KEY (the post-publish smoke's
+# read-scoped credential). No publish secret exists to leak, rotate, or expire.
 
 on:
   workflow_dispatch:
@@ -44,6 +50,10 @@ on:
         default: none
         options:
           - none
+      version:
+        description: "The version you intend to publish — MUST equal package.json's version (fat-finger guard, XLS-959). A mismatch refuses before anything irreversible. e.g. 4.0.0"
+        required: true
+        type: string
       dry_run:
         description: "Run npm pack + clean-install verification but skip the actual publish."
         required: true
@@ -53,16 +63,34 @@ on:
     tags:
       - "v*"
 
+# Least privilege (XLS-959): the workflow default is READ-ONLY. `id-token: write` — the
+# OIDC token-minting that authenticates the npm publish — is granted ONLY on the publish
+# job below, NOT at workflow scope, so the post-publish smoke matrix never inherits
+# token-minting it has no need for (a compromised smoke step cannot mint a registry token).
 permissions:
   contents: read    # this workflow no longer commits or pushes anything. It reads main
                     # and publishes what main carries; the bump arrives as a reviewed PR.
-  id-token: write   # for npm provenance (free supply-chain signal)
-  actions: read         # XLS-615: read the grace receipt artifact (gh api actions/artifacts)
-  pull-requests: read   # XLS-615: map the release commit on main to its PR head sha
+  actions: read         # XLS-1778: read the review attestation artifact (gh api actions/artifacts)
+  pull-requests: read   # XLS-1778: map the release commit on main to its PR (base + head sha)
 
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # Hard ceiling: this job performs the irreversible npm publish + registry sync; a hung
+    # network step must not pin a runner to the default 6h timeout (XLS-959).
+    timeout-minutes: 30
+    # id-token: write lives HERE — the ONLY job that mints an OIDC token (npm trusted
+    # publishing + automatic provenance). Job-level permissions replace the workflow
+    # default entirely, so the read grants the attestation gate needs are restated.
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+      id-token: write
+    outputs:
+      published: ${{ steps.publish.outputs.published }}
+      name: ${{ steps.pkg.outputs.name }}
+      version: ${{ steps.pkg.outputs.version }}
     steps:
       # FIRST, and before anything irreversible. The rule this enforces is the one the
       # old order broke: a step that CAN fail must never run after a step that CANNOT be
@@ -101,6 +129,25 @@ jobs:
         with:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
+
+      # OIDC trusted publishing (no token) requires npm >= 11.5.1 (XLS-959) — older npm has
+      # no OIDC codepath and would demand a token that no longer exists. setup-node's bundled
+      # npm can be below that, so upgrade in place if needed, then ASSERT and fail closed. Runs
+      # before install/pack/publish, so a too-old runner dies here, not at the irreversible step.
+      - name: Ensure npm supports OIDC trusted publishing (>= 11.5.1)
+        run: |
+          FLOOR="11.5.1"
+          CUR="$(npm --version)"
+          if [ "$(printf '%s\n%s\n' "$FLOOR" "$CUR" | sort -V | head -n1)" != "$FLOOR" ]; then
+            echo "npm $CUR is below $FLOOR — upgrading for trusted publishing."
+            npm install -g "npm@>=${FLOOR}"
+          fi
+          CUR="$(npm --version)"
+          if [ "$(printf '%s\n%s\n' "$FLOOR" "$CUR" | sort -V | head -n1)" != "$FLOOR" ]; then
+            echo "::error::npm $CUR is below the ${FLOOR} floor required for OIDC trusted publishing."
+            exit 1
+          fi
+          echo "npm $CUR supports OIDC trusted publishing."
 
       # BOTH validations run here — after node, BEFORE install/test/pack. A doomed run dies
       # in seconds, not after a full install, and always before anything irreversible.
@@ -142,18 +189,119 @@ jobs:
           fi
           echo "Tag v${TAG_VERSION} matches package.json ${PKG_VERSION}."
 
-      # ENFORCEMENT HALF of the grace gate (XLS-615). XLS-412 made a kept CRITICAL
-      # VISIBLE on the PR (the gate is ADVISORY — not a required check, so a CRITICAL
-      # can land, and a human PR-body override can wave one through at merge). It does
-      # NOT stop a publish: this workflow published "what main carries" and read the
-      # verdict NOWHERE. So a kept CRITICAL would ship to npm, and `npm publish` cannot
-      # be undone. This step reads the grace verdict from the RECEIPT ARTIFACT's machine
-      # field (override-receipt.json .severity, refute-aware /2 — NOT a prose grep) and
-      # REFUSES on a kept CRITICAL, here, before Install/Pack/publish — an irreversible
-      # step must never run after a step that can fail. Fails closed on a missing/expired/
-      # UNKNOWN receipt (an unrun gate is not a pass). See scripts/grace-publish-gate.sh.
-      - name: Refuse to publish on a kept CRITICAL (grace verdict)
-        run: bash scripts/grace-publish-gate.sh
+      # server.json ↔ package.json agreement (XLS-504). A static tree check, so it runs HERE with
+      # the other pre-publish validations — BEFORE Install/Pack/publish, before anything
+      # irreversible. The MCP Registry sync (far below) reads server.json; if it disagrees with
+      # package.json the bump PR was half-done, and catching it after `npm publish` would leave
+      # npm shipped while the registry refuses = the exact drift this card removes. So fail here,
+      # closed, first. Runs on every trigger incl. dry_run — a mismatched tree is not releasable.
+      - name: Verify server.json version matches package.json
+        run: |
+          PKG_V="$(node -p "require('./package.json').version")"
+          SRV_V="$(node -p "require('./server.json').version")"
+          SRV_PKG_V="$(node -p "require('./server.json').packages[0].version")"
+          if [ "$SRV_V" != "$PKG_V" ] || [ "$SRV_PKG_V" != "$PKG_V" ]; then
+            echo "::error::server.json (version=$SRV_V, packages[0]=$SRV_PKG_V) != package.json ($PKG_V)."
+            echo "Bump server.json in the same PR as package.json. The in-runner sync that used to"
+            echo "hide this was removed (XLS-504) because its result never landed on main."
+            exit 1
+          fi
+          echo "server.json matches package.json at $PKG_V."
+
+      # FAT-FINGER GUARD (XLS-959). On manual dispatch the operator NAMES the version they
+      # intend to ship; refuse unless package.json already carries exactly that. It layers on
+      # top of the release-commit pin: the pin proves HEAD is the commit that set the version,
+      # this proves the operator MEANT that version. Static tree check, before anything
+      # irreversible; runs on dry_run too (a mismatched intent is not releasable). To PROVE the
+      # refusal: dispatch with a version that disagrees with package.json — it dies here.
+      - name: Verify package.json matches the requested version (fat-finger guard)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          REQUESTED="${{ inputs.version }}"
+          PKG_V="$(node -p "require('./package.json').version")"
+          if [ "$REQUESTED" != "$PKG_V" ]; then
+            echo "::error::Requested version ${REQUESTED} does not match package.json version ${PKG_V}."
+            echo "Dispatch names the version you intend to publish; the tree carries another."
+            echo "Bump package.json (and server.json) to ${REQUESTED} via a reviewed PR first, or"
+            echo "dispatch with version=${PKG_V} if ${PKG_V} is what you mean to ship."
+            exit 1
+          fi
+          echo "Requested version ${REQUESTED} matches package.json."
+
+      # ENFORCEMENT of the review gate at the irreversible npm boundary (XLS-1778, gate
+      # cutover card F). `npm publish` cannot be undone, and this workflow publishes "what
+      # main carries", so the release must be certified BEFORE Install/Pack/publish — an
+      # irreversible step must never run after a step that can fail. This step requires a
+      # valid workflow-attestation receipt (§13.1) for the EXACT content being published:
+      # both live reviewers passed, signed by an allowlisted OIDC identity, and its
+      # subject_content_id equals the CONTENT_ID recomputed from the release PR's base...head.
+      # Fails closed on a missing / mismatched / superseded-format / unsigned attestation
+      # ("an unrun gate is not a pass"). See scripts/publish-attestation-gate.sh.
+      # The gate cosign-verifies the review attestation's keyless signature and fails closed
+      # when `cosign` is absent from the runner (v4.0.7 first publish died here). Install it,
+      # pinned to a commit SHA (v3.10.0). Signing/verification stays ON — no skip, no bypass.
+      # Failure semantics: a transient installer/network error is retried ONCE (second step below,
+      # only if the first failed). If both fail, the job fails CLOSED before `npm publish` (the only
+      # irreversible step, which runs later); and even if neither step ran, the gate itself refuses
+      # when `cosign` is not on PATH. The retry adds no path around the gate.
+      - name: Install cosign (pinned) for the attestation verify
+        id: cosign_install_1
+        continue-on-error: true
+        timeout-minutes: 5
+        uses: sigstore/cosign-installer@d7543c93d881b35a8faa02e8e3605f69b7a1ce62 # v3.10.0 (the ACTION, pinned by commit SHA)
+        with:
+          # the cosign BINARY, pinned by release. The installer itself verifies the downloaded
+          # binary against sigstore's published checksum/signature before it is put on PATH.
+          cosign-release: 'v2.6.1'
+
+      - name: Install cosign (retry once)
+        if: steps.cosign_install_1.outcome == 'failure'
+        timeout-minutes: 5
+        uses: sigstore/cosign-installer@d7543c93d881b35a8faa02e8e3605f69b7a1ce62 # v3.10.0 (the ACTION, pinned by commit SHA)
+        with:
+          cosign-release: 'v2.6.1'
+
+      - name: Log cosign version
+        timeout-minutes: 2
+        run: cosign version
+
+      # The gate recomputes CONTENT_ID over the release PR's base...head. A PR landed through the
+      # merge door is not an ancestor of main and its branch is deleted, so a plain checkout never
+      # has the head commit (measured: content_id.py "empty diff or git fault" on a full clone).
+      # Fetch ONLY the release commit's own PR head ref (one ref, not every PR), with bounded
+      # retries. Read-only; nothing is skipped and the gate below still decides. The commit->PR
+      # lookup is the same API call, on the same commit (github.sha, which for a v* tag push is the
+      # tagged release commit), that scripts/publish-attestation-gate.sh makes, so a commit with no
+      # resolvable PR is refused here exactly as the gate would refuse it.
+      - name: Fetch the release PR head ref (the attestation recompute needs that commit)
+        timeout-minutes: 5
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          PR=""
+          for i in 1 2 3; do
+            PR="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${RELEASE_SHA}/pulls" \
+              --jq '[.[] | select(.merged_at != null)] | sort_by(.merged_at) | last | .number // empty' || true)"
+            [ -n "$PR" ] && break
+            sleep $((i * 5))
+          done
+          if [ -z "$PR" ]; then
+            echo "::error::no merged pull request found for ${RELEASE_SHA}; every release lands via a reviewed PR. Refusing to publish (fail closed)."
+            exit 1
+          fi
+          for i in 1 2 3; do
+            if git fetch --no-tags origin "+refs/pull/${PR}/head:refs/remotes/origin/pr/${PR}"; then
+              exit 0
+            fi
+            sleep $((i * 5))
+          done
+          echo "::error::could not fetch refs/pull/${PR}/head. Refusing to publish (fail closed)."
+          exit 1
+
+      - name: Refuse to publish without a valid review attestation for this content
+        run: bash scripts/publish-attestation-gate.sh
         env:
           GH_TOKEN: ${{ github.token }}
 
@@ -162,6 +310,25 @@ jobs:
 
       - name: Test
         run: npm test --if-present
+
+      # XLS-849 — refuse to publish a baked tool floor that has drifted from live
+      # inventory (the 50-vs-full staleness class). Real drift (exit 1) blocks the
+      # release; an unreachable inventory (exit 2) is infra, not drift — warn and
+      # proceed rather than couple every publish to prod reachability.
+      - name: Verify baked tool floor is fresh vs live inventory
+        run: |
+          set +e
+          npm run tool-floor:check
+          code=$?
+          set -e
+          if [ "$code" -eq 0 ]; then
+            echo "tool floor is fresh."
+          elif [ "$code" -eq 2 ]; then
+            echo "::warning::could not reach live inventory to verify the tool floor — proceeding (infra, not drift)."
+          else
+            echo "::error::baked tool floor has drifted from live inventory — regenerate with 'npm run tool-floor:generate' and commit before publishing."
+            exit 1
+          fi
 
       - name: Read package metadata
         id: pkg
@@ -216,56 +383,132 @@ jobs:
           npx --no-install xlsx-for-ai --version
           echo "Clean install verified: tarball installs and CLI runs."
 
-      - name: Publish to npm
+      # OIDC TRUSTED PUBLISHING — no token (XLS-959). npm authenticates with the workflow's
+      # OIDC identity (permissions.id-token: write); provenance is generated automatically, so
+      # the old `--provenance` flag and the NODE_AUTH_TOKEN/XLSX_NPM secret are both GONE. This
+      # is the only irreversible step; every validation above runs before it. `published=true`
+      # is emitted only when a real publish actually ran, gating the post-publish smoke job.
+      - name: Publish to npm (OIDC trusted publishing)
+        id: publish
         if: env.ALREADY_PUBLISHED != 'true' && steps.flags.outputs.dry_run == 'false'
-        run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.XLSX_NPM }}
+        run: |
+          npm publish --access public
+          echo "published=true" >> "$GITHUB_OUTPUT"
+          # Durable audit record of this irreversible, security-relevant operation to the immutable
+          # run summary — recoverable from the run record for compliance / incident response, alongside
+          # the MCP-sync audit line below (XLS-959). Provenance itself is attested on npm.
+          echo "- **npm publish (OIDC trusted publishing):** \`${{ steps.pkg.outputs.name }}@${{ steps.pkg.outputs.version }}\` published with automatic provenance at $(date -u +%Y-%m-%dT%H:%M:%SZ) (run \`${GITHUB_RUN_ID}\`)." >> "$GITHUB_STEP_SUMMARY"
 
-      # Keep the Official MCP Registry listing (io.github.senoff/xlsx-for-ai) in
-      # sync on every release. Auth is GitHub Actions OIDC — the id-token:write
-      # permission above lets mcp-publisher mint a token for the io.github.senoff/*
-      # namespace with no stored secret and no interactive login. server.json's
-      # version is force-synced to package.json just before publish so the
-      # registry never drifts behind npm. continue-on-error: a registry hiccup
-      # (or a same-version re-publish rejection) must never fail the npm release.
-      - name: Sync server.json version to package.json
+      # ── MCP Registry sync — the AUTHORITATIVE per-release path (XLS-504) ─────────────────
+      # publish.yml owns keeping the Official MCP Registry (io.github.senoff/xlsx-for-ai) in
+      # sync on every release. publish-mcp.yml's automatic v* tag trigger is RETIRED (XLS-504):
+      # releases are tagless workflow_dispatches, so that trigger never fired for 3.2.6–3.2.9
+      # and the registry silently stranded behind npm. One release path, one sync, gated LOUD —
+      # no tag-discipline dependency, no continue-on-error swallowing the failure.
+      #
+      # server.json is NO LONGER mutated in-runner. Its version is committed to main in the SAME
+      # reviewed bump PR as package.json (XLS-504 removes the ephemeral in-runner write whose
+      # result never landed — that is exactly why main's server.json sat at 3.2.1 for 8 releases
+      # while npm moved to 3.2.9). The two are verified to AGREE up front, in the pre-publish
+      # validation block above ("Verify server.json version matches package.json") — before
+      # anything irreversible — so a half-done bump PR fails the release without publishing.
+
+      # KILL the npm-propagation 404. The MCP Registry validates that the npm version named in
+      # server.json actually EXISTS on npm; submit too soon after `npm publish` and the registry
+      # 404s the version and the sync fails. Poll npm (bounded) until this exact version is
+      # visible, so the registry submit only runs against a version npm will confirm.
+      - name: Wait for npm to propagate this version
         if: steps.flags.outputs.dry_run == 'false'
         run: |
-          node -e "const fs=require('fs');const pkg=require('./package.json');const s=JSON.parse(fs.readFileSync('server.json','utf8'));s.version=pkg.version;s.packages[0].version=pkg.version;fs.writeFileSync('server.json',JSON.stringify(s,null,2)+'\n');"
-          echo "server.json synced to $(node -p "require('./package.json').version")"
+          set -eu
+          V="$(node -p "require('./package.json').version")"
+          NAME="$(node -p "require('./package.json').name")"
+          for attempt in $(seq 1 10); do
+            # Per-call timeout: a stalled npm CLI/registry must not hang the runner (the loop's
+            # own bound is meaningless if one iteration blocks forever).
+            if timeout 30s npm view "${NAME}@${V}" version >/dev/null 2>&1; then
+              echo "npm is serving ${NAME}@${V} (attempt ${attempt})."
+              exit 0
+            fi
+            echo "npm not yet serving ${NAME}@${V} (attempt ${attempt}/10); waiting..."
+            if [ "$attempt" -lt 6 ]; then sleep $((attempt * 3)); else sleep 18; fi
+          done
+          echo "::error::npm never surfaced ${NAME}@${V} within the propagation window — the MCP"
+          echo "Registry would 404 this version. Not submitting against a version npm cannot confirm."
+          exit 1
 
+      # Submit server.json to the MCP Registry — GATED LOUD (no continue-on-error, XLS-504). A
+      # failed sync now FAILS THE RELEASE JOB, making the drift visible and actionable instead of
+      # the old silent skip that let the registry rot behind npm for ~8 releases. Idempotent: if
+      # the registry already serves this exact version (a re-dispatch of a done release, keyed on
+      # isLatest — never list position), it is a no-op success, not a duplicate-publish failure.
       - name: Publish to MCP Registry (OIDC)
         if: steps.flags.outputs.dry_run == 'false'
-        continue-on-error: true
         env:
-          # Pinned to a released tag + SRI hash so a republished or
-          # tampered binary fails closed — same integrity-pinning contract
-          # the lockfile/signed-install gates apply to the dep tree, now
-          # extended to the publish-path binary fetch. Bump both together.
+          # Pinned to a released tag + SRI hash so a republished or tampered binary fails closed
+          # — the same integrity-pinning contract the lockfile/signed-install gates apply to the
+          # dep tree, extended to the publish-path binary fetch. Bump both together.
           MCP_PUBLISHER_TAG: v1.7.9
           MCP_PUBLISHER_SHA256: ab128162b0616090b47cf245afe0a23f3ef08936fdce19074f5ba0a4469281ac
         run: |
           set -euo pipefail
+          V="$(node -p "require('./package.json').version")"
+          MCP_NAME="io.github.senoff/xlsx-for-ai"
+          # Record the registry-sync outcome to the immutable run summary — a durable audit entry
+          # for this security-relevant operation (OIDC publish to the MCP Registry), so a synced /
+          # no-op / stranded result is recoverable from the run record, not only the scrolling log.
+          audit() { echo "- **MCP Registry sync:** $1" >> "$GITHUB_STEP_SUMMARY"; }
+          # Resolve the registry's isLatest npm version with node (guaranteed present — setup-node
+          # ran; no jq dependency). Keys on the isLatest FIELD, never list position; exactly-one
+          # isLatest and exactly-one matching npm package, else empty (an ambiguous answer is not a
+          # version). Empty on any error too — a failed probe must not masquerade as "already synced".
+          reg_latest() {
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 --max-time 60 \
+              "https://registry.modelcontextprotocol.io/v0/servers?search=${MCP_NAME}&version=latest" 2>/dev/null \
+              | node -e '
+                  let s = "";
+                  process.stdin.on("data", (d) => (s += d)).on("end", () => {
+                    try {
+                      const n = "io.github.senoff/xlsx-for-ai";
+                      const servers = (JSON.parse(s).servers) || [];
+                      const mine = servers.filter((x) => x && x.server && x.server.name === n);
+                      const latest = mine.filter((x) => ((x._meta || {})["io.modelcontextprotocol.registry/official"] || {}).isLatest === true);
+                      if (latest.length !== 1) return process.stdout.write("");
+                      const pk = (latest[0].server.packages || []).filter((p) => p.registryType === "npm" && p.identifier === "xlsx-for-ai");
+                      process.stdout.write(pk.length === 1 ? String(pk[0].version) : "");
+                    } catch { process.stdout.write(""); }
+                  });' 2>/dev/null || true
+          }
+          CUR="$(reg_latest)"
+          if [ "$CUR" = "$V" ]; then
+            echo "MCP Registry already serves isLatest=${V} — nothing to sync (idempotent no-op)."
+            audit "already at \`${V}\` (no-op)"
+            exit 0
+          fi
+          echo "MCP Registry isLatest is '${CUR:-<unmeasured>}', package is ${V} — syncing."
           curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 --max-time 60 -o mcp-publisher.tar.gz \
             "https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_TAG}/mcp-publisher_linux_amd64.tar.gz"
           echo "Verifying mcp-publisher ${MCP_PUBLISHER_TAG} against pinned SHA-256..."
           echo "${MCP_PUBLISHER_SHA256}  mcp-publisher.tar.gz" | sha256sum -c -
           tar xzf mcp-publisher.tar.gz mcp-publisher
-          publish_ok=false
+          published=false
           for attempt in 1 2 3; do
             if timeout 60s ./mcp-publisher login github-oidc && timeout 60s ./mcp-publisher publish; then
-              publish_ok=true
-              echo "mcp-publisher publish succeeded (attempt $attempt)"
+              published=true
+              echo "mcp-publisher publish succeeded (attempt $attempt)."
               break
             fi
             echo "mcp-publisher attempt $attempt failed." >&2
             [ "$attempt" -lt 3 ] && sleep $((attempt * 2))
           done
-          if [ "$publish_ok" != true ]; then
-            echo "::warning::mcp-publisher failed after 3 attempts (registry sync skipped; npm publish unaffected)"
+          if [ "$published" != true ]; then
+            echo "::error::mcp-publisher failed after 3 attempts — the MCP Registry is now STRANDED"
+            echo "behind npm (npm=${V}, registry=${CUR:-unknown}). Failing the release LOUD (XLS-504):"
+            echo "fix and re-run; do not leave the registry drifted behind npm."
+            audit "**FAILED** — stranded behind npm (npm=\`${V}\`, registry=\`${CUR:-unknown}\`)"
             exit 1
           fi
+          audit "synced \`${CUR:-<unmeasured>}\` → \`${V}\`"
 
       - name: Summary
         if: always()
@@ -278,3 +521,124 @@ jobs:
             echo "- **Bump:** ${{ inputs.version_bump }}" >> "$GITHUB_STEP_SUMMARY"
             echo "- **Dry run:** ${{ inputs.dry_run }}" >> "$GITHUB_STEP_SUMMARY"
           fi
+
+  # POST-PUBLISH SMOKE (XLS-959). Automatic on every real publish — the published npm artifact
+  # is installed FROM THE REGISTRY (not this repo) on Windows + macOS and exercised in both the
+  # modes users run it: CLI, and MCP over stdio (initialize + tools/list + a real xlsx_read).
+  # It runs AFTER publish and cannot un-publish — a failure here is an ALERT that the shipped
+  # artifact is broken on a platform, surfaced LOUD on the run instead of found by a user. Gated
+  # on published==true, so dry-runs and already-published re-dispatches skip it. Mirrors the
+  # proven win-smoke invocation (XLS-958): config key is `api_key`, and the MCP handshake needs
+  # notifications/initialized before tools/list. XFA_SMOKE_KEY is the sole secret in this file.
+  post_publish_smoke:
+    name: Post-publish smoke (registry install)
+    needs: publish
+    if: needs.publish.outputs.published == 'true'
+    # Read-only — installs from the public registry, mints nothing. NO id-token (least
+    # privilege): the smoke has no reason to hold the OIDC token the publish job uses.
+    permissions:
+      contents: read
+    # Hard ceiling so a wedged MCP handshake cannot burn a runner to the default 6h timeout.
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      # Checkout is read-only (contents: read, no persisted creds) and exists ONLY so
+      # this job can run the single-sourced smoke harness (scripts/mcp_smoke.py) — the
+      # very code the harness self-test mutation-proves (XLS-988). No repo code is
+      # executed against the published artifact beyond that harness.
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Install the EXACT version just published. Registry propagation is per-edge, so retry a
+      # bounded window before failing — the smoke must test the real published artifact, not 404.
+      - name: Clean install just-published version from the registry
+        shell: bash
+        run: |
+          set -euo pipefail
+          PKG="${{ needs.publish.outputs.name }}@${{ needs.publish.outputs.version }}"
+          # Poll npm until this exact version is visible on THIS runner's edge (propagation is
+          # per-region), THEN install once — clearer than a blind retry-install loop, and uses a
+          # bash `until` counter (no `seq`, portable across the macOS/Windows runners). XLS-959.
+          attempt=1
+          until npm view "$PKG" version >/dev/null 2>&1; do
+            if [ "$attempt" -ge 10 ]; then
+              echo "::error::registry never served $PKG within the propagation window."
+              exit 1
+            fi
+            echo "registry not yet serving $PKG (attempt $attempt/10); waiting..."
+            attempt=$((attempt + 1))
+            sleep 12
+          done
+          mkdir smoke && cd smoke
+          npm init -y >/dev/null
+          npm install "$PKG"
+          echo "Installed $PKG."
+
+      - name: Inject smoke credentials (read-scoped; the ONLY secret this workflow references)
+        shell: bash
+        env:
+          XFA_SMOKE_KEY: ${{ secrets.XFA_SMOKE_KEY }}
+        run: |
+          set -eu
+          if [ -z "${XFA_SMOKE_KEY:-}" ]; then
+            echo "::error::XFA_SMOKE_KEY is not set — cannot run the post-publish smoke."
+            exit 1
+          fi
+          mkdir -p "$HOME/.xlsx-for-ai"
+          # Serialize via json.dumps so a key with quotes/backslashes/newlines can't corrupt
+          # the config into a false-negative smoke failure (XLS-959). setup-python ran.
+          python -c "import json,os; p=os.path.join(os.path.expanduser('~'),'.xlsx-for-ai','config.json'); open(p,'w').write(json.dumps({'api_key': os.environ['XFA_SMOKE_KEY']}))"
+
+      - name: Make fixture
+        shell: bash
+        run: |
+          python -m pip install openpyxl
+          python -c "
+          from openpyxl import Workbook
+          wb = Workbook(); ws = wb.active; ws.title = 'Data'
+          for r in [[10],[0],[30],[0],[50]]: ws.append(r)
+          wb.save('smoke/t.xlsx')"
+
+      - name: CLI mode
+        shell: bash
+        run: |
+          cd smoke
+          # npx resolves the LOCAL install cross-platform (no POSIX-path .bin shim assumption
+          # that breaks under bash on windows-latest, XLS-959). --no-install: never re-fetch.
+          npx --no-install xlsx-for-ai t.xlsx
+
+      - name: MCP stdio mode
+        shell: bash
+        run: |
+          cd smoke
+          # Single-sourced harness (scripts/mcp_smoke.py): initialize + tools/list +
+          # xlsx_read must all answer. It closes stdin once (EOF-driven shutdown) and
+          # drains both pipes via communicate() so a >64KB tools/list response is never
+          # truncated by a premature terminate — the XLS-988 false-RED. The identical
+          # code is mutation-proved by .github/workflows/smoke-selftest.yml.
+          #
+          # Pass the .bin shim path with OS-NATIVE separators (XLS-1553). The harness
+          # spawns the shim directly: POSIX runs the bare path (shell=False); Windows
+          # appends ".cmd" and runs it via cmd.exe (shell=True). cmd.exe treats "/" as a
+          # switch delimiter, so a forward-slash path (node_modules/.bin/...) is parsed as
+          # the command "node_modules" and dies "'node_modules' is not recognized" — the
+          # windows-latest RED that blocked publish. os.path.join yields backslashes on
+          # Windows and "/" on POSIX (identical to the string macOS already ran), mirroring
+          # the cross-platform resolution the npx CLI step above relies on.
+          #
+          # This exact invocation is mirrored by .github/workflows/publish-smoke-verify.yml,
+          # which proves it on windows-latest PRE-merge (this step only runs post-publish).
+          # Keep the two in lockstep if either changes.
+          MCP_BIN="$(python -c "import os; print(os.path.join('node_modules', '.bin', 'xlsx-for-ai-mcp'))")"
+          python "$GITHUB_WORKSPACE/scripts/mcp_smoke.py" "$MCP_BIN" "t.xlsx"
