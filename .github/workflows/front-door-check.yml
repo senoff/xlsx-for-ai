@@ -1,0 +1,33 @@
+name: front-door-check
+
+# XLS-2993: the checks only this package owns on the way into the product (see docs/FRONT-DOOR.md).
+# Daily, after-release mode: this package must install, both commands must start, and the version
+# must be what npm serves as latest. Read-only; no secret; starts no sign-in.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 13 * * *"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "scripts/front-door-check.js"
+      - ".github/workflows/front-door-check.yml"
+      - "lib/mcp-signin.js"
+
+permissions:
+  contents: read
+
+jobs:
+  front-door:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # On a pull request the version in the branch may be ahead of npm: judge it before the release.
+      # On the daily run and by hand, judge it after the release.
+      - name: Run the package-owned front door checks
+        run: node scripts/front-door-check.js --mode=${{ github.event_name == 'pull_request' && 'pre' || 'post' }}
