@@ -83,6 +83,12 @@ function askMcp(binPath, env) {
     const answers = new Map();
     const timer = setTimeout(() => { child.kill('SIGKILL'); reject(new Error('the MCP command did not answer in 60 seconds')); }, 60000);
     child.on('error', (e) => { clearTimeout(timer); reject(e); });
+    // If the command ends before both answers arrived, say so now instead of waiting out the timer.
+    child.on('close', (code) => {
+      if (answers.has(1) && answers.has(2)) return;
+      clearTimeout(timer);
+      reject(new Error(`the MCP command ended (exit ${code}) before it answered initialize and tools/list`));
+    });
     child.stdout.on('data', (c) => {
       buf += c.toString('utf8');
       let i;
@@ -107,12 +113,22 @@ function askMcp(binPath, env) {
   });
 }
 
-async function fetchLatest(url) {
+async function fetchLatestOnce(url) {
   const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
   if (!res.ok) throw new Error(`registry answered ${res.status}`);
   const body = await res.json();
   if (!body || typeof body.version !== 'string') throw new Error('registry answer has no version');
   return body.version;
+}
+
+/** One read of the registry with up to three tries and a short, growing pause, so one network blip is not a red run. */
+async function fetchLatest(url, attempts = 3) {
+  let last;
+  for (let i = 0; i < attempts; i++) {
+    try { return await fetchLatestOnce(url); } catch (e) { last = e; }
+    if (i < attempts - 1) await new Promise((r) => setTimeout(r, 1000 * (i + 1) + Math.floor(Math.random() * 500)));
+  }
+  throw last;
 }
 
 async function main(argv) {

@@ -21,6 +21,9 @@ permissions:
 
 jobs:
   front-door:
+    # The job packs, installs and starts this package's own code, so a pull request runs it only when
+    # the branch is in this repository; a fork's pull request is not run.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
