@@ -21,6 +21,7 @@
     "lib/orientation.js",
     "lib/inline-4xx.js",
     "lib/read-file.js",
+    "lib/fetch-link.js",
     "lib/discover.js",
     "lib/register.js",
     "lib/login.js",

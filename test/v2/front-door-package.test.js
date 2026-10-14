@@ -38,6 +38,9 @@ function baseEnv(stub, cfg, extra = {}) {
     XLSX_FOR_AI_API: stub.base,
     XFA_CONFIG_DIR: cfg,
     XFA_NO_AUTO_UPDATE: '1',
+    // The link tests serve files from this machine; the private-address refusal
+    // has its own test that clears this.
+    XFA_ALLOW_PRIVATE_LINKS: '1',
     ...extra,
   };
   for (const k of ['CI', 'GITHUB_ACTIONS', 'XLSX_FOR_AI_CI', 'XFA_NONINTERACTIVE', 'XFA_LOGIN_WAIT_SECONDS']) {
@@ -457,33 +460,181 @@ test('B1-6: MCP, sign-in service unreachable: plain "try again in a minute", no 
 // B2-11 / B1-23: a link given as a file path
 // ---------------------------------------------------------------------------
 
-const LINKS = ['https://example.com/report.xlsx', 'http://example.com/a.csv', 'https://docs.google.com/spreadsheets/d/abc123/edit#gid=0'];
+// Links nothing answers on (port 1 is never listening), so no test touches the internet.
+const LINKS = ['http://127.0.0.1:1/report.xlsx', 'http://127.0.0.1:1/a.csv'];
 
-test('B2-11: terminal, a pasted link: says this door reads local files only and what to do, not "File not found"', async () => {
-  await withStub(async ({ stub, cfg }) => {
-    for (const link of LINKS) {
-      const r = await runCli([link], baseEnv(stub, cfg));
-      assert.notEqual(r.code, 0);
-      assert.match(r.stderr, /files saved on this computer only/);
-      assert.match(r.stderr, /Download the file/);
-      assert.match(r.stderr, /hosted xlsx-for-ai connector/);
-      assert.doesNotMatch(r.stderr, /File not found/i);
-    }
-    assert.equal(stub.state.deviceRequests, 0, 'no sign-in is started for a link we cannot read');
+// A local web server standing in for "a link to a spreadsheet" (XLS-4526).
+const XLSX_BYTES = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.from('fixture-workbook-bytes')]);
+async function withFileServer(fn) {
+  const http = require('node:http');
+  let flaky = 0;
+  const server = http.createServer((req, res) => {
+    if (req.url === '/flaky.xlsx' && flaky++ === 0) { res.writeHead(503); res.end('busy'); return; }
+    if (req.url === '/flaky.xlsx') { res.writeHead(200); res.end(XLSX_BYTES); return; }
+    if (req.url === '/big.csv') { res.writeHead(200, { 'content-type': 'text/csv' }); res.end('a,b\n'.repeat(600 * 1024)); return; }
+    if (req.url === '/a.xlsx') { res.writeHead(200, { 'content-type': 'application/octet-stream' }); res.end(XLSX_BYTES); return; }
+    if (req.url === '/a.csv') { res.writeHead(200, { 'content-type': 'text/csv' }); res.end('a,b\n1,2\n'); return; }
+    if (req.url === '/moved') { res.writeHead(302, { location: '/a.xlsx' }); res.end(); return; }
+    if (req.url === '/page.xlsx') { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<!doctype html><html><body>Sign in</body></html>'); return; }
+    res.writeHead(404); res.end('no');
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try { await fn(base); } finally { await new Promise((r) => server.close(r)); }
+}
+const sentFile = (stub) => stub.state.toolBodies.map((b) => b && b.file_b64).filter(Boolean);
+
+test('B2-11: terminal, a link to a spreadsheet is downloaded and read; the bytes sent are the bytes served', async () => {
+  await withFileServer(async (base) => {
+    await withStub(async ({ stub, cfg }) => {
+      for (const link of [`${base}/a.xlsx`, `${base}/moved`]) {
+        const r = await runCli([link], baseEnv(stub, cfg));
+        assert.equal(r.code, 0, r.stderr);
+      }
+      const r = await runCli([`${base}/a.csv`], baseEnv(stub, cfg));
+      assert.equal(r.code, 0, r.stderr);
+      const sent = sentFile(stub);
+      assert.equal(sent[0], XLSX_BYTES.toString('base64'));
+      assert.equal(sent[1], XLSX_BYTES.toString('base64'), 'a redirect is followed');
+      assert.equal(Buffer.from(sent[2], 'base64').toString(), 'a,b\n1,2\n');
+    }, { setup: ({ cfg }) => storeKey(cfg, API_KEY) });
   });
 });
 
-test('B1-23: MCP, a pasted link: says this door reads local files only and what to do, not "file not found"', async () => {
-  await withMcp(async ({ mcp }) => {
-    for (const link of LINKS) {
-      const r = await mcp.call(link);
-      const out = textOf(r);
-      assert.match(out, /files saved on this computer only/);
-      assert.match(out, /Download the file/);
-      assert.match(out, /hosted xlsx-for-ai connector/);
-      assert.doesNotMatch(out, /not found/i);
+test('B2-11: terminal, a link that cannot be opened: one sentence with the reason and the next step, exit 4, no sign-in started', async () => {
+  await withFileServer(async (base) => {
+    await withStub(async ({ stub, cfg }) => {
+      const cases = [[LINKS[0], /could not be reached/], [`${base}/missing.xlsx`, /404/], [`${base}/page.xlsx`, /web page, not a spreadsheet/]];
+      for (const [link, why] of cases) {
+        const r = await runCli([link], baseEnv(stub, cfg));
+        assert.equal(r.code, 4, r.stderr);
+        assert.match(r.stderr, /could not open that link/);
+        assert.match(r.stderr, why);
+        assert.match(r.stderr, /Anyone with the link can view/);
+        assert.match(r.stderr, /download the file/i);
+        assert.match(r.stderr, /hosted xlsx-for-ai connector/);
+        assert.doesNotMatch(r.stderr, /File not found/i);
+      }
+      assert.equal(stub.state.deviceRequests, 0, 'no sign-in is started for a link we cannot read');
+      assert.equal(sentFile(stub).length, 0, 'nothing is sent for a link that did not give a spreadsheet');
+    });
+  });
+});
+
+test('B1-23: MCP, a link to a spreadsheet is downloaded and read; one that cannot be opened says why and what to do', async () => {
+  await withFileServer(async (base) => {
+    await withMcp(async ({ stub, mcp }) => {
+      const ok = await mcp.call(`${base}/a.xlsx`);
+      assert.notEqual(ok.isError, true, textOf(ok));
+      assert.equal(sentFile(stub)[0], XLSX_BYTES.toString('base64'));
+      for (const link of [LINKS[0], `${base}/page.xlsx`]) {
+        const out = textOf(await mcp.call(link));
+        assert.match(out, /could not open that link/);
+        assert.match(out, /download the file/i);
+        assert.match(out, /hosted xlsx-for-ai connector/);
+        assert.doesNotMatch(out, /not found/i);
+      }
+      assert.equal(sentFile(stub).length, 1);
+    }, { setup: ({ cfg }) => storeKey(cfg, API_KEY) });
+  });
+});
+
+test('XLS-4526: a link to this computer or a private network is refused, on both surfaces, unless XFA_ALLOW_PRIVATE_LINKS=1', async () => {
+  await withFileServer(async (base) => {
+    await withStub(async ({ stub, cfg }) => {
+      const env = baseEnv(stub, cfg, { XFA_ALLOW_PRIVATE_LINKS: '' });
+      const r = await runCli([`${base}/a.xlsx`], env);
+      assert.equal(r.code, 4, r.stderr);
+      assert.match(r.stderr, /private network address, which is not opened/);
+      const mcp = await startMcp(env, '');
+      try {
+        for (const link of [`${base}/a.xlsx`, 'http://localhost:1/a.xlsx', 'http://[::1]:1/a.xlsx', 'http://169.254.169.254/a.xlsx']) {
+          assert.match(textOf(await mcp.call(link)), /private network address, which is not opened/, link);
+        }
+      } finally {
+        mcp.stop();
+      }
+      assert.equal(sentFile(stub).length, 0, 'nothing is fetched or sent');
+    }, { setup: ({ cfg }) => storeKey(cfg, API_KEY) });
+  });
+});
+
+test('XLS-4526: a busy answer (503) is tried again; a file over the limit is stopped while streaming and leaves nothing behind', async () => {
+  const { downloadLink } = require('../../lib/fetch-link');
+  const saved = { a: process.env.XFA_ALLOW_PRIVATE_LINKS, m: process.env.XFA_MAX_FILE_MB };
+  process.env.XFA_ALLOW_PRIVATE_LINKS = '1';
+  try {
+    await withFileServer(async (base) => {
+      const got = await downloadLink(`${base}/flaky.xlsx`);
+      try {
+        assert.deepEqual(fs.readFileSync(got.path), XLSX_BYTES);
+      } finally {
+        got.cleanup();
+      }
+      assert.equal(fs.existsSync(path.dirname(got.path)), false, 'cleanup removes the copy');
+      process.env.XFA_MAX_FILE_MB = '1';
+      const before = fs.readdirSync(os.tmpdir()).filter((n) => n.startsWith('xfa-link-')).length;
+      await assert.rejects(downloadLink(`${base}/big.csv`), (e) => e.code === 'FILE_TOO_LARGE');
+      const after = fs.readdirSync(os.tmpdir()).filter((n) => n.startsWith('xfa-link-')).length;
+      assert.equal(after, before, 'a refused download leaves no temp folder');
+    });
+  } finally {
+    for (const [k, v] of [['XFA_ALLOW_PRIVATE_LINKS', saved.a], ['XFA_MAX_FILE_MB', saved.m]]) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
     }
-  }, { setup: ({ cfg }) => storeKey(cfg, API_KEY) });
+  }
+});
+
+test('XLS-4526: the private-address check runs in the socket\'s own lookup, so the address checked is the one connected to', async () => {
+  const { guardedLookup } = require('../../lib/fetch-link');
+  const saved = process.env.XFA_ALLOW_PRIVATE_LINKS;
+  delete process.env.XFA_ALLOW_PRIVATE_LINKS;
+  try {
+    // A name (not an address literal) that resolves to loopback: refused at lookup,
+    // before any connection, in both forms net asks for.
+    for (const opts of [{ all: true }, {}]) {
+      const err = await new Promise((resolve) => guardedLookup('localhost', opts, (e) => resolve(e)));
+      assert.ok(err && /private network address/.test(err.reason), String(err && err.message));
+    }
+    process.env.XFA_ALLOW_PRIVATE_LINKS = '1';
+    const addrs = await new Promise((resolve, reject) => guardedLookup('localhost', { all: true }, (e, a) => (e ? reject(e) : resolve(a))));
+    assert.ok(addrs.length > 0 && addrs.every((a) => a.address && a.family));
+  } finally {
+    if (saved === undefined) delete process.env.XFA_ALLOW_PRIVATE_LINKS; else process.env.XFA_ALLOW_PRIVATE_LINKS = saved;
+  }
+});
+
+test('XLS-4526: the private-address check covers loopback, private, link-local, mapped and unique-local addresses', () => {
+  const { isPrivateAddress } = require('../../lib/fetch-link');
+  for (const ip of ['127.0.0.1', '10.1.2.3', '172.20.0.1', '192.168.1.1', '169.254.169.254', '100.64.0.1', '0.0.0.0',
+    '::1', '::', 'fd00::1', 'fe80::1', '::ffff:127.0.0.1', '::ffff:10.0.0.1', 'not-an-ip']) {
+    assert.equal(isPrivateAddress(ip), true, ip);
+  }
+  for (const ip of ['8.8.8.8', '142.250.72.14', '2606:4700::1111', '::ffff:8.8.8.8']) {
+    assert.equal(isPrivateAddress(ip), false, ip);
+  }
+});
+
+test('XLS-4526: a Google Sheets or Drive link becomes its download address; other links are used as given', () => {
+  const { downloadUrlFor } = require('../../lib/fetch-link');
+  assert.deepEqual(downloadUrlFor('https://docs.google.com/spreadsheets/d/abc_123-x/edit#gid=0'),
+    { url: 'https://docs.google.com/spreadsheets/d/abc_123-x/export?format=xlsx', ext: '.xlsx' });
+  assert.deepEqual(downloadUrlFor('docs.google.com/spreadsheets/d/abc/edit'),
+    { url: 'https://docs.google.com/spreadsheets/d/abc/export?format=xlsx', ext: '.xlsx' });
+  assert.equal(downloadUrlFor('https://drive.google.com/file/d/XYZ9/view?usp=sharing').url, 'https://drive.google.com/uc?export=download&id=XYZ9');
+  assert.deepEqual(downloadUrlFor('https://example.com/r.CSV'), { url: 'https://example.com/r.CSV', ext: '.csv' });
+  assert.throws(() => downloadUrlFor('https://'), (e) => e.code === 'LINK_FETCH_FAILED');
+});
+
+test('XLS-4526: only a workbook signature or plain csv text counts as a spreadsheet', () => {
+  const { sniffExtension } = require('../../lib/fetch-link');
+  assert.equal(sniffExtension(XLSX_BYTES, null, ''), '.xlsx');
+  assert.equal(sniffExtension(XLSX_BYTES, '.xlsm', ''), '.xlsm');
+  assert.equal(sniffExtension(Buffer.from('d0cf11e0a1b11ae1', 'hex'), null, ''), '.xls');
+  assert.equal(sniffExtension(Buffer.from('a,b\n'), '.csv', 'text/plain'), '.csv');
+  assert.equal(sniffExtension(Buffer.from('a,b\n'), null, 'text/csv; charset=utf-8'), '.csv');
+  assert.equal(sniffExtension(Buffer.from('a,b\n'), null, 'text/plain'), null);
+  assert.equal(sniffExtension(Buffer.from('<!DOCTYPE html><html>'), '.csv', 'text/csv'), null);
 });
 
 // ---------------------------------------------------------------------------
@@ -784,10 +935,11 @@ test('review: a paywall answer with an untrusted upgrade link shows the plans pa
 
 test('review: the same exit code (4) for a pasted link on every command (ran red on the old code: the plain read exited 1)', async () => {
   await withStub(async ({ stub, cfg }) => {
-    for (const args of [[LINKS[0]], ['heal', LINKS[0]], ['stamp', LINKS[0]]]) {
+    for (const args of [[LINKS[0]], ['heal', LINKS[0]], ['stamp', LINKS[0]], ['--clean', LINKS[0]]]) {
       const r = await runCli(args, baseEnv(stub, cfg));
       assert.equal(r.code, 4, `${args[0]}: ${r.stderr}`);
-      assert.match(r.stderr, /files saved on this computer only/);
+      // The plain read tries the link; the commands that work on a saved file say so.
+      assert.match(r.stderr, args.length === 1 ? /could not open that link/ : /works on a file saved on this computer/);
     }
   });
 });
