@@ -18,6 +18,8 @@ function sandbox() {
 const noLog = () => {};
 
 async function withEnv(env, fn) {
+  // isAutomatedRun() also reads these; keep the tests independent of the runner.
+  env = { CI: '', GITHUB_ACTIONS: '', XLSX_FOR_AI_CI: '', ...env };
   const saved = {};
   for (const k of Object.keys(env)) { saved[k] = process.env[k]; process.env[k] = env[k]; }
   try { return await fn(); }
