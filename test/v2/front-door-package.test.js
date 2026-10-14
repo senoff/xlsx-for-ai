@@ -142,7 +142,8 @@ const PAYWALL_402 = {
   },
 };
 // The shape the server sends at the paywall (enforce-file-decision checkoutUrl):
-// a signed checkout intent, base64url JSON payload "." base64url mac. Not a real token.
+// a signed checkout intent, base64url JSON payload "." base64url mac. The mac here is
+// filler, not a signature from any key; the payload holds no personal data.
 const CHECKOUT_TOKEN = `${Buffer.from('{"cid":"client-test","iat":1760000000}').toString('base64url')}.${'Ab1_-'.repeat(8)}c`;
 const CHECKOUT_URL = `https://api.xlsx-for-ai.dev/api/v1/billing/checkout-start?token=${CHECKOUT_TOKEN}`;
 const CHECKOUT_402 = {
@@ -777,6 +778,14 @@ test('review: only the checkout-start pay link keeps its query, and only a lone 
     '?token=a%2Fb.c', '?token=a.b.c', '?from=test', '?token=', `?token=${'a'.repeat(401)}.b`]) {
     assert.equal(extractUpgradeUrl(wrap(`${START}${q}`)), START, q);
   }
+  // The payload is readable by whoever holds the link: anything but the server's
+  // { cid, iat } (an email, a name, an extra field) drops the token.
+  const signed = (obj) => `${START}?token=${Buffer.from(JSON.stringify(obj)).toString('base64url')}.${'Ab1_-'.repeat(8)}c`;
+  for (const p of [{ cid: 'person@example.com', iat: 1 }, { cid: 'c1', iat: 1, email: 'person@example.com' },
+    { cid: 'c1' }, { cid: 'c1', iat: 'x' }, { cid: '', iat: 1 }, ['c1', 1], 'c1']) {
+    assert.equal(extractUpgradeUrl(wrap(signed(p))), START, JSON.stringify(p));
+  }
+  assert.equal(extractUpgradeUrl(wrap(signed({ cid: 'key_3f9a-1', iat: 1760000000 }))), signed({ cid: 'key_3f9a-1', iat: 1760000000 }));
   // The token is kept on no other path, and never off our host.
   assert.equal(extractUpgradeUrl(wrap(`https://xlsx-for-ai.dev/upgrade?token=${CHECKOUT_TOKEN}`)), 'https://xlsx-for-ai.dev/upgrade');
   assert.equal(extractUpgradeUrl(wrap(`https://evil.example/api/v1/billing/checkout-start?token=${CHECKOUT_TOKEN}`)), '');
