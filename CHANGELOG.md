@@ -9,6 +9,11 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 
 ## [Unreleased]
 
+## [4.2.6]
+
+- README has a Claude Desktop setup section (PR 102, XLS-4525).
+- The publish job runs the package front-door check before `npm publish`; a failing check stops the release (PR 103, XLS-4527).
+
 ## [4.2.5]
 
 - A shell that exports `CI=1` is no longer treated as an automated run. Only `CI=true`, `GITHUB_ACTIONS=true` and `XLSX_FOR_AI_CI=1` count, through one shared `isAutomatedRun()` in `lib/config.js` used by sign-in and auto-upgrade (PR 100, XLS-4521).
