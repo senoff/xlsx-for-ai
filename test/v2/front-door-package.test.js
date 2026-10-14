@@ -38,6 +38,9 @@ function baseEnv(stub, cfg, extra = {}) {
     XLSX_FOR_AI_API: stub.base,
     XFA_CONFIG_DIR: cfg,
     XFA_NO_AUTO_UPDATE: '1',
+    // The link tests serve files from this machine; the private-address refusal
+    // has its own test that clears this.
+    XFA_ALLOW_PRIVATE_LINKS: '1',
     ...extra,
   };
   for (const k of ['CI', 'GITHUB_ACTIONS', 'XLSX_FOR_AI_CI', 'XFA_NONINTERACTIVE', 'XFA_LOGIN_WAIT_SECONDS']) {
@@ -530,6 +533,37 @@ test('B1-23: MCP, a link to a spreadsheet is downloaded and read; one that canno
       assert.equal(sentFile(stub).length, 1);
     }, { setup: ({ cfg }) => storeKey(cfg, API_KEY) });
   });
+});
+
+test('XLS-4526: a link to this computer or a private network is refused, on both surfaces, unless XFA_ALLOW_PRIVATE_LINKS=1', async () => {
+  await withFileServer(async (base) => {
+    await withStub(async ({ stub, cfg }) => {
+      const env = baseEnv(stub, cfg, { XFA_ALLOW_PRIVATE_LINKS: '' });
+      const r = await runCli([`${base}/a.xlsx`], env);
+      assert.equal(r.code, 4, r.stderr);
+      assert.match(r.stderr, /private network address, which is not opened/);
+      const mcp = await startMcp(env, '');
+      try {
+        for (const link of [`${base}/a.xlsx`, 'http://localhost:1/a.xlsx', 'http://[::1]:1/a.xlsx', 'http://169.254.169.254/a.xlsx']) {
+          assert.match(textOf(await mcp.call(link)), /private network address, which is not opened/, link);
+        }
+      } finally {
+        mcp.stop();
+      }
+      assert.equal(sentFile(stub).length, 0, 'nothing is fetched or sent');
+    }, { setup: ({ cfg }) => storeKey(cfg, API_KEY) });
+  });
+});
+
+test('XLS-4526: the private-address check covers loopback, private, link-local, mapped and unique-local addresses', () => {
+  const { isPrivateAddress } = require('../../lib/fetch-link');
+  for (const ip of ['127.0.0.1', '10.1.2.3', '172.20.0.1', '192.168.1.1', '169.254.169.254', '100.64.0.1', '0.0.0.0',
+    '::1', '::', 'fd00::1', 'fe80::1', '::ffff:127.0.0.1', '::ffff:10.0.0.1', 'not-an-ip']) {
+    assert.equal(isPrivateAddress(ip), true, ip);
+  }
+  for (const ip of ['8.8.8.8', '142.250.72.14', '2606:4700::1111', '::ffff:8.8.8.8']) {
+    assert.equal(isPrivateAddress(ip), false, ip);
+  }
 });
 
 test('XLS-4526: a Google Sheets or Drive link becomes its download address; other links are used as given', () => {
