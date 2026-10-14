@@ -9,6 +9,10 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 
 ## [Unreleased]
 
+## [4.2.8]
+
+- The Claude Code plugin session-start hook and spreadsheets skill state what reading a file with code cannot do, accurately (PR 108, XLS-4732).
+
 ## [4.2.7]
 
 - A pasted link or Google Sheet is downloaded and read on the package door, in the terminal and over MCP; links to this computer or a private network are refused, a busy answer is retried, and a file over the limit is stopped while streaming (PR 105, XLS-4526).
