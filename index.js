@@ -25,6 +25,7 @@ const { SUNSET_NOTICE_CLI } = require('./lib/notices');
 const { updateNotice } = require('./lib/auto-upgrade');
 const { surface4xx, surface5xx, scrubSensitive, surfaceAutomated401 } = require('./lib/inline-4xx');
 const { readFileToBase64, looksLikeLink, LINK_NOT_SUPPORTED_MESSAGE, fileTooLargeSentence } = require('./lib/read-file');
+const { downloadLink, linkFailedSentence } = require('./lib/fetch-link');
 const {
   telemetryStatus,
   enableTelemetry,
@@ -209,6 +210,8 @@ function friendlyCliError(prefix, err) {
         if (Number(err.status) === 401) return surfaceAutomated401(prefix);
         return surface4xx(prefix, err);
       case 'LINK_NOT_SUPPORTED':    return `${prefix}: ${LINK_NOT_SUPPORTED_MESSAGE}`;
+      case 'LINK_FETCH_FAILED':
+      case 'LINK_NOT_SPREADSHEET':  return `${prefix}: ${linkFailedSentence(err)}`;
       case 'DISALLOWED_EXTENSION':  return `${prefix}: file must be a workbook (allowed: .xlsx/.xls/.xlsm/.xlsb/.csv/.ods/.fods/.numbers/.tsv).`;
       case 'FILE_TOO_LARGE':        return `${prefix}: ${fileTooLargeSentence(err)}`;
       case 'FILE_NOT_FOUND':        return `${prefix}: file not found.`;
@@ -244,6 +247,21 @@ function exitIfLink(arg) {
   if (!looksLikeLink(arg)) return;
   try { process.stderr.write(`xlsx-for-ai: ${LINK_NOT_SUPPORTED_MESSAGE}\n`); } catch (_) { /* nowhere to show it */ }
   process.exit(4);
+}
+
+// Download a pasted link for the plain read; the temp copy is removed when the
+// process exits. A link that cannot be opened gets one sentence and exit 4, the
+// same code as every other link refusal.
+async function downloadLinkOrExit(link) {
+  try {
+    const got = await downloadLink(link);
+    process.once('exit', got.cleanup);
+    return got.path;
+  } catch (err) {
+    const text = err && err.code === 'FILE_TOO_LARGE' ? fileTooLargeSentence(err) : linkFailedSentence(err);
+    try { process.stderr.write(`xlsx-for-ai: ${text}\n`); } catch (_) { /* nowhere to show it */ }
+    process.exit(4);
+  }
 }
 
 function nextRequiredArg(argv, i, flag) {
@@ -726,11 +744,19 @@ async function main() {
     process.exit(1);
   }
 
-  exitIfLink(opts.file);
-  const absPath = path.resolve(opts.file);
-  if (!fs.existsSync(absPath)) {
-    process.stderr.write(`File not found: ${absPath}\n`);
-    process.exit(1);
+  // A pasted link is downloaded to a private temp file and read like any other
+  // file (XLS-4526). --clean saves its result next to the source, which a link
+  // does not have, so it keeps the plain refusal.
+  let absPath;
+  if (looksLikeLink(opts.file) && !opts.clean) {
+    absPath = await downloadLinkOrExit(opts.file);
+  } else {
+    exitIfLink(opts.file);
+    absPath = path.resolve(opts.file);
+    if (!fs.existsSync(absPath)) {
+      process.stderr.write(`File not found: ${absPath}\n`);
+      process.exit(1);
+    }
   }
 
   // A person at a terminal gets the out-of-date check too (B3-6). It is looked up
