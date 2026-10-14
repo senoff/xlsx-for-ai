@@ -19,7 +19,9 @@ const { callTool, setMcpClientInfo, sunsetSignal } = require('./lib/client');
 const { resolveCatalog }   = require('./lib/discover');
 const { applyAnnotations, sanitizeForMcp } = require('./lib/annotations');
 const { surface4xx, surface5xx, scrubSensitive, surfaceAutomated401 } = require('./lib/inline-4xx');
-const { readFileToBase64, LINK_NOT_SUPPORTED_MESSAGE, fileTooLargeSentence } = require('./lib/read-file');
+const { readFileToBase64, looksLikeLink, LINK_NOT_SUPPORTED_MESSAGE, fileTooLargeSentence } = require('./lib/read-file');
+const { downloadLink, linkFailedSentence } = require('./lib/fetch-link');
+const { AsyncLocalStorage } = require('async_hooks');
 const { SUNSET_NOTICE_MCP, appendNotice } = require('./lib/notices');
 const { updateNotice } = require('./lib/auto-upgrade');
 const fs                   = require('fs');
@@ -1281,7 +1283,36 @@ try {
 // calls through unchanged.
 // ---------------------------------------------------------------------------
 
-const fileToB64 = readFileToBase64;
+// A pasted link in a file_path field (XLS-4526): before the tool runs, each
+// link is downloaded to a private temp file, and fileToB64 reads that copy when
+// it is handed the link. The map lives for one tool call only (so two calls at
+// once never share or delete each other's copies), and the tool's own arguments
+// stay as the person gave them, so any text that echoes file_path shows the link.
+const linkCopies = new AsyncLocalStorage();
+
+function fileToB64(filePath) {
+  const copies = linkCopies.getStore();
+  const local = copies && typeof filePath === 'string' ? copies.get(filePath) : undefined;
+  return readFileToBase64(local || filePath);
+}
+
+async function withLinkCopies(args, run) {
+  const copies = new Map();
+  const cleanups = [];
+  try {
+    for (const field of FILE_PATH_FIELDS) {
+      if (field === 'spec_path') continue; // a spec file is not a spreadsheet
+      const v = args && args[field];
+      if (!looksLikeLink(v) || copies.has(v)) continue;
+      const got = await downloadLink(v);
+      cleanups.push(got.cleanup);
+      copies.set(v, got.path);
+    }
+    return await linkCopies.run(copies, run);
+  } finally {
+    for (const c of cleanups) c();
+  }
+}
 
 // ---------------------------------------------------------------------------
 // File-save helper for tools that return _meta.file_b64
@@ -1384,6 +1415,9 @@ function friendlyErrorMessage(toolName, err) {
       return `${toolName}: required token env var is not set (see tool docs for which one).`;
     case 'LINK_NOT_SUPPORTED':
       return `${toolName}: ${LINK_NOT_SUPPORTED_MESSAGE}`;
+    case 'LINK_FETCH_FAILED':
+    case 'LINK_NOT_SPREADSHEET':
+      return `${toolName}: ${linkFailedSentence(err)}`;
     // These two are shown inside an app or editor with no terminal, so neither
     // may send the person to one.
     case 'LOGIN_FAILED':
@@ -2135,7 +2169,8 @@ async function main() {
       if (signIn) {
         return { content: [{ type: 'text', text: signInMessage(signIn) }] };
       }
-      const result = await dispatchTool(name, args || {});
+      const callArgs = args || {};
+      const result = await withLinkCopies(callArgs, () => dispatchTool(name, callArgs));
       // Pass API response through verbatim (citation footer + _meta preserved);
       // a notice the person needs, if any, rides along as one more text block.
       return withNotices(result);
