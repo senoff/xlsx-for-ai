@@ -311,6 +311,13 @@ jobs:
       - name: Test
         run: npm test --if-present
 
+      # XLS-4527 (audit B3-7): the release depends on the package-owned new-person front-door
+      # check. A failing check exits non-zero here, so the job stops BEFORE the irreversible
+      # `npm publish` below. It is a step in this job (not a separate job or workflow) so it
+      # needs no extra runner: it runs on the runner this job already has.
+      - name: Front door check (a failure stops the release)
+        run: node scripts/front-door-check.js --mode=pre
+
       # XLS-849 — refuse to publish a baked tool floor that has drifted from live
       # inventory (the 50-vs-full staleness class). Real drift (exit 1) blocks the
       # release; an unreachable inventory (exit 2) is infra, not drift — warn and
