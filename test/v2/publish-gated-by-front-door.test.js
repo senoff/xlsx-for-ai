@@ -16,12 +16,13 @@ const WORKFLOW = path.join(__dirname, '..', '..', '.github', 'workflows', 'publi
 /** Split the publish job's step list into { name, text } blocks, in file order. */
 function publishJobSteps(src) {
   const start = src.indexOf('\n  publish:\n');
+  assert.ok(start >= 0, 'publish job not found');
   const end = src.indexOf('\n  post_publish_smoke:');
-  assert.ok(start >= 0 && end > start, 'publish job not found');
+  assert.ok(end > start, 'job after publish (post_publish_smoke) not found');
   const job = src.slice(start, end);
   const stepsAt = job.indexOf('\n    steps:\n');
   assert.ok(stepsAt >= 0, 'publish job has no steps');
-  const lines = job.slice(stepsAt).split('\n');
+  const lines = job.slice(stepsAt).split('\n').filter((l) => !/^\s*#/.test(l));
   const steps = [];
   for (const line of lines) {
     const m = /^      - (?:name: (.*))?/.exec(line);
@@ -31,9 +32,12 @@ function publishJobSteps(src) {
   return steps;
 }
 
+// The check must be on a real run line (comments are dropped by publishJobSteps).
+const RUNLINE = /(^|\n)\s*run:\s*node scripts\/front-door-check\.js\b/;
+
 test('publish job runs the front-door check before npm publish', () => {
   const steps = publishJobSteps(fs.readFileSync(WORKFLOW, 'utf8'));
-  const door = steps.findIndex((s) => /node scripts\/front-door-check\.js/.test(s.text));
+  const door = steps.findIndex((s) => RUNLINE.test(s.text));
   const pub = steps.findIndex((s) => /(^|\n)\s*(run:\s*)?npm publish\b/.test(s.text));
   assert.ok(door >= 0, 'no front-door check step in the publish job');
   assert.ok(pub >= 0, 'no npm publish step in the publish job');
@@ -42,9 +46,11 @@ test('publish job runs the front-door check before npm publish', () => {
 
 test('the front-door step cannot be skipped or swallowed', () => {
   const steps = publishJobSteps(fs.readFileSync(WORKFLOW, 'utf8'));
-  const door = steps.find((s) => /node scripts\/front-door-check\.js/.test(s.text));
+  const door = steps.find((s) => RUNLINE.test(s.text));
   assert.ok(door);
   assert.ok(!/^\s+if:/m.test(door.text), 'front-door step must have no if: condition');
   assert.ok(!/continue-on-error/.test(door.text), 'front-door step must not continue on error');
-  assert.ok(!/\|\|\s*true/.test(door.text), 'front-door step must not swallow a failure');
+  assert.ok(!/\|\|\s*(true|:|exit\s+0)\b/.test(door.text), 'front-door step must not swallow a failure');
+  assert.ok(!/\bset\s+\+e\b/.test(door.text), 'front-door step must not disable error exit');
+  assert.ok(!/(^|\n)\s*run:\s*\|/.test(door.text), 'front-door step must be a single-line run');
 });
