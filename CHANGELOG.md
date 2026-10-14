@@ -9,6 +9,11 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 
 ## [Unreleased]
 
+## [4.2.5]
+
+- A shell that exports `CI=1` is no longer treated as an automated run. Only `CI=true`, `GITHUB_ACTIONS=true` and `XLSX_FOR_AI_CI=1` count, through one shared `isAutomatedRun()` in `lib/config.js` used by sign-in and auto-upgrade (PR 100, XLS-4521).
+- Front door section and package-owned check (PR 99, XLS-2993).
+
 ## [4.2.4]
 
 4.2.3 was tagged but never published: the publish workflow's own test run failed, so npm kept serving 4.2.2. 4.2.4 carries everything in 4.2.3 plus the fix below.
