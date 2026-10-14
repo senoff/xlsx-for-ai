@@ -9,6 +9,11 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 
 ## [Unreleased]
 
+## [4.2.7]
+
+- A pasted link or Google Sheet is downloaded and read on the package door, in the terminal and over MCP; links to this computer or a private network are refused, a busy answer is retried, and a file over the limit is stopped while streaming (PR 105, XLS-4526).
+- When the trial is used up, the pay link is shown with its signed token, byte for byte (PR 106, XLS-4535).
+
 ## [4.2.6]
 
 - README has a Claude Desktop setup section (PR 102, XLS-4525).
