@@ -42,6 +42,27 @@ Verify: in a new Claude Code session, ask "what MCP tools do you have?" — 52 `
 
 Then run `xfa samples` (shorthand for `xlsx-for-ai samples`) to drop two demo workbooks in your working directory and get paste-ready prompts to try.
 
+### Claude Desktop
+
+Claude Desktop reads files, but it cannot recalculate formulas, read a very large workbook exactly, or hand back a real `.xlsx`. The `xfa` server adds those. The install does not touch Claude Desktop, so add the server yourself. Install the package first (`npm install -g xlsx-for-ai`), then open the config file:
+
+- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+
+(In Claude Desktop: Settings → Developer → Edit Config opens it.) Add `xfa` under `mcpServers`, keeping any servers already there:
+
+```json
+{
+  "mcpServers": {
+    "xfa": {
+      "command": "xlsx-for-ai-mcp"
+    }
+  }
+}
+```
+
+Fully quit and reopen Claude Desktop. Verify: ask "what MCP tools do you have?" and confirm `xfa` shows 52 `xlsx_*` tools. Your first request answers with a sign-in link and a short code: open the link, approve, then ask again.
+
 ### Cursor
 
 Config file: `~/.cursor/mcp.json`
@@ -445,7 +466,7 @@ The npm client (`xlsx-for-ai`, this package) is MIT. The hosted API server (`xls
 ## Architecture
 
 ```
-agent (Claude Code / Cursor / Continue / Zed / Windsurf / custom)
+agent (Claude Code / Claude Desktop / Cursor / Continue / Zed / Windsurf / custom)
   └── MCP stdio
         └── xlsx-for-ai-mcp  (this package, ~200 lines)
               └── POST /api/v1/tools/<name>  →  api.xlsx-for-ai.dev
