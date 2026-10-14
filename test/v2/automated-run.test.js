@@ -58,11 +58,30 @@ for (const [env, expected] of CASES) {
 
   test(`auto-upgrade checkForUpgrade ${label} ${expected ? 'skips as ci' : 'does not skip as ci'}`, async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'xfa-auto-'));
-    await withEnv({ ...env, XFA_CONFIG_DIR: dir, XFA_LATEST_VERSION: '3.1.0' }, async () => {
-      const { checkForUpgrade } = freshUpgrade();
-      const r = await checkForUpgrade({ currentVersion: '3.1.0', log: () => {}, noticeOnly: true });
-      if (expected) assert.deepEqual(r, { skipped: 'ci' });
-      else assert.notEqual(r && r.skipped, 'ci');
-    });
+    try {
+      await withEnv({ ...env, XFA_CONFIG_DIR: dir, XFA_LATEST_VERSION: '3.1.0' }, async () => {
+        const { checkForUpgrade } = freshUpgrade();
+        const r = await checkForUpgrade({ currentVersion: '3.1.0', log: () => {}, noticeOnly: true });
+        if (expected) assert.deepEqual(r, { skipped: 'ci' });
+        else assert.notEqual(r && r.skipped, 'ci');
+      });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 }
+
+test('XFA_NO_AUTO_UPDATE=1 still opts out first, whatever the CI variables are', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'xfa-auto-'));
+  try {
+    for (const env of [{}, { CI: '1' }, { CI: 'true' }]) {
+      await withEnv({ ...env, XFA_NO_AUTO_UPDATE: '1', XFA_CONFIG_DIR: dir, XFA_LATEST_VERSION: '3.1.0' }, async () => {
+        const { checkForUpgrade } = freshUpgrade();
+        const r = await checkForUpgrade({ currentVersion: '3.1.0', log: () => {}, noticeOnly: true });
+        assert.deepEqual(r, { skipped: 'opt-out' });
+      });
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
