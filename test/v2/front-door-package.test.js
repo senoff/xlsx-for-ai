@@ -467,7 +467,11 @@ const LINKS = ['http://127.0.0.1:1/report.xlsx', 'http://127.0.0.1:1/a.csv'];
 const XLSX_BYTES = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.from('fixture-workbook-bytes')]);
 async function withFileServer(fn) {
   const http = require('node:http');
+  let flaky = 0;
   const server = http.createServer((req, res) => {
+    if (req.url === '/flaky.xlsx' && flaky++ === 0) { res.writeHead(503); res.end('busy'); return; }
+    if (req.url === '/flaky.xlsx') { res.writeHead(200); res.end(XLSX_BYTES); return; }
+    if (req.url === '/big.csv') { res.writeHead(200, { 'content-type': 'text/csv' }); res.end('a,b\n'.repeat(600 * 1024)); return; }
     if (req.url === '/a.xlsx') { res.writeHead(200, { 'content-type': 'application/octet-stream' }); res.end(XLSX_BYTES); return; }
     if (req.url === '/a.csv') { res.writeHead(200, { 'content-type': 'text/csv' }); res.end('a,b\n1,2\n'); return; }
     if (req.url === '/moved') { res.writeHead(302, { location: '/a.xlsx' }); res.end(); return; }
@@ -553,6 +557,32 @@ test('XLS-4526: a link to this computer or a private network is refused, on both
       assert.equal(sentFile(stub).length, 0, 'nothing is fetched or sent');
     }, { setup: ({ cfg }) => storeKey(cfg, API_KEY) });
   });
+});
+
+test('XLS-4526: a busy answer (503) is tried again; a file over the limit is stopped while streaming and leaves nothing behind', async () => {
+  const { downloadLink } = require('../../lib/fetch-link');
+  const saved = { a: process.env.XFA_ALLOW_PRIVATE_LINKS, m: process.env.XFA_MAX_FILE_MB };
+  process.env.XFA_ALLOW_PRIVATE_LINKS = '1';
+  try {
+    await withFileServer(async (base) => {
+      const got = await downloadLink(`${base}/flaky.xlsx`);
+      try {
+        assert.deepEqual(fs.readFileSync(got.path), XLSX_BYTES);
+      } finally {
+        got.cleanup();
+      }
+      assert.equal(fs.existsSync(path.dirname(got.path)), false, 'cleanup removes the copy');
+      process.env.XFA_MAX_FILE_MB = '1';
+      const before = fs.readdirSync(os.tmpdir()).filter((n) => n.startsWith('xfa-link-')).length;
+      await assert.rejects(downloadLink(`${base}/big.csv`), (e) => e.code === 'FILE_TOO_LARGE');
+      const after = fs.readdirSync(os.tmpdir()).filter((n) => n.startsWith('xfa-link-')).length;
+      assert.equal(after, before, 'a refused download leaves no temp folder');
+    });
+  } finally {
+    for (const [k, v] of [['XFA_ALLOW_PRIVATE_LINKS', saved.a], ['XFA_MAX_FILE_MB', saved.m]]) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  }
 });
 
 test('XLS-4526: the private-address check covers loopback, private, link-local, mapped and unique-local addresses', () => {
