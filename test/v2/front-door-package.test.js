@@ -141,6 +141,17 @@ const PAYWALL_402 = {
     upgrade: { url: 'https://xlsx-for-ai.dev/upgrade?from=test', plan: 'pro', reason: 'plan1_monthly_over' },
   },
 };
+// The shape the server sends at the paywall (enforce-file-decision checkoutUrl):
+// a signed checkout intent, base64url JSON payload "." base64url mac. Not a real token.
+const CHECKOUT_TOKEN = `${Buffer.from('{"cid":"client-test","iat":1760000000}').toString('base64url')}.${'Ab1_-'.repeat(8)}c`;
+const CHECKOUT_URL = `https://api.xlsx-for-ai.dev/api/v1/billing/checkout-start?token=${CHECKOUT_TOKEN}`;
+const CHECKOUT_402 = {
+  error: {
+    code: 'upgrade_required',
+    message: 'You have used your 10 free files.',
+    upgrade: { url: CHECKOUT_URL, plan: 'pro', reason: 'trial_exhausted' },
+  },
+};
 const LIMIT_429 = {
   error: { code: 'rate_limited', message: 'Too many requests from this IP; slow down.', retry_after_seconds: 12 },
 };
@@ -304,6 +315,27 @@ test('B2-9: terminal, free files used up: the server\'s sentence and its upgrade
     assert.doesNotMatch(r.stderr, /from=test/, 'the link\'s query string is not echoed');
     assert.doesNotMatch(r.stderr, /capture mode/);
   }, { setup: SCRIPTED(402, PAYWALL_402) });
+});
+
+// XLS-4535: the pay link carries a signed token; without it the checkout page
+// cannot tell whose checkout it is. Ran red on the old code: the link was cut at `?`.
+test('B1-16: MCP, trial used up: the pay link is shown with its signed token, byte for byte', async () => {
+  await withMcp(async ({ mcp }) => {
+    const out = textOf(await mcp.call());
+    assert.match(out, /You have used your 10 free files\./);
+    const shown = out.split('\n').find((l) => l.startsWith('Upgrade: '));
+    assert.equal(shown, `Upgrade: ${CHECKOUT_URL}`);
+  }, { setup: SCRIPTED(402, CHECKOUT_402) });
+});
+
+test('B1-16: terminal, trial used up: the pay link is shown with its signed token, byte for byte', async () => {
+  await withStub(async ({ stub, cfg, csv }) => {
+    const r = await runCli([csv], baseEnv(stub, cfg));
+    assert.notEqual(r.code, 0);
+    assert.match(r.stderr, /You have used your 10 free files\./);
+    const shown = r.stderr.split('\n').find((l) => l.startsWith('Upgrade: '));
+    assert.equal(shown, `Upgrade: ${CHECKOUT_URL}`);
+  }, { setup: SCRIPTED(402, CHECKOUT_402) });
 });
 
 test('B1-18: MCP, a short limit: the server\'s reason and how long to wait, not "resets next month"', async () => {
@@ -731,6 +763,23 @@ test('review: an upgrade link is shown only if it is https on xlsx-for-ai.dev, a
     'https://user:pw@xlsx-for-ai.dev/x', 'https://xlsx-for-ai.dev:8443/x', 'not a url', 'javascript:alert(1)']) {
     assert.equal(extractUpgradeUrl(wrap(bad)), '', bad);
   }
+});
+
+test('review: only the checkout-start pay link keeps its query, and only a lone signed token', () => {
+  const { extractUpgradeUrl } = require('../../lib/inline-4xx');
+  const wrap = (url) => ({ error: { upgrade: { url } } });
+  const START = 'https://api.xlsx-for-ai.dev/api/v1/billing/checkout-start';
+  assert.equal(extractUpgradeUrl(wrap(CHECKOUT_URL)), CHECKOUT_URL);
+  // A fragment is still dropped; the token before it is kept.
+  assert.equal(extractUpgradeUrl(wrap(`${CHECKOUT_URL}#x`)), CHECKOUT_URL);
+  // Anything beside the token, or a token not of the signed shape, drops the whole query.
+  for (const q of [`?token=${CHECKOUT_TOKEN}&email=a@b.c`, `?email=a@b.c&token=${CHECKOUT_TOKEN}`, '?token=nodot',
+    '?token=a%2Fb.c', '?token=a.b.c', '?from=test', '?token=', `?token=${'a'.repeat(401)}.b`]) {
+    assert.equal(extractUpgradeUrl(wrap(`${START}${q}`)), START, q);
+  }
+  // The token is kept on no other path, and never off our host.
+  assert.equal(extractUpgradeUrl(wrap(`https://xlsx-for-ai.dev/upgrade?token=${CHECKOUT_TOKEN}`)), 'https://xlsx-for-ai.dev/upgrade');
+  assert.equal(extractUpgradeUrl(wrap(`https://evil.example/api/v1/billing/checkout-start?token=${CHECKOUT_TOKEN}`)), '');
 });
 
 test('review: an upgrade link\'s path is plain named segments only; `..`, `.`, `//`, escapes and backslashes never reach the screen (ran red on the old code: /a/../b was shown as /b, /..x and /a//b as sent)', () => {
