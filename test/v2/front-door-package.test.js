@@ -585,6 +585,25 @@ test('XLS-4526: a busy answer (503) is tried again; a file over the limit is sto
   }
 });
 
+test('XLS-4526: the private-address check runs in the socket\'s own lookup, so the address checked is the one connected to', async () => {
+  const { guardedLookup } = require('../../lib/fetch-link');
+  const saved = process.env.XFA_ALLOW_PRIVATE_LINKS;
+  delete process.env.XFA_ALLOW_PRIVATE_LINKS;
+  try {
+    // A name (not an address literal) that resolves to loopback: refused at lookup,
+    // before any connection, in both forms net asks for.
+    for (const opts of [{ all: true }, {}]) {
+      const err = await new Promise((resolve) => guardedLookup('localhost', opts, (e) => resolve(e)));
+      assert.ok(err && /private network address/.test(err.reason), String(err && err.message));
+    }
+    process.env.XFA_ALLOW_PRIVATE_LINKS = '1';
+    const addrs = await new Promise((resolve, reject) => guardedLookup('localhost', { all: true }, (e, a) => (e ? reject(e) : resolve(a))));
+    assert.ok(addrs.length > 0 && addrs.every((a) => a.address && a.family));
+  } finally {
+    if (saved === undefined) delete process.env.XFA_ALLOW_PRIVATE_LINKS; else process.env.XFA_ALLOW_PRIVATE_LINKS = saved;
+  }
+});
+
 test('XLS-4526: the private-address check covers loopback, private, link-local, mapped and unique-local addresses', () => {
   const { isPrivateAddress } = require('../../lib/fetch-link');
   for (const ip of ['127.0.0.1', '10.1.2.3', '172.20.0.1', '192.168.1.1', '169.254.169.254', '100.64.0.1', '0.0.0.0',
