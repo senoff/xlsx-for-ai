@@ -10,7 +10,7 @@ This document covers how xlsx-for-ai handles your data. It is written for develo
 
 xlsx-for-ai is a thin npm client over a hosted API. When your agent calls a tool (e.g., `xlsx_read`), the client reads the file from disk, encodes it as base64, and sends it to the xlsx-for-ai API over HTTPS. Processing happens in memory on the server. The result is returned to your agent.
 
-This means: **workbook bytes leave your machine and travel to our server for every tool call.** They are processed in memory and not retained beyond the request, but if any workbook data leaving your machine is unacceptable for your threat model, xlsx-for-ai is not the right fit for those files.
+This means: **workbook bytes leave your machine and travel to our server for every tool call.** Some are kept for up to 60 minutes (see [What happens to the file bytes](#what-happens-to-the-file-bytes)). If any workbook data leaving your machine is unacceptable for your threat model, xlsx-for-ai is not the right fit for those files.
 
 ---
 
@@ -26,7 +26,7 @@ For every tool call, the client sends:
 We do not send or collect:
 
 - Email address in tool calls. Sign-in (version 4.1.0 and later) does store the email of the account you sign in with, encrypted; see [Sign-in and registration](#sign-in-and-registration). The only tool-side exception is `xfa support`, which sends the email you type as a reply-to; see [Feedback and support](#feedback-and-support).
-- Cell content beyond what is in the file bytes during the request (the bytes are not stored after the request completes).
+- Cell content beyond what is in the file bytes.
 - File metadata beyond size and sheet count, which are captured for telemetry.
 - File names or paths — the client sends bytes only; the local path never leaves your machine.
 
@@ -34,15 +34,11 @@ We do not send or collect:
 
 ## What happens to the file bytes
 
-File bytes are processed in memory. In normal (non-error) requests, they are not written to disk on the server, not persisted to a database, and not stored in any cache beyond the duration of a single request.
+File bytes are processed in memory for the request.
 
-**In one sentence:** Files are processed for your request and not stored; upload handles and download links expire after 60 minutes; file contents are not logged or used for training.
+**Temporary copies:** a file uploaded through the one-time upload page is kept under a file handle, and a file a tool produces is kept so you can download it. Each is deleted after 60 minutes, and a download link serves only the account that produced it. The request header `X-XFA-Privacy: strict` (CLI flag `--privacy=strict`, or environment variable `XFA_PRIVACY=strict`) turns off the download copy.
 
-**Temporary copies through the MCP connector:** a file uploaded through the one-time upload page is kept under a file handle, and a file a tool produces is kept so you can download it. Each is deleted after 60 minutes, and a download link serves only the account that produced it. The request header `X-XFA-Privacy: strict` (CLI flag `--privacy=strict`, or environment variable `XFA_PRIVACY=strict`) turns off the download copy.
-
-**No capture.** Workbook capture is off for every account (since 2026-10-14). We do not keep copies of workbooks, redacted or not, when a request fails or succeeds. Error reports sent to our error tracker carry the error type and our own code's stack trace, never the error message text.
-
-**No training.** Your files and their contents are not used to train models.
+**No capture.** Workbook capture (keeping a copy of a workbook from a failed request for debugging) is off for every account (since 2026-10-14).
 
 **When part of a file goes to an AI model.** A few tools ask an AI model (Anthropic's Claude API) for help and send it only the part of the file that job needs: `xlsx_pii_scan` and `xlsx_redact` send short candidate text strings to find names and addresses; the Shopify import tools and the import converter send column headers and a few sample values per column to match columns to the target format. No other tool sends file contents to anyone, except tools you point at a destination (such as `xlsx_post_slack` or `xlsx_post_teams`), which send what you ask them to send.
 

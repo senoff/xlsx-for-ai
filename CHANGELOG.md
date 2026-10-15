@@ -11,7 +11,7 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 
 ## [4.2.10]
 
-- The Claude Code plugin's session-start text, skill, plugin and marketplace descriptions say what the tools do and when they fit, under Anthropic's Software Directory Policy; they no longer tell Claude to use these tools first. PRIVACY.md states that capture is off, that files are not used for training, which tools send part of a file to an AI model, and what sign-in stores (PR 115, XLS-4746).
+- The Claude Code plugin's session-start text, skill, plugin and marketplace descriptions say what the tools do and when they fit, under Anthropic's Software Directory Policy; they no longer tell Claude to use these tools first. PRIVACY.md states that capture is off, which copies are kept for up to 60 minutes, which tools send part of a file to an AI model, and what sign-in stores (PR 115, XLS-4746).
 
 ## [4.2.9]
 
