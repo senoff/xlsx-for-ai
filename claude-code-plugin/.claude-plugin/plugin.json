@@ -2,10 +2,15 @@
   "name": "xlsx-for-ai",
   "displayName": "xlsx-for-ai",
   "version": "0.1.1",
-  "description": "Points Claude Code at the hosted xlsx-for-ai spreadsheet tools whenever a spreadsheet is involved. Adds session-start text and a connection to the hosted service; ships no engine.",
+  "description": "Recalculate spreadsheet formulas, check a sheet for errors, and write real .xlsx files from Claude. Your spreadsheet files are sent to the hosted xlsx-for-ai server for processing.",
   "author": { "name": "xlsx-for-ai", "url": "https://xlsx-for-ai.dev" },
   "homepage": "https://xlsx-for-ai.dev",
   "repository": "https://github.com/senoff/xlsx-for-ai",
   "license": "MIT",
-  "keywords": ["spreadsheet", "xlsx", "xls", "csv", "excel", "formulas"]
+  "keywords": ["spreadsheet", "xlsx", "xls", "csv", "formulas", "recalculate", "google-sheets"],
+  "icon": "./icon.png",
+  "documentationUrl": "https://xlsx-for-ai.dev/developers/",
+  "supportUrl": "https://github.com/senoff/xlsx-for-ai/issues",
+  "privacyPolicyUrl": "https://xlsx-for-ai.dev/privacy/",
+  "termsOfServiceUrl": "https://xlsx-for-ai.dev/terms/"
 }
