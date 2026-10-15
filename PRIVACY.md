@@ -1,6 +1,6 @@
 # Privacy
 
-**Last updated:** 2026-05-07
+**Last updated:** 2026-10-14
 
 This document covers how xlsx-for-ai handles your data. It is written for developers who want to audit the data flow before deploying xlsx-for-ai in an agent, and for FP&A teams who need to forward it to legal before using an agent that touches financial spreadsheets.
 
@@ -36,13 +36,15 @@ We do not send or collect:
 
 File bytes are processed in memory. In normal (non-error) requests, they are not written to disk on the server, not persisted to a database, and not stored in any cache beyond the duration of a single request.
 
-**Error-triggered capture (optional, not currently enabled):** when a request results in an error (5xx, hardening rejection, or engine exception), we may retain a redacted copy of the workbook for up to 30 days, solely for debugging and improving the engine. "Redacted" means cell values are stripped before persistence — the same transform that `xlsx_redact` runs. Structure is preserved (formulas, named ranges, formatting, x14 features) so we can reproduce the failure, but your data is not stored. Captures auto-delete after 30 days via an R2 lifecycle rule.
+**In one sentence:** Files are processed for your request and not stored; upload handles and download links expire after 60 minutes; file contents are not logged or used for training.
 
-This capture feature is **not currently enabled**. We will document the activation date in [CHANGELOG.md](CHANGELOG.md) when it is provisioned.
+**Temporary copies through the MCP connector:** a file uploaded through the one-time upload page is kept under a file handle, and a file a tool produces is kept so you can download it. Each is deleted after 60 minutes, and a download link serves only the account that produced it. The request header `X-XFA-Privacy: strict` (CLI flag `--privacy=strict`, or environment variable `XFA_PRIVACY=strict`) turns off the download copy.
 
-**Opt out of capture:** add the request header `X-XFA-Privacy: strict` to disable capture for a specific request. Use the CLI flag `--privacy=strict` to add this header to all requests from a CLI session, or set the environment variable `XFA_PRIVACY=strict` to opt out globally across all requests.
+**No capture.** Workbook capture is off for every account (since 2026-10-14). We do not keep copies of workbooks, redacted or not, when a request fails or succeeds. Error reports sent to our error tracker carry the error type and our own code's stack trace, never the error message text.
 
-Captures are never used to train language models, never shared with third parties, and never used for any purpose other than diagnosing production errors.
+**No training.** Your files and their contents are not used to train models.
+
+**When part of a file goes to an AI model.** A few tools ask an AI model (Anthropic's Claude API) for help and send it only the part of the file that job needs: `xlsx_pii_scan` and `xlsx_redact` send short candidate text strings to find names and addresses; the Shopify import tools and the import converter send column headers and a few sample values per column to match columns to the target format. No other tool sends file contents to anyone, except tools you point at a destination (such as `xlsx_post_slack` or `xlsx_post_teams`), which send what you ask them to send.
 
 **Audit log:** we log the following per request: timestamp, client_id, endpoint, file size (bytes), sheet count, structural fingerprints (formula count, sheet dimensions, feature flags like "uses_LAMBDA"), error class (if any), latency, and which hardening checks ran. We do not log cell values, formula text, row data, or any representation of workbook content.
 
@@ -93,31 +95,15 @@ Server-side audit logs (request metadata, not workbook content) are retained for
 
 ---
 
-## Capture consent levels
+## Consent level
 
-By default, captured workbook bytes are auto-redacted before persistence (cell values stripped, structure preserved — same transform as `xlsx_redact`). This is the `redacted_only` consent level.
-
-Authenticated clients can change their consent level via `PATCH /api/v1/clients/me/consent`:
-
-| Level | Description | Who can set it |
-|---|---|---|
-| `redacted_only` | Default. Auto-redact before any capture (cell values stripped, structure preserved). | Everyone |
-| `none` | Opt out of all captures entirely. Equivalent to always sending `X-XFA-Privacy: strict`. | Everyone |
-
-To change your consent level:
+Workbook capture is off for every account, whatever its consent level. Setting the level to `none` is the same as sending `X-XFA-Privacy: strict` on every request:
 
 ```bash
-# Opt out of all captures
 curl -X PATCH https://api.xlsx-for-ai.dev/api/v1/clients/me/consent \
   -H "Authorization: Bearer $YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"capture_consent_level": "none"}'
-
-# Restore default (redacted captures only)
-curl -X PATCH https://api.xlsx-for-ai.dev/api/v1/clients/me/consent \
-  -H "Authorization: Bearer $YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"capture_consent_level": "redacted_only"}'
 ```
 
 ---
