@@ -10,7 +10,7 @@ This document covers how xlsx-for-ai handles your data. It is written for develo
 
 xlsx-for-ai is a thin npm client over a hosted API. When your agent calls a tool (e.g., `xlsx_read`), the client reads the file from disk, encodes it as base64, and sends it to the xlsx-for-ai API over HTTPS. Processing happens in memory on the server. The result is returned to your agent.
 
-This means: **workbook bytes leave your machine and travel to our server for every tool call.** Some are kept for up to 60 minutes (see [What happens to the file bytes](#what-happens-to-the-file-bytes)). If any workbook data leaving your machine is unacceptable for your threat model, xlsx-for-ai is not the right fit for those files.
+This means: **workbook bytes leave your machine and travel to our server for every tool call.** Some are kept for up to 60 minutes, or up to 4 hours for an edit session (see [What happens to the file bytes](#what-happens-to-the-file-bytes)). If any workbook data leaving your machine is unacceptable for your threat model, xlsx-for-ai is not the right fit for those files.
 
 ---
 
@@ -40,7 +40,7 @@ File bytes are processed in memory for the request.
 
 **Temporary copies:** a file uploaded through the one-time upload page is kept under a file handle, and a file a tool produces is kept so you can download it. Each is deleted after 60 minutes (an edit session can keep its workbook up to 4 hours), and a download link serves only the account that produced it. The request header `X-XFA-Privacy: strict` (CLI flag `--privacy=strict`, or environment variable `XFA_PRIVACY=strict`) turns off the download copy.
 
-**No capture.** Workbook capture (keeping a copy of a workbook from a failed request for debugging) is off for every account (since 2026-10-14).
+**No capture.** Workbook capture (keeping a copy of a workbook from a failed request for debugging) is off for every account (since 2026-10-14). Error reports sent to our error tracker carry the error type and our own code's stack trace; the error message text is withheld.
 
 **No training.** Your files and their contents are not used to train models.
 
