@@ -6,7 +6,7 @@
     {
       "name": "xlsx-for-ai",
       "source": "./claude-code-plugin",
-      "description": "Session-start rule plus a connection to the hosted xlsx-for-ai tools: use them first for .xlsx, .xlsm, .xls, .csv, .tsv and Google Sheets. Ships no engine.",
+      "description": "Connection to the hosted xlsx-for-ai tools for .xlsx, .xlsm, .xls, .csv, .tsv and Google Sheets, plus a session-start note on when to use them: formula results, whether saved values are current, or a working spreadsheet file back. Ships no engine.",
       "category": "productivity",
       "tags": ["spreadsheet", "xlsx", "csv"]
     }
