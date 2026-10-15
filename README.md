@@ -10,6 +10,18 @@ The missing reliability layer for spreadsheet work in LLM agents. Read, write, d
 
 xlsx-for-ai makes Claude reliable on real-world Excel files. Forty-plus tools cover the structural surface that pandas-style sandboxes drop on the floor: merged cells, named ranges, formulas with results, conditional formatting, pivots, slicers, charts, comments, data validations, hyperlinks, cross-sheet topology, external links, form controls, VBA macros, document properties, and protection settings. A soundness check (`xlsx_validate`) flags corruption other readers silently mask. A hosted recalc engine computes served values in-house — no third-party formula engine in the serve path.
 
+**In Claude Code, one command:**
+
+```bash
+claude plugin install xlsx-for-ai --marketplace senoff/xlsx-for-ai
+```
+
+Then run `/reload-plugins` (or restart Claude Code), open `/mcp`, choose `plugin:xlsx-for-ai:spreadsheets` and sign in once. Needs Claude Code 2.1.292 or later (`claude update` if yours is older). More on the plugin is under [Claude Code plugin](#claude-code-plugin) below.
+
+**In the Claude app (claude.ai):** find xlsx-for-ai in the connector directory at [claude.ai/directory](https://claude.ai/directory) and click Connect.
+
+**The npm package** (Claude Code, Cursor, Claude Desktop and others):
+
 ```bash
 npm install -g xlsx-for-ai
 ```
@@ -192,11 +204,12 @@ The same governed contract is served read-only from two routes — discover the 
 A Claude Code plugin makes your agent come to the hosted xlsx-for-ai tools first whenever a spreadsheet is involved (.xlsx, .xlsm, .xls, .csv, .tsv, a Google Sheet), instead of reading the file with code, installing a package or converting it locally.
 
 ```bash
-claude plugin marketplace add senoff/xlsx-for-ai
-claude plugin install xlsx-for-ai@xlsx-for-ai
+claude plugin install xlsx-for-ai --marketplace senoff/xlsx-for-ai
 ```
 
-Then, once: start Claude Code, run `/mcp`, choose the `plugin:xlsx-for-ai:spreadsheets` server and sign in in the browser. The plugin connects to the hosted endpoint `https://api.xlsx-for-ai.dev/mcp` (OAuth sign-in) and asks for the full tool list.
+That one command adds the marketplace and installs the plugin. It needs Claude Code 2.1.292 or later; run `claude update` first if yours is older.
+
+Then, once: run `/reload-plugins` (or start Claude Code), run `/mcp`, choose the `plugin:xlsx-for-ai:spreadsheets` server and sign in in the browser. The plugin connects to the hosted endpoint `https://api.xlsx-for-ai.dev/mcp` (OAuth sign-in) and asks for the full tool list.
 
 Version 0.1.1 renamed the server key in the plugin's `.mcp.json` from `xlsx-for-ai` to `spreadsheets`, so `/mcp` now shows `plugin:xlsx-for-ai:spreadsheets` instead of `plugin:xlsx-for-ai:xlsx-for-ai`. Claude Code reads the key from the plugin's own `.mcp.json` and nothing else reads it. If you are on 0.1.0, sign in once after updating, because the server has a new name.
 
