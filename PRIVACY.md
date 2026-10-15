@@ -25,7 +25,7 @@ For every tool call, the client sends:
 
 We do not send or collect:
 
-- Email address (tool calls and registration never ask for one — the only exception is if you choose to run `xfa support`, which sends the email you type as a reply-to; see [Feedback and support](#feedback-and-support)).
+- Email address in tool calls. Sign-in (version 4.1.0 and later) does store the email of the account you sign in with, encrypted; see [Sign-in and registration](#sign-in-and-registration). The only tool-side exception is `xfa support`, which sends the email you type as a reply-to; see [Feedback and support](#feedback-and-support).
 - Cell content beyond what is in the file bytes during the request (the bytes are not stored after the request completes).
 - File metadata beyond size and sheet count, which are captured for telemetry.
 - File names or paths — the client sends bytes only; the local path never leaves your machine.
@@ -97,7 +97,7 @@ Server-side audit logs (request metadata, not workbook content) are retained for
 
 ## Consent level
 
-Workbook capture is off for every account, whatever its consent level. Setting the level to `none` is the same as sending `X-XFA-Privacy: strict` on every request:
+Workbook capture is off for every account, whatever its consent level, so the level no longer affects capture. Setting it to `none` still matters for one thing: it is the same as sending `X-XFA-Privacy: strict` on every request, which turns off the 60-minute download copy:
 
 ```bash
 curl -X PATCH https://api.xlsx-for-ai.dev/api/v1/clients/me/consent \
@@ -112,7 +112,7 @@ curl -X PATCH https://api.xlsx-for-ai.dev/api/v1/clients/me/consent \
 
 **SOC 2:** not yet certified. We operate with SOC 2-aligned controls (access logging, least-privilege service accounts, encrypted storage at rest, TLS in transit) and are working toward formal certification.
 
-**GDPR:** we do not collect personally identifiable information. The client_id UUID is not linked to any natural person. If you believe a UUID is linked to you and want it deleted from our audit logs, contact us at the address below and we will delete all records for that client_id within 30 days.
+**GDPR:** the only personal data we hold is the email address of the account you sign in with (stored encrypted, used only to identify the account). Keys created before version 4.1.0 are anonymous. If you want your records deleted from our audit logs, contact us at the address below and we will delete all records for that client_id within 30 days.
 
 **HIPAA / PCI:** xlsx-for-ai is not HIPAA- or PCI-certified. Do not use it to process protected health information or payment card data in regulated environments without additional controls.
 
