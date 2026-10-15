@@ -407,7 +407,7 @@ All **52 tools** the MCP server exposes (generated from `tools/list`). Invoke an
 
 ## Functions
 
-`xlsx_eval` recalculates formulas with our own recalc engine, and it computes over 360 Excel functions today (plus a handful of Google Sheets-only ones), with more added regularly. Coverage spans the standard function families: Math & trig, Statistical, Financial, Date & time, Text, Logical, Lookup & reference, Information, and Engineering. The full served list is on the Functions section of https://xlsx-for-ai.dev.
+`xlsx_eval` recalculates formulas with our own recalc engine, and it computes over 360 Excel functions today (plus a handful of Google Sheets-only ones), with more added as they are built. Coverage spans the standard function families: Math & trig, Statistical, Financial, Date & time, Text, Logical, Lookup & reference, Information, and Engineering. The full served list is on the Functions section of https://xlsx-for-ai.dev.
 
 A function the engine does not serve yet returns an honest "not supported yet" error, never a guessed value. Functions that reach outside the workbook, such as `WEBSERVICE`, `RTD` and `STOCKHISTORY`, are not served, so a recalc can't reach off-workbook.
 
