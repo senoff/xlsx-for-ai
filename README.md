@@ -458,7 +458,7 @@ These workflows are the reason tool descriptions are FP&A-legible: when a develo
 
 ## Privacy
 
-Files are transmitted to `https://api.xlsx-for-ai.dev` over HTTPS and processed in memory. Files are not persisted beyond the duration of a single request. Sign-in is with a Google account; the address is used only to identify your account, and no password is stored.
+Files are transmitted to `https://api.xlsx-for-ai.dev` over HTTPS and processed for your request. A file is held in a short-lived cache until its upload handle or download link expires (60 minutes; an edit session up to 4 hours), and no debugging copy is kept. Sign-in is with a Google account; the address is used only to identify your account, and no password is stored.
 
 See [PRIVACY.md](PRIVACY.md) for the full data-handling policy.
 
@@ -538,7 +538,7 @@ xlsx-for-ai --disable-telemetry
 xlsx-for-ai --telemetry-status
 ```
 
-**Privacy modes** — error-capture is off by default; when enabled, cell values are stripped before anything is retained (structure only, 30-day TTL, never used for training). `XFA_PRIVACY=strict` opts out entirely. See [PRIVACY.md](PRIVACY.md):
+**Privacy modes** — workbook capture is off for every account. `XFA_PRIVACY=strict` also turns off the download copy, cuts cache handles to 60 seconds and skips the parse cache. See [PRIVACY.md](PRIVACY.md):
 
 ```bash
 # Per-session flag (applies to all tool calls in the CLI invocation)
@@ -577,7 +577,7 @@ The config file at `~/.xlsx-for-ai/config.json` is extended in-place — existin
 
 ## Security
 
-See [SECURITY.md](SECURITY.md). All file content is transmitted to `https://api.xlsx-for-ai.dev` over HTTPS. Files are not retained beyond the duration of a single request.
+See [SECURITY.md](SECURITY.md). All file content is transmitted to `https://api.xlsx-for-ai.dev` over HTTPS. Files are held only until their upload handle or download link expires; see [PRIVACY.md](PRIVACY.md).
 
 <!-- ci-smoke-test: 2026-05-19 grace-review workflow -->
 <!-- retry: llm-review vendored -->
