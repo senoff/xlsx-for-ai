@@ -10,7 +10,7 @@ This document covers how xlsx-for-ai handles your data. It is written for develo
 
 xlsx-for-ai is a thin npm client over a hosted API. When your agent calls a tool (e.g., `xlsx_read`), the client reads the file from disk, encodes it as base64, and sends it to the xlsx-for-ai API over HTTPS. Processing happens in memory on the server. The result is returned to your agent.
 
-This means: **workbook bytes leave your machine and travel to our server for every tool call.** They are processed in memory and not retained beyond the request, but if any workbook data leaving your machine is unacceptable for your threat model, xlsx-for-ai is not the right fit for those files.
+This means: **workbook bytes leave your machine and travel to our server for every tool call.** Some are kept for up to 60 minutes, or up to 4 hours for an edit session (see [What happens to the file bytes](#what-happens-to-the-file-bytes)). If any workbook data leaving your machine is unacceptable for your threat model, xlsx-for-ai is not the right fit for those files.
 
 ---
 
@@ -26,7 +26,7 @@ For every tool call, the client sends:
 We do not send or collect:
 
 - Email address in tool calls. Sign-in (version 4.1.0 and later) does store the email of the account you sign in with, encrypted; see [Sign-in and registration](#sign-in-and-registration). The only tool-side exception is `xfa support`, which sends the email you type as a reply-to; see [Feedback and support](#feedback-and-support).
-- Cell content beyond what is in the file bytes during the request (the bytes are not stored after the request completes).
+- Cell content beyond what is in the file bytes (the file bytes are kept only as described under [What happens to the file bytes](#what-happens-to-the-file-bytes)).
 - File metadata beyond size and sheet count, which are captured for telemetry.
 - File names or paths — the client sends bytes only; the local path never leaves your machine.
 
@@ -34,13 +34,13 @@ We do not send or collect:
 
 ## What happens to the file bytes
 
-File bytes are processed in memory. In normal (non-error) requests, they are not written to disk on the server, not persisted to a database, and not stored in any cache beyond the duration of a single request.
+File bytes are processed in memory for the request.
 
-**In one sentence:** Files are processed for your request and not stored; upload handles and download links expire after 60 minutes; file contents are not logged or used for training.
+**In one sentence:** A file is held until its upload handle or download link expires (60 minutes; an edit session up to 4 hours). No debugging copy is kept; logs and error reports carry no file contents; no training use.
 
-**Temporary copies through the MCP connector:** a file uploaded through the one-time upload page is kept under a file handle, and a file a tool produces is kept so you can download it. Each is deleted after 60 minutes, and a download link serves only the account that produced it. The request header `X-XFA-Privacy: strict` (CLI flag `--privacy=strict`, or environment variable `XFA_PRIVACY=strict`) turns off the download copy.
+**Temporary copies:** a file uploaded through the one-time upload page is kept under a file handle, and a file a tool produces is kept so you can download it. Each is deleted after 60 minutes (an edit session can keep its workbook up to 4 hours), and a download link serves only the account that produced it. The request header `X-XFA-Privacy: strict` (CLI flag `--privacy=strict`, or environment variable `XFA_PRIVACY=strict`) turns off the download copy.
 
-**No capture.** Workbook capture is off for every account (since 2026-10-14). We do not keep copies of workbooks, redacted or not, when a request fails or succeeds. Error reports sent to our error tracker carry the error type and our own code's stack trace, never the error message text.
+**No capture.** Workbook capture (keeping a copy of a workbook from a failed request for debugging) is off for every account (since 2026-10-14). Error reports sent to our error tracker carry the error type and our own code's stack trace; the error message text is withheld.
 
 **No training.** Your files and their contents are not used to train models.
 

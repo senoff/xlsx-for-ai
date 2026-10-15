@@ -538,7 +538,7 @@ xlsx-for-ai --disable-telemetry
 xlsx-for-ai --telemetry-status
 ```
 
-**Privacy modes** — error-capture is off by default; when enabled, cell values are stripped before anything is retained (structure only, 30-day TTL, never used for training). `XFA_PRIVACY=strict` opts out entirely. See [PRIVACY.md](PRIVACY.md):
+**Privacy modes** — workbook capture is off for every account (since 2026-10-14). `XFA_PRIVACY=strict` also turns off the 60-minute download copy of files a tool produces. See [PRIVACY.md](PRIVACY.md):
 
 ```bash
 # Per-session flag (applies to all tool calls in the CLI invocation)
