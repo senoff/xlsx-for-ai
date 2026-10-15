@@ -26,7 +26,7 @@ For every tool call, the client sends:
 We do not send or collect:
 
 - Email address in tool calls. Sign-in (version 4.1.0 and later) does store the email of the account you sign in with, encrypted; see [Sign-in and registration](#sign-in-and-registration). The only tool-side exception is `xfa support`, which sends the email you type as a reply-to; see [Feedback and support](#feedback-and-support).
-- Cell content beyond what is in the file bytes.
+- Cell content beyond what is in the file bytes (the file bytes are kept only as described under [What happens to the file bytes](#what-happens-to-the-file-bytes)).
 - File metadata beyond size and sheet count, which are captured for telemetry.
 - File names or paths — the client sends bytes only; the local path never leaves your machine.
 
@@ -39,6 +39,10 @@ File bytes are processed in memory for the request.
 **Temporary copies:** a file uploaded through the one-time upload page is kept under a file handle, and a file a tool produces is kept so you can download it. Each is deleted after 60 minutes, and a download link serves only the account that produced it. The request header `X-XFA-Privacy: strict` (CLI flag `--privacy=strict`, or environment variable `XFA_PRIVACY=strict`) turns off the download copy.
 
 **No capture.** Workbook capture (keeping a copy of a workbook from a failed request for debugging) is off for every account (since 2026-10-14).
+
+**Error reports.** When a request fails, the report sent to our error tracker carries the error type, the error message (with any credentials in links removed) and a stack trace. An error message can quote part of a request, such as a sheet name. An earlier version of this page said error reports never carry the message text; that is not yet true of the running service. A change that withholds the message text is in progress, and this paragraph will be updated when it is live.
+
+**Model training.** An earlier version of this page said files are not used to train models. That statement has been withdrawn until it is checked against how every part of the service handles data (2026-10-14); this page will say so again only once it is verified. The tools that send part of a file to an AI model are listed in the next paragraph.
 
 **When part of a file goes to an AI model.** A few tools ask an AI model (Anthropic's Claude API) for help and send it only the part of the file that job needs: `xlsx_pii_scan` and `xlsx_redact` send short candidate text strings to find names and addresses; the Shopify import tools and the import converter send column headers and a few sample values per column to match columns to the target format. No other tool sends file contents to anyone, except tools you point at a destination (such as `xlsx_post_slack` or `xlsx_post_teams`), which send what you ask them to send.
 
