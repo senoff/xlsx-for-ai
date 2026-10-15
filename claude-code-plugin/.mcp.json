@@ -2,6 +2,7 @@
   "mcpServers": {
     "spreadsheets": {
       "type": "http",
+      "alwaysLoad": true,
       "url": "https://api.xlsx-for-ai.dev/mcp",
       "headers": { "x-xfa-toolset": "all" }
     }

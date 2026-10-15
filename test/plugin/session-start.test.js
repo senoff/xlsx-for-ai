@@ -76,8 +76,8 @@ test('text is plain ASCII, under 7000 characters, first two lines carry the rule
   const [l1, l2] = text.split('\n');
   assert.match(l1, /\.xlsx, \.xlsm, \.xls, \.csv, \.tsv, a Google Sheet/);
   // XLS-4732: conditions for use, and the accurate reason (code sees cached values; it cannot recalculate).
-  assert.match(l1, /when the answer depends on formula results/);
-  assert.match(l2, /values cached at the last save, which can be stale or missing; it cannot recalculate/);
+  assert.match(l1, /use these tools first, before reading the file with code, installing a package or converting it locally, when the answer depends on formula results/);
+  assert.match(l2, /values saved at the last save, which are missing if a program wrote the file and stale if inputs changed; it cannot recalculate/);
   // Owner ruling: a file without formulas is still in scope; the jobs are stated, no read-it-yourself line.
   assert.match(l2, /With or without formulas, they also clean data/);
   assert.ok(!/reading it directly is fine/.test(text));
@@ -92,6 +92,7 @@ test('plugin files are text and pointers only', () => {
     assert.equal(s.type, 'http');
     assert.match(s.url, /^https:\/\/api\.xlsx-for-ai\.dev\/mcp$/);
     assert.equal(s.command, undefined);
+    assert.equal(s.alwaysLoad, true, 'XLS-4746: the server loads its tools up front');
   }
   const hooks = JSON.parse(fs.readFileSync(path.join(dir, 'hooks', 'hooks.json'), 'utf8'));
   const entry = hooks.hooks.SessionStart[0];
