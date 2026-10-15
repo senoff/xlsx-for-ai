@@ -10,7 +10,7 @@ This document covers how xlsx-for-ai handles your data. It is written for develo
 
 xlsx-for-ai is a thin npm client over a hosted API. When your agent calls a tool (e.g., `xlsx_read`), the client reads the file from disk, encodes it as base64, and sends it to the xlsx-for-ai API over HTTPS. Processing happens in memory on the server. The result is returned to your agent.
 
-This means: **workbook bytes leave your machine and travel to our server for every tool call.** They are processed in memory and not retained beyond the request, but if any workbook data leaving your machine is unacceptable for your threat model, xlsx-for-ai is not the right fit for those files.
+This means: **workbook bytes leave your machine and travel to our server for every tool call.** They are processed for your request and held only as the temporary copies described under [What happens to the file bytes](#what-happens-to-the-file-bytes), but if any workbook data leaving your machine is unacceptable for your threat model, xlsx-for-ai is not the right fit for those files.
 
 ---
 
@@ -26,7 +26,7 @@ For every tool call, the client sends:
 We do not send or collect:
 
 - Email address in tool calls. Sign-in (version 4.1.0 and later) does store the email of the account you sign in with, encrypted; see [Sign-in and registration](#sign-in-and-registration). The only tool-side exception is `xfa support`, which sends the email you type as a reply-to; see [Feedback and support](#feedback-and-support).
-- Cell content beyond what is in the file bytes during the request (the bytes are not stored after the request completes).
+- Cell content beyond what is in the file bytes during the request (the bytes are held only as the temporary copies described below).
 - File metadata beyond size and sheet count, which are captured for telemetry.
 - File names or paths — the client sends bytes only; the local path never leaves your machine.
 
@@ -34,11 +34,21 @@ We do not send or collect:
 
 ## What happens to the file bytes
 
-File bytes are processed in memory. In normal (non-error) requests, they are not written to disk on the server, not persisted to a database, and not stored in any cache beyond the duration of a single request.
+**In one sentence:** A file is held until its upload handle or download link expires (60 minutes; an edit session up to 4 hours). No debugging copy is kept; logs and error reports carry no file contents; no training use.
 
-**In one sentence:** Files are processed for your request and not stored; upload handles and download links expire after 60 minutes; file contents are not logged or used for training.
+The full, current statement is on the site: <https://xlsx-for-ai.dev/privacy/>. This file follows it.
 
-**Temporary copies through the MCP connector:** a file uploaded through the one-time upload page is kept under a file handle, and a file a tool produces is kept so you can download it. Each is deleted after 60 minutes, and a download link serves only the account that produced it. The request header `X-XFA-Privacy: strict` (CLI flag `--privacy=strict`, or environment variable `XFA_PRIVACY=strict`) turns off the download copy.
+**Temporary copies.** A file you upload, and a file a tool produces for you to download, is held in a short-lived server-side cache until it expires:
+
+| Temporary copy | Expires after |
+|---|---|
+| Upload handle (one-time upload page or link; the link itself works 30 minutes) | 60 minutes |
+| Download link (serves only the account that produced it) | 60 minutes |
+| Edit session | 30 minutes after last use, never more than 4 hours |
+| API cache handle (an API caller uploads once to reuse across calls) | 60 minutes by default; at most 24 hours if the caller asks |
+| In-memory parse cache (a repeat call on the same file) | 5 minutes, memory only |
+
+The request header `X-XFA-Privacy: strict` (CLI flag `--privacy=strict`, or environment variable `XFA_PRIVACY=strict`) turns off the download copy, cuts cache handles to 60 seconds and skips the parse cache.
 
 **No capture.** Workbook capture is off for every account (since 2026-10-14). We do not keep copies of workbooks, redacted or not, when a request fails or succeeds. Error reports sent to our error tracker carry the error type and our own code's stack trace, never the error message text.
 
@@ -97,7 +107,7 @@ Server-side audit logs (request metadata, not workbook content) are retained for
 
 ## Consent level
 
-Workbook capture is off for every account, whatever its consent level, so the level no longer affects capture. Setting it to `none` still matters for one thing: it is the same as sending `X-XFA-Privacy: strict` on every request, which turns off the 60-minute download copy:
+Workbook capture is off for every account, whatever its consent level, so the level no longer affects capture. Setting it to `none` still matters for one thing: it is the same as sending `X-XFA-Privacy: strict` on every request, which turns off the download copy, cuts cache handles to 60 seconds and skips the parse cache:
 
 ```bash
 curl -X PATCH https://api.xlsx-for-ai.dev/api/v1/clients/me/consent \
