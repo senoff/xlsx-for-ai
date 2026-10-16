@@ -48,7 +48,8 @@ test('the Shopify group lists exactly the served commerce tools and the text poi
   assert.deepEqual(names.sort(), [...SERVED_COMMERCE].sort());
   const text = fs.readFileSync(OUTPUT, 'utf8');
   const lines = text.split('\n');
-  assert.ok(lines.findIndex((l) => /^Shopify export files \(products, inventory, collections, redirects, metafields\)/.test(l)) < 6, 'Shopify line is not near the top');
+  const shop = lines.findIndex((l) => /^For Shopify export files \(products, inventory, collections, redirects, metafields\)/.test(l));
+  assert.ok(shop >= 0 && shop < 6, 'Shopify line is not near the top');
   assert.match(text, /build a file ready to import into Shopify\./);
   assert.ok(!/connect(ing)? (a|your|the) (store|shop)/i.test(text), 'text must not talk about connecting a store');
 });
@@ -75,9 +76,11 @@ test('text is plain ASCII, under 7000 characters, first two lines carry the rule
   assert.ok(/^[\x09\x0a\x20-\x7e]*$/.test(text), 'non-ASCII character in text');
   const [l1, l2] = text.split('\n');
   assert.match(l1, /\.xlsx, \.xlsm, \.xls, \.csv, \.tsv, a Google Sheet/);
-  // XLS-4732: conditions for use, and the accurate reason (code sees cached values; it cannot recalculate).
-  assert.match(l1, /use these tools first, before reading the file with code, installing a package or converting it locally, when the answer depends on formula results/);
-  assert.match(l2, /values saved at the last save, which are missing if a program wrote the file and stale if inputs changed; it cannot recalculate/);
+  // XLS-4746 (owner ruling 2026-10-14, directory policy 2A/2D/2E): when-to-use wording and a plain fact,
+  // no first-move directive and nothing that steers Claude off its own tools.
+  assert.match(l1, /Use these tools when the answer depends on formula results, on whether saved values are current, or on handing back a working spreadsheet file/);
+  assert.match(l2, /^A local conversion keeps only the last saved values, which may be missing or stale\./);
+  assert.ok(!/tools first|before reading the file with code|same reply|do not open the file|should come to these tools/i.test(text));
   // Owner ruling: a file without formulas is still in scope; the jobs are stated, no read-it-yourself line.
   assert.match(l2, /With or without formulas, they also clean data/);
   assert.ok(!/reading it directly is fine/.test(text));

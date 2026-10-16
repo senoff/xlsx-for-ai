@@ -1,6 +1,6 @@
 ---
 name: spreadsheets
-description: Hosted xlsx-for-ai tools for spreadsheet files and links (.xlsx, .xlsm, .xls, .csv, .tsv, a Google Sheet) when the answer depends on formula results, totals, errors or stale values, on differences between versions, or on cleaning, converting or writing a workbook. Code reading a workbook sees formula text and the values cached at the last save, which can be stale or missing; it cannot recalculate. These tools compute formulas as Excel does.
+description: Hosted xlsx-for-ai tools for spreadsheet files and links (.xlsx, .xlsm, .xls, .csv, .tsv, a Google Sheet). Use when the answer depends on formula results, totals, errors or whether saved values are current, on differences between versions, or on cleaning, converting or writing back a working workbook. A local conversion keeps only the last saved values, which may be missing or stale; these tools recalculate formulas with a real engine.
 paths:
   - "**/*.xlsx"
   - "**/*.xlsm"
@@ -11,9 +11,9 @@ paths:
 
 # Spreadsheets: xlsx-for-ai
 
-Use these tools when the answer depends on formula results, when cached values may be stale, or when returning a working .xlsx. With or without formulas, they also clean data, find and redact personal data, scan for hidden content, read styles and validations, compare versions and write a real .xlsx back. All work runs on the hosted xlsx-for-ai server. Nothing from xlsx-for-ai runs on this machine. Data handling: https://xlsx-for-ai.dev/privacy/
+Use these tools when the answer depends on formula results, on whether saved values are current, or on handing back a working spreadsheet file. With or without formulas, they also clean data, find and redact personal data, scan for hidden content, read styles and validations, compare versions and write a real .xlsx back. All work runs on the hosted xlsx-for-ai server. Nothing from xlsx-for-ai runs on this machine. Data handling: https://xlsx-for-ai.dev/privacy/
 
-Reason: code reading a workbook sees formula text and the values cached at the last save, which can be stale or missing; it cannot recalculate. The tools compute formulas as Excel does, and a function not served yet returns an error saying so. Old .xls files are read directly.
+A local conversion keeps only the last saved values, which may be missing or stale. These tools recalculate formulas with a real engine, and a function not served yet returns an error saying so. Old .xls files are read directly.
 
 ## Hand the file over
 
@@ -38,7 +38,7 @@ The full list with one line each is in the session-start text. Every tool that m
 
 ## If the tools are missing
 
-The connection needs a one-time sign-in. Ask the user to run `/mcp`, choose the spreadsheets server (`plugin:xlsx-for-ai:spreadsheets`) and sign in with Google in the browser. Tell the user this; do not quietly fall back to reading the file locally.
+The connection needs a one-time sign-in. Ask the user to run `/mcp`, choose the spreadsheets server (`plugin:xlsx-for-ai:spreadsheets`) and sign in with Google in the browser. Tell the user this, and if you read the file locally instead, say so.
 
 ## Limits
 

@@ -201,7 +201,7 @@ The same governed contract is served read-only from two routes — discover the 
 
 ## Claude Code plugin
 
-A Claude Code plugin makes your agent come to the hosted xlsx-for-ai tools first whenever a spreadsheet is involved (.xlsx, .xlsm, .xls, .csv, .tsv, a Google Sheet), instead of reading the file with code, installing a package or converting it locally.
+A Claude Code plugin connects your agent to the hosted xlsx-for-ai tools for spreadsheet files and links (.xlsx, .xlsm, .xls, .csv, .tsv, a Google Sheet) and tells it when they help: when the answer depends on formula results, on whether saved values are current, or on handing back a working spreadsheet file.
 
 ```bash
 claude plugin install xlsx-for-ai --marketplace senoff/xlsx-for-ai
@@ -215,7 +215,7 @@ Version 0.1.1 renamed the server key in the plugin's `.mcp.json` from `xlsx-for-
 
 What it does:
 
-- Prints a short text at session start (startup, resume, clear and compact) that says to use the xlsx-for-ai tools first for any spreadsheet, why, how to hand a file over from Claude Code, and every tool by name.
+- Prints a short text at session start (startup, resume, clear and compact) that says when the xlsx-for-ai tools help, why, how to hand a file over from Claude Code, and every tool by name.
 - Sends Shopify export files (products, inventory, collections, redirects, metafields) to the `shopify_*` tools, which build a file ready to import into Shopify (plus Google, Amazon, eBay and UPS feed files). They work on the file you give them and hand a file back; you import the result yourself.
 - Adds a `spreadsheets` skill that applies when spreadsheet files are in play.
 - Connects Claude Code to the hosted server.
@@ -407,7 +407,7 @@ All **52 tools** the MCP server exposes (generated from `tools/list`). Invoke an
 
 ## Functions
 
-`xlsx_eval` recalculates formulas with our own recalc engine, and it computes over 360 Excel functions today (plus a handful of Google Sheets-only ones), with more added as they are built. Coverage spans the standard function families: Math & trig, Statistical, Financial, Date & time, Text, Logical, Lookup & reference, Information, and Engineering. The full served list is on the Functions section of https://xlsx-for-ai.dev.
+`xlsx_eval` recalculates formulas with our own recalc engine, and it computes over 350 Excel functions today, plus the functions only Google Sheets has, with more added as they are built. Coverage spans the standard function families: Math & trig, Statistical, Financial, Date & time, Text, Logical, Lookup & reference, Information, and Engineering. The full served list is on the Functions section of https://xlsx-for-ai.dev.
 
 A function the engine does not serve yet returns an honest "not supported yet" error, never a guessed value. Functions that reach outside the workbook, such as `WEBSERVICE`, `RTD` and `STOCKHISTORY`, are not served, so a recalc can't reach off-workbook.
 
@@ -538,7 +538,7 @@ xlsx-for-ai --disable-telemetry
 xlsx-for-ai --telemetry-status
 ```
 
-**Privacy modes** — error-capture is off by default; when enabled, cell values are stripped before anything is retained (structure only, 30-day TTL, never used for training). `XFA_PRIVACY=strict` opts out entirely. See [PRIVACY.md](PRIVACY.md):
+**Privacy modes** — workbook capture is off for every account (since 2026-10-14). `XFA_PRIVACY=strict` also turns off the 60-minute download copy of files a tool produces. See [PRIVACY.md](PRIVACY.md):
 
 ```bash
 # Per-session flag (applies to all tool calls in the CLI invocation)
