@@ -9,6 +9,11 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 
 ## [Unreleased]
 
+## [4.3.0]
+
+- The tools the hosted service takes more than a file for now work over MCP: arguments beyond the file, such as `category_map` for `shopify_ebay_feed` and `selection` for `xlsx_pii_clean` and `xlsx_vault_cure`, were dropped before the call and the service refused it. They are sent as given (XLS-10521).
+- The README, the registry listing and the server description match the 78 tools the service serves today, including the check, privacy, Shopify, catalog and Importable tools; the tool list is read from the service each time the server starts (XLS-10521).
+
 ## [4.2.10]
 
 - The Claude Code plugin's session-start text, skill, plugin and marketplace descriptions say what the tools do and when they fit, under Anthropic's Software Directory Policy; they no longer tell Claude to use these tools first. PRIVACY.md carries the connector's data-handling sentence, states that capture is off and which copies are kept and for how long, which tools send part of a file to an AI model, and what sign-in stores (PR 115, XLS-4746).
