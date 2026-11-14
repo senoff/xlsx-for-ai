@@ -791,8 +791,11 @@ async function main() {
   const apiFormat = opts.format === 'text' ? undefined : opts.format;
   const body = {
     file_b64: fileB64,
-    options: { format: apiFormat, sheet: opts.sheet, evaluate: opts.evaluate },
+    options: { format: apiFormat, evaluate: opts.evaluate },
   };
+  // Omit sheet unless --sheet was given: an empty/null sheet name is read by the server as
+  // the sheet named "", which answers 400 Sheet "" not found instead of the first sheet.
+  if (opts.sheet) body.options.sheet = opts.sheet;
 
   let result;
   try {
