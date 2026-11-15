@@ -27,6 +27,8 @@ test('relay sends a bytes-in tool its own arguments, and keeps the client-only k
     assert.strictEqual(sent[0].body.file_b64, 'AAAA');
     assert.deepStrictEqual(sent[1].body.category_map, { A: { category_id: '1', condition_id: '1000' } });
     assert.strictEqual(sent[1].body.options.location, 'US');
+    await dispatchTool('xlsx_pii_clean', { file_b64: 'AAAA', selection: {}, bogus: 1 });
+    assert.ok(!('bogus' in sent[2].body));
     for (const s of sent) assert.ok(!('out_path' in s.body) && !('file_path' in s.body));
   } finally {
     global.fetch = realFetch;

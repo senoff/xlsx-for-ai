@@ -2049,6 +2049,12 @@ async function dispatchTool(name, args) {
     // sent inside `options`) are not sent at the top level.
     const rest = { ...args };
     for (const k of ['file_path', 'out_path', 'sheet', 'limit', 'detailed', 'file_b64', 'options']) delete rest[k];
+    // Only arguments the tool's catalog schema declares are forwarded (a tool the client has
+    // no schema for keeps the service's own validation as the check).
+    const declared = (TOOLS.find((t) => t.name === name) || {}).inputSchema;
+    if (declared && declared.properties) {
+      for (const k of Object.keys(rest)) if (k !== 'filename' && !(k in declared.properties)) delete rest[k];
+    }
     body = {
       ...rest,
       file_b64: args.file_b64 !== undefined ? args.file_b64 : fileToB64(args.file_path),
