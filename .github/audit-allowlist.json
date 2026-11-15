@@ -1,4 +1,4 @@
 {
-  "$comment": "Triaged advisories that audit.yml will not fail the build on. Each entry MUST include a reassess date. A PR that adds an entry here is a security-policy change; review accordingly. XLS-10521 (2026-11-15): the three earlier entries (GHSA-7p8r-x3mc-p8w7 fast-uri; GHSA-v2v4-37r5-5v8g and GHSA-mwp4-54f8-5fhr ip-address) are removed because the locked versions (fast-uri 3.1.8, ip-address 10.7.3) no longer carry them, and a lockfile-only update clears every other production advisory (npm audit --omit=dev: 0).",
+  "$comment": "Triaged advisories that audit.yml will not fail the build on. Each entry MUST include a reassess date. A PR that adds an entry here is a security-policy change; review accordingly. XLS-10521 (2026-11-15): the three earlier entries (GHSA-7p8r-x3mc-p8w7 fast-uri; GHSA-v2v4-37r5-5v8g and GHSA-mwp4-54f8-5fhr ip-address) are removed because the locked versions (fast-uri 3.1.9, ip-address 10.7.6) no longer carry them, and a lockfile-only update clears every other production advisory (npm audit --omit=dev: 0).",
   "advisories": []
 }
