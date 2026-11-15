@@ -4,7 +4,8 @@
 /**
  * xlsx-for-ai MCP stdio server (2.0)
  *
- * Registers 18 tools and relays each tools/call to the hosted API.
+ * Serves the hosted tool catalog (read live at start-up, with a bundled copy as the floor)
+ * and relays each tools/call to the hosted API.
  * Every tool requires API connectivity; when the API is unreachable or
  * returns 5xx, the tool fails with a clear "needs API connectivity" error.
  */
@@ -2039,13 +2040,26 @@ async function dispatchTool(name, args) {
     // could use (B1-24).
     body = { ...args, options: { ...(args.options || {}), ...opts } };
   } else {
+    // Every other argument the caller gave goes to the service as given. The relay used to
+    // forward only the file, `options` and `filename`, so a tool's own required arguments
+    // were dropped on the way out: shopify_ebay_feed lost `category_map` (the service
+    // answered "category_map is required"), and xlsx_pii_clean / xlsx_vault_cure lost
+    // `selection` (the service answered "clean_selection_required") (XLS-10521). The keys
+    // that are the client's own (file_path, out_path, and sheet/limit/detailed, which are
+    // sent inside `options`) are not sent at the top level.
+    const rest = { ...args };
+    for (const k of ['file_path', 'out_path', 'sheet', 'limit', 'detailed', 'file_b64', 'options']) delete rest[k];
+    // Only arguments the tool's catalog schema declares are forwarded (a tool the client has
+    // no schema for keeps the service's own validation as the check).
+    const declared = (TOOLS.find((t) => t.name === name) || {}).inputSchema;
+    if (declared && declared.properties) {
+      for (const k of Object.keys(rest)) if (k !== 'filename' && !(k in declared.properties)) delete rest[k];
+    }
     body = {
+      ...rest,
       file_b64: args.file_b64 !== undefined ? args.file_b64 : fileToB64(args.file_path),
       options: { ...(args.options || {}), ...opts },
     };
-    // Bytes-in tools carry the original name for their prose/_meta; a path-in tool has no
-    // `filename` arg, so this is a no-op there rather than a new key on every relay.
-    if (args.filename !== undefined) body.filename = args.filename;
   }
   const result = await callTool(name, body);
 

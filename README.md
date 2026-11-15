@@ -8,7 +8,7 @@
 
 The missing reliability layer for spreadsheet work in LLM agents. Read, write, diff, validate, and analyze .xlsx files end-to-end — with merged cells, formulas, named ranges, conditional formatting, pivots, and charts preserved.
 
-xlsx-for-ai makes Claude reliable on real-world Excel files. Forty-plus tools cover the structural surface that pandas-style sandboxes drop on the floor: merged cells, named ranges, formulas with results, conditional formatting, pivots, slicers, charts, comments, data validations, hyperlinks, cross-sheet topology, external links, form controls, VBA macros, document properties, and protection settings. A soundness check (`xlsx_validate`) flags corruption other readers silently mask. A hosted recalc engine computes served values in-house — no third-party formula engine in the serve path.
+xlsx-for-ai makes Claude reliable on real-world Excel files. Seventy-plus tools cover the structural surface that pandas-style sandboxes drop on the floor: merged cells, named ranges, formulas with results, conditional formatting, pivots, slicers, charts, comments, data validations, hyperlinks, cross-sheet topology, external links, form controls, VBA macros, document properties, and protection settings. A soundness check (`xlsx_validate`) flags corruption other readers silently mask. A hosted recalc engine computes served values in-house — no third-party formula engine in the serve path.
 
 **In Claude Code, one command:**
 
@@ -226,7 +226,7 @@ What it does not do: it ships no engine. No calculation, parsing or conversion c
 
 ## What it does
 
-52 tools registered in `tools/list`. Descriptions are intentionally rich — an agent reading a transcript can tell what each tool does and when to reach for it, without extra docs.
+78 tools registered in `tools/list`, read live from the hosted service each time the server starts (a bundled copy covers a cold start with no network). Descriptions are intentionally rich — an agent reading a transcript can tell what each tool does and when to reach for it, without extra docs.
 
 ### Triage / orient
 
@@ -321,7 +321,7 @@ Tool responses include a citation footer and a `_meta` block (tool name, version
 
 ## Tools
 
-All **52 tools** the MCP server exposes (generated from `tools/list`). Invoke any by asking your agent in plain English, or call the API/CLI directly.
+All **78 tools** the MCP server exposes (the hosted `tools/list`, read at start-up). Invoke any by asking your agent in plain English, or call the API/CLI directly.
 
 **Read & explore**
 
@@ -402,6 +402,32 @@ All **52 tools** the MCP server exposes (generated from `tools/list`). Invoke an
 **One-call capstone**
 
 - `xlsx_doctor` — ONE-CALL workbook health report for a LOCAL .xlsx file. Scans for macros, external workbook references, hidden / veryHidden sheets, missing creator metadata, large embedded images, and surfaces interesting feature flags (LAMBDA, dynamic arrays, pivot cache, slicers, threaded comments). Findings ranked HIGH / MEDIUM / LOW. Plus quick_facts: sheet count, formulas, named ranges, merges, hyperlinks, validations, images, file size.
+
+**Check**
+
+- `xlsx_check` — find error cells, saved values that no longer match their formulas (recomputed and compared), ranges that stop short of the data, and structural problems, each with a location and a one-line fix.
+- `csv_check` — verify CSV structure and injection safety before the file is imported anywhere else.
+
+**Privacy & hidden content**
+
+- `xlsx_pii_scan` — find personal data (IDs, emails, phone numbers, names and addresses) in a workbook.
+- `xlsx_pii_clean` — remove the personal data you select (`selection`), as a copy by default; `simulate` previews it.
+- `xlsx_vault_scan` — find hidden or risky content: macros, external links, embedded objects, hidden sheets.
+- `xlsx_vault_cure` — remove the hidden or risky content you select (`selection`), as a copy by default.
+
+**Shopify files (file in, import-ready file out)**
+
+- `shopify_products_import`, `shopify_products_import_fix`, `shopify_collections_import`, `shopify_inventory_import`, `shopify_url_redirects_import`, `shopify_metafields_safe_reimport`, `shopify_variant_metafields_import`, `shopify_product_metafields_import` — turn a spreadsheet into a Shopify import file, or repair a broken one.
+- `shopify_google_feed`, `shopify_amazon_feed`, `shopify_ebay_feed` (needs `category_map` and its `options`), `shopify_ups_feed` — turn a products or orders export into a marketplace or carrier feed.
+
+**Catalog pull and import (Printful, Printify)**
+
+- `printful_catalog_pull`, `printify_catalog_pull` — pull catalog products into a snapshot; `printful_catalog_import`, `printify_catalog_import` — turn a snapshot into a Shopify import file.
+
+**Importable (connected Shopify store, beta)**
+
+- `importable_connect` — connect to a store with a single-use code from the store's Importable admin.
+- `importable_entities`, `importable_convert`, `importable_export`, `importable_import`, `importable_job_status` — list what can be driven, convert a file for an entity, export, import, and check a job.
 
 ---
 

@@ -91,6 +91,7 @@ jobs:
       published: ${{ steps.publish.outputs.published }}
       name: ${{ steps.pkg.outputs.name }}
       version: ${{ steps.pkg.outputs.version }}
+      tag: ${{ steps.pkg.outputs.tag }}
     steps:
       # FIRST, and before anything irreversible. The rule this enforces is the one the
       # old order broke: a step that CAN fail must never run after a step that CANNOT be
@@ -344,7 +345,11 @@ jobs:
           VERSION=$(node -p "require('./package.json').version")
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Publishing $NAME@$VERSION"
+          # A prerelease (any "-" in the version, e.g. 4.3.0-rc.0) goes to the `next` dist-tag so
+          # it is never what `npm install xlsx-for-ai` resolves to. A plain version is `latest`.
+          case "$VERSION" in *-*) TAG=next ;; *) TAG=latest ;; esac
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Publishing $NAME@$VERSION (dist-tag $TAG)"
 
       # Normalize dry_run to an unambiguous string output. workflow_dispatch
       # boolean inputs are reported inconsistently across the inputs vs
@@ -399,7 +404,9 @@ jobs:
         id: publish
         if: env.ALREADY_PUBLISHED != 'true' && steps.flags.outputs.dry_run == 'false'
         run: |
-          npm publish --access public
+          TAG_ARGS=""
+          if [ "${{ steps.pkg.outputs.tag }}" = "next" ]; then TAG_ARGS="--tag next"; fi
+          npm publish --access public $TAG_ARGS
           echo "published=true" >> "$GITHUB_OUTPUT"
           # Durable audit record of this irreversible, security-relevant operation to the immutable
           # run summary — recoverable from the run record for compliance / incident response, alongside
@@ -450,7 +457,8 @@ jobs:
       # the registry already serves this exact version (a re-dispatch of a done release, keyed on
       # isLatest — never list position), it is a no-op success, not a duplicate-publish failure.
       - name: Publish to MCP Registry (OIDC)
-        if: steps.flags.outputs.dry_run == 'false'
+        # Prereleases never sync: the registry's isLatest would point users at the rc.
+        if: steps.flags.outputs.dry_run == 'false' && steps.pkg.outputs.tag == 'latest'
         env:
           # Pinned to a released tag + SRI hash so a republished or tampered binary fails closed
           # — the same integrity-pinning contract the lockfile/signed-install gates apply to the
@@ -574,13 +582,16 @@ jobs:
         run: |
           set -euo pipefail
           PKG="${{ needs.publish.outputs.name }}@${{ needs.publish.outputs.version }}"
+          # Read the version through the dist-tag it was published under (next for a prerelease).
+          TAGGED="${{ needs.publish.outputs.name }}@${{ needs.publish.outputs.tag }}"
+          WANT="${{ needs.publish.outputs.version }}"
           # Poll npm until this exact version is visible on THIS runner's edge (propagation is
           # per-region), THEN install once — clearer than a blind retry-install loop, and uses a
           # bash `until` counter (no `seq`, portable across the macOS/Windows runners). XLS-959.
           attempt=1
-          until npm view "$PKG" version >/dev/null 2>&1; do
+          until [ "$(npm view "$TAGGED" version 2>/dev/null)" = "$WANT" ]; do
             if [ "$attempt" -ge 10 ]; then
-              echo "::error::registry never served $PKG within the propagation window."
+              echo "::error::registry never served $PKG under dist-tag ${{ needs.publish.outputs.tag }} within the propagation window."
               exit 1
             fi
             echo "registry not yet serving $PKG (attempt $attempt/10); waiting..."
