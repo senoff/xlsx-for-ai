@@ -30,6 +30,10 @@ test('PK-3: before a release the package may be the latest or newer; after a rel
   assert.equal(check.judgeVersion('4.2.5', '4.2.4', 'post').status, 'FAIL');
   assert.equal(check.judgeVersion('4.2.3', '4.2.4', 'post').status, 'FAIL');
   assert.equal(check.judgeVersion('not-a-version', '4.2.4', 'post').status, 'FAIL');
+  assert.equal(check.judgeVersion('4.3.0-rc.1', '4.2.10', 'pre').status, 'PASS');
+  assert.equal(check.judgeVersion('4.3.0-rc.1', '4.2.10', 'post').status, 'PASS');
+  assert.equal(check.judgeVersion('4.2.0-rc.1', '4.2.10', 'pre').status, 'FAIL');
+  assert.equal(check.judgeVersion('4.3.0-', '4.2.10', 'pre').status, 'FAIL');
 });
 
 test('arguments: modes, the offline switch, and unknown flags', () => {

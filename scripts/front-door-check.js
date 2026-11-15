@@ -59,6 +59,16 @@ function compareVersions(a, b) {
 
 /** Judge PK-3 from the two versions and the mode. Pure. */
 function judgeVersion(local, latest, mode) {
+  // A prerelease (x.y.z-rc.1) is published to the `next` dist-tag and never becomes
+  // latest (publish.yml), so it cannot be judged as "is the latest". Judge its base
+  // x.y.z: it must not be older than latest; after release it is not expected to be latest.
+  const pre = /^(\d+\.\d+\.\d+)-[0-9A-Za-z.-]+$/.exec(String(local).trim());
+  if (pre) {
+    let c;
+    try { c = compareVersions(pre[1], latest); } catch (e) { return { status: 'FAIL', note: e.message }; }
+    if (c < 0) return { status: 'FAIL', note: `prerelease ${local} is older than npm latest ${latest}` };
+    return { status: 'PASS', note: `prerelease ${local} goes to the next tag; npm latest stays ${latest}` };
+  }
   let cmp;
   try { cmp = compareVersions(local, latest); } catch (e) { return { status: 'FAIL', note: e.message }; }
   if (mode === 'post') {
