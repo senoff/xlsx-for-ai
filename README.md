@@ -226,7 +226,7 @@ What it does not do: it ships no engine. No calculation, parsing or conversion c
 
 ## What it does
 
-78 tools registered in `tools/list`, read live from the hosted service each time the server starts (a bundled copy covers a cold start with no network). Descriptions are intentionally rich — an agent reading a transcript can tell what each tool does and when to reach for it, without extra docs.
+74 tools registered in `tools/list`, read live from the hosted service each time the server starts (a bundled copy covers a cold start with no network). Descriptions are intentionally rich — an agent reading a transcript can tell what each tool does and when to reach for it, without extra docs.
 
 ### Triage / orient
 
@@ -321,7 +321,7 @@ Tool responses include a citation footer and a `_meta` block (tool name, version
 
 ## Tools
 
-All **78 tools** the MCP server exposes (the hosted `tools/list`, read at start-up). Invoke any by asking your agent in plain English, or call the API/CLI directly.
+All **74 tools** the MCP server exposes (the hosted `tools/list`, read at start-up). Invoke any by asking your agent in plain English, or call the API/CLI directly.
 
 **Read & explore**
 
@@ -426,8 +426,8 @@ All **78 tools** the MCP server exposes (the hosted `tools/list`, read at start-
 
 **Importable (connected Shopify store, beta)**
 
-- `importable_connect` — connect to a store with a single-use code from the store's Importable admin.
-- `importable_entities`, `importable_convert`, `importable_export`, `importable_import`, `importable_job_status` — list what can be driven, convert a file for an entity, export, import, and check a job.
+- `importable_entities`, `importable_convert` — list what can be driven and convert a file for an entity.
+- Connecting a store, export, import and job status are served only where the service has an Importable store set up; they are not listed otherwise.
 
 ---
 

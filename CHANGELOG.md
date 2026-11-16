@@ -9,6 +9,10 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 
 ## [Unreleased]
 
+## [4.3.1]
+
+- The bundled tool list matches the 74 tools the hosted service serves today. The four Importable store tools (connect, export, import, job status) are left out because the service serves them only where an Importable store is set up; listing them meant calls that answered "not available on this deployment" (XLS-10682).
+
 ## [4.3.0]
 
 - The tools the hosted service takes more than a file for now work over MCP: arguments beyond the file, such as `category_map` for `shopify_ebay_feed` and `selection` for `xlsx_pii_clean` and `xlsx_vault_cure`, were dropped before the call and the service refused it. They are sent as given (XLS-10521).
