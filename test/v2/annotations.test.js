@@ -46,8 +46,9 @@ const EXPECTED_TOOL_NAMES = new Set([
   // already serves and lib/annotations.js already annotates; the generated floor
   // refresh (#68) surfaced them, this expected-set was the one place still behind.
   // Live-inventory tie: `npm run tool-floor:check`.
-  'importable_connect', 'importable_convert', 'importable_entities',
-  'importable_export', 'importable_import', 'importable_job_status',
+  // XLS-10682 — prod hides importable_connect/export/import/job_status while the
+  // Importable bridge is unconfigured (XLS-10650); the floor follows prod.
+  'importable_convert', 'importable_entities',
   'shopify_metafields_safe_reimport', 'shopify_product_metafields_import',
   'shopify_variant_metafields_import',
 ]);
