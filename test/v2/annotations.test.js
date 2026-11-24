@@ -46,8 +46,11 @@ const EXPECTED_TOOL_NAMES = new Set([
   // already serves and lib/annotations.js already annotates; the generated floor
   // refresh (#68) surfaced them, this expected-set was the one place still behind.
   // Live-inventory tie: `npm run tool-floor:check`.
-  'importable_connect', 'importable_convert', 'importable_entities',
-  'importable_export', 'importable_import', 'importable_job_status',
+  // XLS-11316 (2026-11-24): the live list no longer serves importable_connect, importable_export,
+  // importable_import or importable_job_status, and now serves xlsx_upload_link and
+  // xlsx_pii_job_status; the generated floor was refreshed to match (`npm run tool-floor:check`).
+  'importable_convert', 'importable_entities',
+  'xlsx_upload_link', 'xlsx_pii_job_status',
   'shopify_metafields_safe_reimport', 'shopify_product_metafields_import',
   'shopify_variant_metafields_import',
 ]);
