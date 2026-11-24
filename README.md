@@ -132,7 +132,7 @@ One command installs xlsx-for-ai as a Gemini CLI extension (the server and the i
 gemini extensions install https://github.com/senoff/xlsx-for-ai
 ```
 
-Start Gemini CLI and ask about a spreadsheet on your computer, for example "recalculate budget.xlsx and tell me which totals changed". The first request answers with a sign-in link and a short code: open the link, approve, then ask again. The extension runs the same `xlsx-for-ai-mcp` server through `npx`, so no global install is needed.
+Start Gemini CLI and ask about a spreadsheet on your computer, for example "recalculate budget.xlsx and tell me which totals changed". The first request answers with a sign-in link and a short code: open the link, approve, then ask again. The extension runs the same `xlsx-for-ai-mcp` server through `npx`, pinned to a published version (each release updates the pin), so no global install is needed.
 
 Verify: run `/mcp` in Gemini CLI and check that `xfa` lists the `xlsx_*` tools.
 

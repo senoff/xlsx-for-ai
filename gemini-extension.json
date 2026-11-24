@@ -5,7 +5,7 @@
   "mcpServers": {
     "xfa": {
       "command": "npx",
-      "args": ["-y", "-p", "xlsx-for-ai", "xlsx-for-ai-mcp"]
+      "args": ["-y", "-p", "xlsx-for-ai@4.3.0", "xlsx-for-ai-mcp"]
     }
   },
   "contextFileName": "GEMINI.md"
