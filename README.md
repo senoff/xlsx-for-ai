@@ -66,7 +66,7 @@ There are two ways in:
 | Warp | yes | yes | [Warp](#warp) |
 | Anything else | yes | if it supports remote servers with OAuth | [Any other MCP client](#any-other-mcp-client) |
 
-"No" means the app's own docs do not describe signing in to a remote server; use the local package there.
+"No" means the app's docs do not describe signing in to a remote server from its main settings; use the local package there.
 
 ### Claude Code
 
@@ -182,11 +182,15 @@ Verify: `codex mcp list` shows `xfa` as enabled. In a Codex session, run `/mcp` 
 
 ### Gemini CLI
 
+Google moved unpaid-tier and Google One users from Gemini CLI to Antigravity CLI on June 18, 2026 ([geminicli.com](https://geminicli.com)), so these steps are for people who have Gemini CLI.
+
 One command installs xlsx-for-ai as a Gemini CLI extension (the server and the instructions Gemini reads):
 
 ```bash
-gemini extensions install https://github.com/senoff/xlsx-for-ai --ref main
+gemini extensions install https://github.com/senoff/xlsx-for-ai
 ```
+
+That installs from the latest GitHub release. To install from the newest code on `main` instead, add `--ref main`.
 
 Start Gemini CLI and ask about a spreadsheet on your computer, for example "recalculate budget.xlsx and tell me which totals changed". The first request answers with a sign-in link and a short code: open the link, approve, then ask again. The extension runs the same `xlsx-for-ai-mcp` server through `npx`, pinned to a published version (each release updates the pin), so no global install is needed.
 
@@ -225,7 +229,7 @@ Verify: open Settings → AI → MCP Servers and check that the dot next to `xfa
 
 ### Windsurf
 
-Windsurf's MCP docs now point to Devin Desktop. Its user config is `~/.config/devin/mcp_config.json` (Windows: `%APPDATA%\devin\mcp_config.json`); `.devin/mcp_config.json` in a project works too.
+Windsurf's MCP docs now point to Devin Desktop. Its user config is `~/.config/devin/mcp_config.json` (Windows: `%APPDATA%\devin\mcp_config.json`); `.devin/mcp_config.json` in a project works too. Older Windsurf builds used `~/.codeium/windsurf/mcp_config.json`.
 
 ```json
 {
@@ -363,6 +367,8 @@ Verify: the IDE's MCP Servers list shows `xfa` with its status and the `xlsx_*` 
 
 ### Amazon Q Developer CLI
 
+AWS has renamed the Q Developer CLI to Kiro CLI ([upgrade to Kiro](https://docs.aws.amazon.com/amazonq/latest/qdeveloper-ug/upgrade-to-kiro.html)). After the upgrade the `q` commands below still work ([Kiro's migration guide](https://kiro.dev/docs/upgrade-guides/migrating-from-q/)); for Kiro's own commands see [Kiro](#kiro).
+
 ```bash
 q mcp add --name xfa --command xlsx-for-ai-mcp
 ```
@@ -409,7 +415,7 @@ Verify: `goose info -v` lists `xfa` with `enabled: true`; in a goose session, as
 opencode mcp add xfa -- xlsx-for-ai-mcp
 ```
 
-It writes this entry to `~/.config/opencode/opencode.jsonc`:
+In opencode 1.19.x (the current release) this writes the entry below to your global config, `~/.config/opencode/opencode.json` (or `opencode.jsonc` if you already have one):
 
 ```json
 {
@@ -421,6 +427,8 @@ It writes this entry to `~/.config/opencode/opencode.jsonc`:
   }
 }
 ```
+
+opencode's [MCP docs](https://opencode.ai/docs/mcp-servers) describe the newer version, where `opencode mcp add` writes to the project config, `--global` makes the server available in every project, and servers are nested under `mcp.servers` (`"mcp": { "servers": { "xfa": { ... } } }`) instead of directly under `mcp`.
 
 Hosted instead: `opencode mcp add xfa --url https://api.xlsx-for-ai.dev/mcp`, then `opencode mcp auth xfa` (or `/mcps` in opencode) to sign in.
 
@@ -528,7 +536,7 @@ Every error body is exactly that shape: `error.code` is the stable, machine-read
 
 The same governed contract is served read-only from two routes — discover the whole API without a key:
 
-- **[`GET /api/v1/reference`](https://api.xlsx-for-ai.dev/api/v1/reference)** — a self-contained human HTML reference for all 52 public-stable tools, including the on-ramp above.
+- **[`GET /api/v1/reference`](https://api.xlsx-for-ai.dev/api/v1/reference)** — a self-contained human HTML reference for the public-stable tools, including the on-ramp above.
 - **[`GET /api/v1/openapi.json`](https://api.xlsx-for-ai.dev/api/v1/openapi.json)** — the versioned OpenAPI 3.1 contract, verbatim. Point codegen, Postman, or Scalar/Redoc at it.
 
 ## Claude Code plugin
