@@ -124,6 +124,22 @@ Pass `--mcp-server` on the command line, or add to your Codex config:
 
 Verify: run `codex --list-tools` and confirm 52 `xlsx_*` tools are listed.
 
+### Gemini CLI
+
+One command installs xlsx-for-ai as a Gemini CLI extension (the server and the instructions Gemini reads):
+
+```bash
+gemini extensions install https://github.com/senoff/xlsx-for-ai
+```
+
+Start Gemini CLI and ask about a spreadsheet on your computer, for example "recalculate budget.xlsx and tell me which totals changed". The first request answers with a sign-in link and a short code: open the link, approve, then ask again. The extension runs the same `xlsx-for-ai-mcp` server through `npx`, so no global install is needed.
+
+Verify: run `/mcp` in Gemini CLI and check that `xfa` lists the `xlsx_*` tools.
+
+### ChatGPT and other assistants with remote connectors
+
+Assistants that add a connector by URL use the hosted server instead of the npm package: add `https://api.xlsx-for-ai.dev/mcp` as a connector and sign in when asked. A remote connector cannot read files on your computer: give it a link to the file (shared as "anyone with the link can view") or use the upload link it offers.
+
 ### Zed
 
 Config file: `~/.config/zed/settings.json`
