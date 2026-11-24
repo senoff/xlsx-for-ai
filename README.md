@@ -124,6 +124,22 @@ Pass `--mcp-server` on the command line, or add to your Codex config:
 
 Verify: run `codex --list-tools` and confirm 52 `xlsx_*` tools are listed.
 
+### Gemini CLI
+
+One command installs xlsx-for-ai as a Gemini CLI extension (the server and the instructions Gemini reads):
+
+```bash
+gemini extensions install https://github.com/senoff/xlsx-for-ai
+```
+
+Start Gemini CLI and ask about a spreadsheet on your computer, for example "recalculate budget.xlsx and tell me which totals changed". The first request answers with a sign-in link and a short code: open the link, approve, then ask again. The extension runs the same `xlsx-for-ai-mcp` server through `npx`, pinned to a published version (each release updates the pin), so no global install is needed.
+
+Verify: run `/mcp` in Gemini CLI and check that `xfa` lists the `xlsx_*` tools.
+
+### ChatGPT and other assistants with remote connectors
+
+Assistants that add a connector by URL use the hosted server instead of the npm package: add `https://api.xlsx-for-ai.dev/mcp` as a connector and sign in when asked. A remote connector cannot read files on your computer: give it a link to the file (shared as "anyone with the link can view") or use the upload link it offers.
+
 ### Zed
 
 Config file: `~/.config/zed/settings.json`
@@ -536,7 +552,7 @@ In automated runs (CI), and in any run where you set `XFA_NONINTERACTIVE=1`, not
 
 **Updating.** If this copy cannot update itself (a read-only install, a container), the tool results say a newer version exists and give the command to update. An assistant that can run commands can do it for you; otherwise run `npm install -g xlsx-for-ai@latest` in a terminal and restart the app. Set `XFA_NO_AUTO_UPDATE=1` to turn the self-update and this notice off.
 
-**Links are not files.** This package reads files saved on your computer only. If you give it a web link or a Google Sheets link instead of a file path, it says so. Download the file and give its path, or use the hosted xlsx-for-ai connector, which can open links directly.
+**Links work too.** Besides a file saved on your computer, you can pass a link in the file path field: a public web link, or a Google Sheets or Drive link shared as "anyone with the link can view". The server downloads it and reads it. If a link cannot be opened, download the file and give its path.
 
 **Running in Docker.** The image no longer skips sign-in. The first request prints a sign-in link and code. Your key is stored in the container at `/home/node/.xlsx-for-ai`, so mount a volume there to keep it between runs, for example `-v xfa-config:/home/node/.xlsx-for-ai`.
 

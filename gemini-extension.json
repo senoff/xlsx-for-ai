@@ -1,0 +1,12 @@
+{
+  "name": "xlsx-for-ai",
+  "version": "4.3.0",
+  "description": "A spreadsheet engine for Gemini CLI: recalculate formulas, read big workbooks exactly, write real .xlsx files back with formulas kept, check and compare workbooks.",
+  "mcpServers": {
+    "xfa": {
+      "command": "npx",
+      "args": ["-y", "-p", "xlsx-for-ai@4.3.0", "xlsx-for-ai-mcp"]
+    }
+  },
+  "contextFileName": "GEMINI.md"
+}
