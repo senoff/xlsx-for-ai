@@ -552,7 +552,7 @@ In automated runs (CI), and in any run where you set `XFA_NONINTERACTIVE=1`, not
 
 **Updating.** If this copy cannot update itself (a read-only install, a container), the tool results say a newer version exists and give the command to update. An assistant that can run commands can do it for you; otherwise run `npm install -g xlsx-for-ai@latest` in a terminal and restart the app. Set `XFA_NO_AUTO_UPDATE=1` to turn the self-update and this notice off.
 
-**Links are not files.** This package reads files saved on your computer only. If you give it a web link or a Google Sheets link instead of a file path, it says so. Download the file and give its path, or use the hosted xlsx-for-ai connector, which can open links directly.
+**Links work too.** Besides a file saved on your computer, you can pass a link in the file path field: a public web link, or a Google Sheets or Drive link shared as "anyone with the link can view". The server downloads it and reads it. If a link cannot be opened, download the file and give its path.
 
 **Running in Docker.** The image no longer skips sign-in. The first request prints a sign-in link and code. Your key is stored in the container at `/home/node/.xlsx-for-ai`, so mount a volume there to keep it between runs, for example `-v xfa-config:/home/node/.xlsx-for-ai`.
 

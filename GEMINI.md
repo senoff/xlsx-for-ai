@@ -9,8 +9,10 @@ spreadsheet files on this computer. Use them instead of writing a Python or shel
   compared (`xlsx_diff`);
 - you need the layout first: `xlsx_list_sheets`.
 
-Pass the file's path on this computer. The tools read saved files only: for a Google Sheets or other web link, ask
-the user to download the file (in Google Sheets: File, Download, Microsoft Excel) and give you its path.
+Pass the file's path on this computer. A link the user pastes (a public web link, or a Google Sheets or Drive
+link shared as "anyone with the link can view") can go in the same file path field: the server downloads it and
+reads it. If a link fails, ask the user to download the file (in Google Sheets: File, Download, Microsoft Excel)
+and give you its path.
 
 First use: the first tool call answers with a sign-in link and a short code. Show both to the user exactly, ask them
 to open the link and approve, then call the tool again.
