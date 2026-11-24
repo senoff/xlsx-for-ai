@@ -36,6 +36,38 @@ The global install puts the `xlsx-for-ai-mcp` binary on your PATH — that's wha
 
 Add the server to your agent runtime under the name **`xfa`** (so "use xfa to read this" resolves). First run needs a one-time sign-in. In an editor or desktop app, your first request answers with a sign-in link and a short code: open the link, approve, then ask again. Or run `xlsx-for-ai login` in a terminal first (see [First-run sign-in](#first-run-sign-in)). Keys created by older versions keep working for now. When that changes, the sign-in link appears in the same place, so there is nothing to do ahead of time.
 
+There are two ways in:
+
+- **Local package.** The app starts `xlsx-for-ai-mcp` on your computer (stdio). Install it once with `npm install -g xlsx-for-ai`. No key to paste: the first request gives a sign-in link and code. It can read files on your computer by path. If you would rather not install globally, use the command `npx` with the arguments `-y -p xlsx-for-ai xlsx-for-ai-mcp` wherever a section below says `xlsx-for-ai-mcp`.
+- **Hosted with sign-in.** The app connects to `https://api.xlsx-for-ai.dev/mcp` over HTTP and signs you in in the browser (OAuth). Nothing to install. It cannot read files on your computer: give it a link to the file (shared as "anyone with the link can view") or use the upload link it offers.
+
+| App | Local package | Hosted with sign-in | Steps |
+| --- | --- | --- | --- |
+| Claude Code | yes | yes | [Claude Code](#claude-code) |
+| Claude Desktop | yes | yes | [Claude Desktop](#claude-desktop) |
+| Cursor | yes | yes | [Cursor](#cursor) |
+| Continue | yes | no | [Continue](#continue) |
+| Codex CLI | yes | yes | [Codex CLI](#codex-cli) |
+| Gemini CLI | yes | yes | [Gemini CLI](#gemini-cli) |
+| ChatGPT and other remote connectors | no | yes | [ChatGPT](#chatgpt-and-other-assistants-with-remote-connectors) |
+| Zed | yes | yes | [Zed](#zed) |
+| Windsurf (now Devin Desktop) | yes | yes | [Windsurf](#windsurf) |
+| Cline | yes | no | [Cline](#cline) |
+| VS Code with GitHub Copilot | yes | yes | [VS Code](#vs-code-with-github-copilot) |
+| Roo Code | yes | no | [Roo Code](#roo-code) |
+| Qoder | yes | no | [Qoder](#qoder) |
+| JetBrains AI Assistant | yes | no | [JetBrains AI Assistant](#jetbrains-ai-assistant) |
+| Junie | yes | yes (Junie CLI) | [Junie](#junie) |
+| Amazon Q Developer CLI | yes | yes | [Amazon Q Developer CLI](#amazon-q-developer-cli) |
+| Goose | yes | yes | [Goose](#goose) |
+| opencode | yes | yes | [opencode](#opencode) |
+| LM Studio | yes | no | [LM Studio](#lm-studio) |
+| Kiro | yes | yes | [Kiro](#kiro) |
+| Warp | yes | yes | [Warp](#warp) |
+| Anything else | yes | if it supports remote servers with OAuth | [Any other MCP client](#any-other-mcp-client) |
+
+"No" means the app's own docs do not describe signing in to a remote server; use the local package there.
+
 ### Claude Code
 
 The global install auto-registers the `xfa` MCP server in `~/.claude.json` — no extra step:
@@ -47,10 +79,18 @@ npm install -g xlsx-for-ai
 If your environment skips install scripts (`--ignore-scripts`, CI, or a sudo install), register it manually:
 
 ```bash
-claude mcp add xfa -- xlsx-for-ai-mcp
+claude mcp add --scope user xfa -- xlsx-for-ai-mcp
 ```
 
-Verify: in a new Claude Code session, ask "what MCP tools do you have?" — 52 `xlsx_*` tools should appear, including `xlsx_doctor` (one-call health report — try it first on any unknown workbook).
+Hosted instead (or use the [Claude Code plugin](#claude-code-plugin), which sets this up for you):
+
+```bash
+claude mcp add --scope user --transport http xfa https://api.xlsx-for-ai.dev/mcp
+```
+
+then run `/mcp` in Claude Code, choose `xfa` and sign in in the browser.
+
+Verify: `claude mcp list` shows `xfa` as connected (the hosted one shows "Needs authentication" until you sign in). In a new session, ask "what MCP tools do you have?" and check that the `xlsx_*` tools are listed, including `xlsx_doctor` (one-call health report — try it first on any unknown workbook).
 
 Then run `xfa samples` (shorthand for `xlsx-for-ai samples`) to drop two demo workbooks in your working directory and get paste-ready prompts to try.
 
@@ -60,6 +100,7 @@ Claude Desktop reads files, but it cannot recalculate formulas, read a very larg
 
 - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
 - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+- Linux: `~/.config/Claude/claude_desktop_config.json`
 
 (In Claude Desktop: Settings → Developer → Edit Config opens it.) Add `xfa` under `mcpServers`, keeping any servers already there:
 
@@ -73,11 +114,13 @@ Claude Desktop reads files, but it cannot recalculate formulas, read a very larg
 }
 ```
 
-Fully quit and reopen Claude Desktop. Verify: ask "what MCP tools do you have?" and confirm `xfa` shows 52 `xlsx_*` tools. Your first request answers with a sign-in link and a short code: open the link, approve, then ask again.
+Fully quit and reopen Claude Desktop. Verify: click "Add files, connectors, and more" (bottom left of the message box), then Connectors → Manage connectors, choose `xfa` and check that the `xlsx_*` tools are listed. Your first request answers with a sign-in link and a short code: open the link, approve, then ask again.
+
+Hosted instead: Customize → Connectors → **+ Add** → Add custom connector, name it `xfa`, enter `https://api.xlsx-for-ai.dev/mcp`, and sign in when asked. Free plans allow one custom connector.
 
 ### Cursor
 
-Config file: `~/.cursor/mcp.json`
+Config file: `~/.cursor/mcp.json` (all projects) or `.cursor/mcp.json` in a project.
 
 ```json
 {
@@ -89,52 +132,73 @@ Config file: `~/.cursor/mcp.json`
 }
 ```
 
-Verify: open Cursor settings → MCP → confirm `xfa` shows 52 `xlsx_*` tools.
+Hosted instead: use `"url": "https://api.xlsx-for-ai.dev/mcp"` in place of `"command"`. Cursor signs you in when the server asks.
+
+Verify: open Customize in the sidebar, check that `xfa` is on and the `xlsx_*` tools are listed under Available Tools. If it does not connect, open the Output panel and choose "MCP Logs".
 
 ### Continue
 
-Config file: `~/.continue/config.json`
+Continue now uses YAML config (`config.json` is deprecated). Create `.continue/mcpServers/xfa.yaml` at the top of your workspace:
 
-```json
-{
-  "mcpServers": [
-    {
-      "name": "xfa",
-      "command": "xlsx-for-ai-mcp"
-    }
-  ]
-}
+```yaml
+name: xfa
+version: 0.0.1
+schema: v1
+mcpServers:
+  - name: xfa
+    type: stdio
+    command: xlsx-for-ai-mcp
 ```
 
-Verify: restart VS Code, open the Continue panel, and check the MCP server list.
+Or add the same `- name: xfa` entry under `mcpServers` in your existing Continue config. A JSON file in the Claude Desktop / Cursor format placed in `.continue/mcpServers/` also works.
+
+Verify: MCP tools work only in Continue's **agent** mode. Switch to agent mode, ask "what tools do you have?" and check that the `xlsx_*` tools are listed.
 
 ### Codex CLI
 
-Pass `--mcp-server` on the command line, or add to your Codex config:
+Codex reads `~/.codex/config.toml` (or `.codex/config.toml` in a trusted project). Add it with one command:
 
-```json
-{
-  "mcpServers": {
-    "xfa": {
-      "command": "xlsx-for-ai-mcp"
-    }
-  }
-}
+```bash
+codex mcp add xfa -- xlsx-for-ai-mcp
 ```
 
-Verify: run `codex --list-tools` and confirm 52 `xlsx_*` tools are listed.
+which writes this table (you can also add it by hand):
+
+```toml
+[mcp_servers.xfa]
+command = "xlsx-for-ai-mcp"
+```
+
+Hosted instead:
+
+```toml
+[mcp_servers.xfa]
+url = "https://api.xlsx-for-ai.dev/mcp"
+```
+
+then run `codex mcp login xfa` and sign in in the browser (`codex mcp add xfa --url https://api.xlsx-for-ai.dev/mcp` adds the table and starts the sign-in straight away). Without a browser on that machine, use `codex mcp login xfa --no-browser`.
+
+Verify: `codex mcp list` shows `xfa` as enabled. In a Codex session, run `/mcp` and check that `xfa` and its `xlsx_*` tools are listed.
 
 ### Gemini CLI
 
 One command installs xlsx-for-ai as a Gemini CLI extension (the server and the instructions Gemini reads):
 
 ```bash
-gemini extensions install https://github.com/senoff/xlsx-for-ai
+gemini extensions install https://github.com/senoff/xlsx-for-ai --ref main
 ```
 
 Start Gemini CLI and ask about a spreadsheet on your computer, for example "recalculate budget.xlsx and tell me which totals changed". The first request answers with a sign-in link and a short code: open the link, approve, then ask again. The extension runs the same `xlsx-for-ai-mcp` server through `npx`, pinned to a published version (each release updates the pin), so no global install is needed.
 
-Verify: run `/mcp` in Gemini CLI and check that `xfa` lists the `xlsx_*` tools.
+Or add just the server, without the extension:
+
+```bash
+gemini mcp add -s user xfa xlsx-for-ai-mcp
+```
+
+Hosted instead: `gemini mcp add -s user --transport http xfa https://api.xlsx-for-ai.dev/mcp`, then run `/mcp auth` in Gemini CLI and sign in to `xfa`.
+
+Verify: `gemini mcp list` shows `xfa` as connected. In Gemini CLI, run `/mcp` and check that `xfa` lists the `xlsx_*` tools.
 
 ### ChatGPT and other assistants with remote connectors
 
@@ -142,25 +206,26 @@ Assistants that add a connector by URL use the hosted server instead of the npm 
 
 ### Zed
 
-Config file: `~/.config/zed/settings.json`
+Open your settings file with the `zed: open settings file` command and add:
 
 ```json
 {
   "context_servers": {
     "xfa": {
-      "command": {
-        "path": "xlsx-for-ai-mcp"
-      }
+      "command": "xlsx-for-ai-mcp",
+      "args": []
     }
   }
 }
 ```
 
-Verify: open Zed's assistant panel — the xlsx tools should appear in the tool picker.
+Hosted instead: `"xfa": { "url": "https://api.xlsx-for-ai.dev/mcp" }`. With no `Authorization` header set, Zed asks you to sign in.
+
+Verify: open Settings → AI → MCP Servers and check that the dot next to `xfa` is green ("Server is active"); the `xlsx_*` tools then appear in the agent panel.
 
 ### Windsurf
 
-Config file: `~/.codeium/windsurf/mcp_config.json`
+Windsurf's MCP docs now point to Devin Desktop. Its user config is `~/.config/devin/mcp_config.json` (Windows: `%APPDATA%\devin\mcp_config.json`); `.devin/mcp_config.json` in a project works too.
 
 ```json
 {
@@ -172,7 +237,258 @@ Config file: `~/.codeium/windsurf/mcp_config.json`
 }
 ```
 
-Verify: open Windsurf → Cascade → settings, confirm `xfa` is listed as an active MCP server.
+Hosted instead: `"xfa": { "url": "https://api.xlsx-for-ai.dev/mcp", "transport": "http" }`, then click **Authenticate** next to it under Customize → MCPs.
+
+Verify: in the Agents window open Customize → MCPs; `xfa` should be in the "This computer" list with the `xlsx_*` tools. Press refresh there after editing the file. On an older Windsurf build, add the same `xfa` block through that build's own MCP settings.
+
+### Cline
+
+In Cline, click the MCP Servers icon, open the **Configure** tab and click **Configure MCP Servers**. Add `xfa` under `mcpServers` (the Cline CLI keeps the same file at `~/.cline/data/settings/cline_mcp_settings.json`):
+
+```json
+{
+  "mcpServers": {
+    "xfa": {
+      "command": "xlsx-for-ai-mcp",
+      "args": [],
+      "disabled": false,
+      "autoApprove": []
+    }
+  }
+}
+```
+
+Verify: `xfa` appears in Cline's MCP server list with the `xlsx_*` tools; try one tool call.
+
+### VS Code with GitHub Copilot
+
+Put the server in `.mcp.json` at the workspace root, or in `~/.copilot/mcp-config.json` for every workspace:
+
+```json
+{
+  "mcpServers": {
+    "xfa": {
+      "type": "stdio",
+      "command": "xlsx-for-ai-mcp"
+    }
+  }
+}
+```
+
+Or from a terminal (adds it to your VS Code user profile):
+
+```bash
+code --add-mcp '{"name":"xfa","type":"stdio","command":"xlsx-for-ai-mcp"}'
+```
+
+You can also run "MCP: Add Server" from the Command Palette and choose "Command (stdio)". Older setups use `.vscode/mcp.json`, which has the same entry under `"servers"` instead of `"mcpServers"`.
+
+Hosted instead: `"xfa": { "type": "http", "url": "https://api.xlsx-for-ai.dev/mcp" }`, and click **Authenticate** when VS Code offers it.
+
+Verify: run "Chat: Open Customizations" → MCP Servers (or "MCP: List Servers") and check that `xfa` is running with the `xlsx_*` tools. Then ask Copilot Chat something about a spreadsheet and confirm it calls an `xlsx_*` tool.
+
+### Roo Code
+
+Open the MCP settings view from the Roo Code pane, scroll down and click **Edit Global MCP** (`mcp_settings.json`, all workspaces) or **Edit Project MCP** (`.roo/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "xfa": {
+      "command": "xlsx-for-ai-mcp"
+    }
+  }
+}
+```
+
+Verify: `xfa` shows in the MCP server list, enabled, with the `xlsx_*` tools.
+
+### Qoder
+
+Qoder IDE: open Qoder IDE Settings (`⌘⇧,` on macOS, `Ctrl+Shift+,` on Windows), choose MCP, and on **My Servers** click **+ Add**. In the JSON file that opens, add:
+
+```json
+{
+  "mcpServers": {
+    "xfa": {
+      "command": "xlsx-for-ai-mcp"
+    }
+  }
+}
+```
+
+and click Save. Qoder CLI:
+
+```bash
+qoder mcp add -s user xfa -- xlsx-for-ai-mcp
+```
+
+Verify: in the IDE, `xfa` shows a link icon (connected); expand it to see the `xlsx_*` tools. In the CLI, `qoder mcp list` shows `xfa` (run `/mcp reload` in a session that was already open).
+
+### JetBrains AI Assistant
+
+Open Settings | Tools | AI Assistant | Model Context Protocol (MCP), click **Add**, choose STDIO, paste:
+
+```json
+{
+  "mcpServers": {
+    "xfa": {
+      "command": "xlsx-for-ai-mcp"
+    }
+  }
+}
+```
+
+choose global or project level, click OK, then Apply.
+
+Verify: the Status column shows `xfa` running; click the icon in that column to see the `xlsx_*` tools.
+
+### Junie
+
+Junie (in JetBrains IDEs and Junie CLI) reads `~/.junie/mcp/mcp.json` (all projects) or `.junie/mcp/mcp.json` in a project. In the IDE: Settings | Tools | Junie | MCP Settings, click **Add** and edit the file that opens:
+
+```json
+{
+  "mcpServers": {
+    "xfa": {
+      "command": "xlsx-for-ai-mcp"
+    }
+  }
+}
+```
+
+Hosted instead (Junie CLI): `"xfa": { "url": "https://api.xlsx-for-ai.dev/mcp" }`, then authorize it from the `/mcp` screen.
+
+Verify: the IDE's MCP Servers list shows `xfa` with its status and the `xlsx_*` tools; in Junie CLI, `/mcp` shows it as Active.
+
+### Amazon Q Developer CLI
+
+```bash
+q mcp add --name xfa --command xlsx-for-ai-mcp
+```
+
+Hosted instead: add this to your agent config (in `~/.aws/amazonq/cli-agents/`):
+
+```json
+{
+  "mcpServers": {
+    "xfa": {
+      "type": "http",
+      "url": "https://api.xlsx-for-ai.dev/mcp"
+    }
+  }
+}
+```
+
+start `q chat`, run `/mcp`, and open the sign-in link it gives while the session stays open.
+
+Verify: `q mcp list` shows `xfa`; in `q chat`, `/tools` lists the `xlsx_*` tools.
+
+### Goose
+
+CLI: run `goose configure` → Add Extension → Command-line Extension, name it `xfa` and enter the command `xlsx-for-ai-mcp`. Desktop: Extensions → Add custom extension, type Standard IO, command `xlsx-for-ai-mcp`. Or add it to `config.yaml` (`~/.config/goose/config.yaml` on macOS and Linux; `goose info -v` prints the path):
+
+```yaml
+extensions:
+  xfa:
+    name: xfa
+    type: stdio
+    cmd: xlsx-for-ai-mcp
+    args: []
+    enabled: true
+    timeout: 300
+```
+
+Hosted instead: `goose configure` → Add Extension → Remote Extension (Streamable HTTP), URL `https://api.xlsx-for-ai.dev/mcp`. Goose registers itself with the server and opens the browser to sign in.
+
+Verify: `goose info -v` lists `xfa` with `enabled: true`; in a goose session, ask "what tools do you have?" and check that the `xlsx_*` tools are listed.
+
+### opencode
+
+```bash
+opencode mcp add xfa -- xlsx-for-ai-mcp
+```
+
+It writes this entry to `~/.config/opencode/opencode.jsonc`:
+
+```json
+{
+  "mcp": {
+    "xfa": {
+      "type": "local",
+      "command": ["xlsx-for-ai-mcp"]
+    }
+  }
+}
+```
+
+Hosted instead: `opencode mcp add xfa --url https://api.xlsx-for-ai.dev/mcp`, then `opencode mcp auth xfa` (or `/mcps` in opencode) to sign in.
+
+Verify: `opencode mcp list` shows `xfa` as connected (the hosted one shows "needs authentication" until you sign in).
+
+### LM Studio
+
+Needs LM Studio 0.3.17 or later. In the right-hand sidebar open the **Program** tab, click **Install → Edit mcp.json**, and add `xfa` (LM Studio uses the same `mcpServers` format as Cursor):
+
+```json
+{
+  "mcpServers": {
+    "xfa": {
+      "command": "xlsx-for-ai-mcp"
+    }
+  }
+}
+```
+
+Verify: save, start a chat with a model that supports tools, ask "what tools do you have?" and check that the `xlsx_*` tools are listed.
+
+### Kiro
+
+Config file: `~/.kiro/settings/mcp.json` (all workspaces) or `.kiro/settings/mcp.json` in a workspace.
+
+```json
+{
+  "mcpServers": {
+    "xfa": {
+      "command": "xlsx-for-ai-mcp",
+      "args": [],
+      "disabled": false
+    }
+  }
+}
+```
+
+Hosted instead: `"xfa": { "url": "https://api.xlsx-for-ai.dev/mcp" }`, and sign in when Kiro asks. Kiro CLI: `kiro-cli mcp add --name xfa --url https://api.xlsx-for-ai.dev/mcp`.
+
+Verify: open the MCP Servers view in the Kiro panel and check that `xfa` is connected with the `xlsx_*` tools; in Kiro CLI, run `/mcp`.
+
+### Warp
+
+Open Settings → Agents → MCP servers (or "Open MCP Servers" from the Command Palette), click **+ Add** and paste:
+
+```json
+{
+  "mcpServers": {
+    "xfa": {
+      "command": "xlsx-for-ai-mcp",
+      "args": []
+    }
+  }
+}
+```
+
+Or put the same block in `~/.warp/.mcp.json`. Hosted instead: `"xfa": { "url": "https://api.xlsx-for-ai.dev/mcp" }`; Warp opens the browser to sign in when it starts the server.
+
+Verify: on the MCP servers page `xfa` is running (click **Start** if not) and lists the `xlsx_*` tools.
+
+### Any other MCP client
+
+Follow the app's own "add an MCP server" steps and give it one of these:
+
+- Local (stdio): command `xlsx-for-ai-mcp` with no arguments, after `npm install -g xlsx-for-ai`. Or command `npx` with arguments `-y -p xlsx-for-ai xlsx-for-ai-mcp`.
+- Hosted: the Streamable HTTP address `https://api.xlsx-for-ai.dev/mcp`, if the app can sign in to a remote server (OAuth). The server supports dynamic client registration, so no client ID is needed.
+
+Name the server `xfa`. Verify: the app's MCP server list shows `xfa` with the `xlsx_*` tools.
 
 ### Custom agents / API
 
@@ -521,7 +837,9 @@ The npm client (`xlsx-for-ai`, this package) is MIT. The hosted API server (`xls
 ## Architecture
 
 ```
-agent (Claude Code / Claude Desktop / Cursor / Continue / Zed / Windsurf / custom)
+agent (Claude Code / Claude Desktop / Cursor / Continue / Codex / Gemini CLI / Zed / Windsurf /
+       Cline / VS Code / Roo Code / Qoder / JetBrains / Amazon Q / Goose / opencode / LM Studio /
+       Kiro / Warp / custom)
   └── MCP stdio
         └── xlsx-for-ai-mcp  (this package, ~200 lines)
               └── POST /api/v1/tools/<name>  →  api.xlsx-for-ai.dev
