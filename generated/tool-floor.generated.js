@@ -11,30 +11,44 @@ const GENERATED_FLOOR_TOOLS = [
     "description": "Verify CSV structure and injection safety",
     "inputSchema": {
       "properties": {
+        "file": {
+          "additionalProperties": false,
+          "description": "The spreadsheet file, handed off by a host that fills in the OpenAI file-parameter convention (openai/fileParams) from an uploaded or attached file. The server downloads download_url once, server-side; never a local sandbox path.",
+          "properties": {
+            "download_url": {
+              "description": "Temporary https URL to download the file. Valid only for this call.",
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "file_id": {
+              "description": "Host file identifier.",
+              "maxLength": 256,
+              "type": "string"
+            },
+            "file_name": {
+              "description": "Original file name (advisory only; never used as a path).",
+              "maxLength": 256,
+              "type": "string"
+            },
+            "mime_type": {
+              "description": "Declared MIME type (advisory only).",
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          "required": [
+            "download_url",
+            "file_id"
+          ],
+          "type": "object"
+        },
         "file_b64": {
           "type": "string"
         }
       },
       "required": [
         "file_b64"
-      ],
-      "type": "object"
-    }
-  },
-  {
-    "name": "importable_connect",
-    "description": "Connect this agent to a Shopify store via a merchant-minted code",
-    "inputSchema": {
-      "additionalProperties": false,
-      "properties": {
-        "connect_code": {
-          "description": "The single-use connect code the merchant minted in their Importable admin (Settings → Connect an agent). Short-lived and one-time. There is NO shop parameter — the store is resolved from this code server-side.",
-          "minLength": 1,
-          "type": "string"
-        }
-      },
-      "required": [
-        "connect_code"
       ],
       "type": "object"
     }
@@ -93,79 +107,6 @@ const GENERATED_FLOOR_TOOLS = [
           "type": "object"
         }
       },
-      "type": "object"
-    }
-  },
-  {
-    "name": "importable_export",
-    "description": "Export a Shopify entity from the connected store",
-    "inputSchema": {
-      "additionalProperties": false,
-      "properties": {
-        "entity": {
-          "description": "Which Shopify entity to export (e.g. \"products\"). Call importable_entities for the set. An unsupported value fails closed.",
-          "minLength": 1,
-          "type": "string"
-        },
-        "format": {
-          "description": "Output format (default \"csv\").",
-          "enum": [
-            "csv",
-            "xlsx"
-          ],
-          "type": "string"
-        }
-      },
-      "required": [
-        "entity"
-      ],
-      "type": "object"
-    }
-  },
-  {
-    "name": "importable_import",
-    "description": "Apply a file to the connected Shopify store (dry-run, then owner-approved commit)",
-    "inputSchema": {
-      "additionalProperties": false,
-      "properties": {
-        "entity": {
-          "description": "Which Shopify entity to apply the file to (e.g. \"products\"). Call importable_entities for the set. An unsupported value fails closed.",
-          "minLength": 1,
-          "type": "string"
-        },
-        "input_handle": {
-          "description": "Download handle of a file you have already stashed (e.g. importable_convert output). Resolved as YOUR artifact; an unknown/expired handle fails closed.",
-          "minLength": 1,
-          "type": "string"
-        },
-        "plan_hash": {
-          "description": "Omit for a dry-run preview (writes nothing; returns a plan_hash). Supply the previewed plan_hash to commit — the write, gated on the store owner’s approval of that exact plan.",
-          "minLength": 1,
-          "type": "string"
-        }
-      },
-      "required": [
-        "entity",
-        "input_handle"
-      ],
-      "type": "object"
-    }
-  },
-  {
-    "name": "importable_job_status",
-    "description": "Check the status of an Importable import or export run",
-    "inputSchema": {
-      "additionalProperties": false,
-      "properties": {
-        "run_id": {
-          "description": "The run id returned when the import/export run was started. The run is looked up on the connected store; an unknown id fails closed.",
-          "minLength": 1,
-          "type": "string"
-        }
-      },
-      "required": [
-        "run_id"
-      ],
       "type": "object"
     }
   },
@@ -281,14 +222,74 @@ const GENERATED_FLOOR_TOOLS = [
     "description": "Produce Amazon inventory feed",
     "inputSchema": {
       "properties": {
+        "file": {
+          "additionalProperties": false,
+          "description": "The spreadsheet file, handed off by a host that fills in the OpenAI file-parameter convention (openai/fileParams) from an uploaded or attached file. The server downloads download_url once, server-side; never a local sandbox path.",
+          "properties": {
+            "download_url": {
+              "description": "Temporary https URL to download the file. Valid only for this call.",
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "file_id": {
+              "description": "Host file identifier.",
+              "maxLength": 256,
+              "type": "string"
+            },
+            "file_name": {
+              "description": "Original file name (advisory only; never used as a path).",
+              "maxLength": 256,
+              "type": "string"
+            },
+            "mime_type": {
+              "description": "Declared MIME type (advisory only).",
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          "required": [
+            "download_url",
+            "file_id"
+          ],
+          "type": "object"
+        },
         "file_b64": {
-          "description": "Base64-encoded Shopify native products export CSV.",
+          "description": "Base64-encoded Shopify native products export CSV. Send exactly one file source: file_b64 (this field), file_url, file_handle, or file_text together with file_name.",
+          "type": "string"
+        },
+        "file_handle": {
+          "description": "Handle returned by xlsx_upload_link, once the user has uploaded the spreadsheet file on that page. Use this when the user attached the file in chat or has no link. Provide this OR file_url.",
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "file_name": {
+          "description": "File name with its extension (.csv, .tsv or .json), used with file_text.",
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string"
+        },
+        "file_sha256": {
+          "description": "Hex SHA-256 of the exact file_text UTF-8 text. Optional; checked when given.",
+          "maxLength": 64,
+          "minLength": 64,
+          "type": "string"
+        },
+        "file_text": {
+          "description": "Use only for a small CSV, TSV or JSON file whose full text you already have. Practical limit about 2,000 cells or 40 KB (the server hard cap is 256 KB); above that use file_url, or xlsx_upload_link and file_handle. Requires file_name. Never encode or retype a binary file by hand. Provide this OR file_url OR file_handle.",
+          "maxLength": 262144,
+          "minLength": 1,
+          "type": "string"
+        },
+        "file_url": {
+          "description": "https URL of the spreadsheet file (e.g. a shared Google Drive, Google Sheets, Dropbox, OneDrive or S3 link; must be viewable by anyone with the link). The server downloads it directly. Provide this OR file_handle.",
+          "maxLength": 8192,
+          "minLength": 1,
           "type": "string"
         }
       },
-      "required": [
-        "file_b64"
-      ],
+      "required": [],
       "type": "object"
     }
   },
@@ -297,8 +298,70 @@ const GENERATED_FLOOR_TOOLS = [
     "description": "Produce Shopify collections import CSV",
     "inputSchema": {
       "properties": {
+        "file": {
+          "additionalProperties": false,
+          "description": "The spreadsheet file, handed off by a host that fills in the OpenAI file-parameter convention (openai/fileParams) from an uploaded or attached file. The server downloads download_url once, server-side; never a local sandbox path.",
+          "properties": {
+            "download_url": {
+              "description": "Temporary https URL to download the file. Valid only for this call.",
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "file_id": {
+              "description": "Host file identifier.",
+              "maxLength": 256,
+              "type": "string"
+            },
+            "file_name": {
+              "description": "Original file name (advisory only; never used as a path).",
+              "maxLength": 256,
+              "type": "string"
+            },
+            "mime_type": {
+              "description": "Declared MIME type (advisory only).",
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          "required": [
+            "download_url",
+            "file_id"
+          ],
+          "type": "object"
+        },
         "file_b64": {
-          "description": "Base64-encoded collections CSV or XLSX file.",
+          "description": "Base64-encoded collections CSV or XLSX file. Send exactly one file source: file_b64 (this field), file_url, file_handle, or file_text together with file_name.",
+          "type": "string"
+        },
+        "file_handle": {
+          "description": "Handle returned by xlsx_upload_link, once the user has uploaded the spreadsheet file on that page. Use this when the user attached the file in chat or has no link. Provide this OR file_url.",
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "file_name": {
+          "description": "File name with its extension (.csv, .tsv or .json), used with file_text.",
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string"
+        },
+        "file_sha256": {
+          "description": "Hex SHA-256 of the exact file_text UTF-8 text. Optional; checked when given.",
+          "maxLength": 64,
+          "minLength": 64,
+          "type": "string"
+        },
+        "file_text": {
+          "description": "Use only for a small CSV, TSV or JSON file whose full text you already have. Practical limit about 2,000 cells or 40 KB (the server hard cap is 256 KB); above that use file_url, or xlsx_upload_link and file_handle. Requires file_name. Never encode or retype a binary file by hand. Provide this OR file_url OR file_handle.",
+          "maxLength": 262144,
+          "minLength": 1,
+          "type": "string"
+        },
+        "file_url": {
+          "description": "https URL of the spreadsheet file (e.g. a shared Google Drive, Google Sheets, Dropbox, OneDrive or S3 link; must be viewable by anyone with the link). The server downloads it directly. Provide this OR file_handle.",
+          "maxLength": 8192,
+          "minLength": 1,
           "type": "string"
         },
         "filename": {
@@ -314,9 +377,7 @@ const GENERATED_FLOOR_TOOLS = [
           "type": "string"
         }
       },
-      "required": [
-        "file_b64"
-      ],
+      "required": [],
       "type": "object"
     }
   },
@@ -346,8 +407,70 @@ const GENERATED_FLOOR_TOOLS = [
           "description": "Shopify Type/Product Category → eBay numeric IDs.",
           "type": "object"
         },
+        "file": {
+          "additionalProperties": false,
+          "description": "The spreadsheet file, handed off by a host that fills in the OpenAI file-parameter convention (openai/fileParams) from an uploaded or attached file. The server downloads download_url once, server-side; never a local sandbox path.",
+          "properties": {
+            "download_url": {
+              "description": "Temporary https URL to download the file. Valid only for this call.",
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "file_id": {
+              "description": "Host file identifier.",
+              "maxLength": 256,
+              "type": "string"
+            },
+            "file_name": {
+              "description": "Original file name (advisory only; never used as a path).",
+              "maxLength": 256,
+              "type": "string"
+            },
+            "mime_type": {
+              "description": "Declared MIME type (advisory only).",
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          "required": [
+            "download_url",
+            "file_id"
+          ],
+          "type": "object"
+        },
         "file_b64": {
-          "description": "Base64-encoded Shopify native products export CSV.",
+          "description": "Base64-encoded Shopify native products export CSV. Send exactly one file source: file_b64 (this field), file_url, file_handle, or file_text together with file_name.",
+          "type": "string"
+        },
+        "file_handle": {
+          "description": "Handle returned by xlsx_upload_link, once the user has uploaded the spreadsheet file on that page. Use this when the user attached the file in chat or has no link. Provide this OR file_url.",
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "file_name": {
+          "description": "File name with its extension (.csv, .tsv or .json), used with file_text.",
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string"
+        },
+        "file_sha256": {
+          "description": "Hex SHA-256 of the exact file_text UTF-8 text. Optional; checked when given.",
+          "maxLength": 64,
+          "minLength": 64,
+          "type": "string"
+        },
+        "file_text": {
+          "description": "Use only for a small CSV, TSV or JSON file whose full text you already have. Practical limit about 2,000 cells or 40 KB (the server hard cap is 256 KB); above that use file_url, or xlsx_upload_link and file_handle. Requires file_name. Never encode or retype a binary file by hand. Provide this OR file_url OR file_handle.",
+          "maxLength": 262144,
+          "minLength": 1,
+          "type": "string"
+        },
+        "file_url": {
+          "description": "https URL of the spreadsheet file (e.g. a shared Google Drive, Google Sheets, Dropbox, OneDrive or S3 link; must be viewable by anyone with the link). The server downloads it directly. Provide this OR file_handle.",
+          "maxLength": 8192,
+          "minLength": 1,
           "type": "string"
         },
         "options": {
@@ -388,7 +511,6 @@ const GENERATED_FLOOR_TOOLS = [
       },
       "required": [
         "category_map",
-        "file_b64",
         "options"
       ],
       "type": "object"
@@ -399,32 +521,91 @@ const GENERATED_FLOOR_TOOLS = [
     "description": "Produce Google Shopping feed CSV",
     "inputSchema": {
       "properties": {
+        "file": {
+          "additionalProperties": false,
+          "description": "The spreadsheet file, handed off by a host that fills in the OpenAI file-parameter convention (openai/fileParams) from an uploaded or attached file. The server downloads download_url once, server-side; never a local sandbox path.",
+          "properties": {
+            "download_url": {
+              "description": "Temporary https URL to download the file. Valid only for this call.",
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "file_id": {
+              "description": "Host file identifier.",
+              "maxLength": 256,
+              "type": "string"
+            },
+            "file_name": {
+              "description": "Original file name (advisory only; never used as a path).",
+              "maxLength": 256,
+              "type": "string"
+            },
+            "mime_type": {
+              "description": "Declared MIME type (advisory only).",
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          "required": [
+            "download_url",
+            "file_id"
+          ],
+          "type": "object"
+        },
         "file_b64": {
-          "description": "Base64-encoded Shopify native products export CSV.",
+          "description": "Base64-encoded Shopify native products export CSV. Send exactly one file source: file_b64 (this field), file_url, file_handle, or file_text together with file_name.",
+          "type": "string"
+        },
+        "file_handle": {
+          "description": "Handle returned by xlsx_upload_link, once the user has uploaded the spreadsheet file on that page. Use this when the user attached the file in chat or has no link. Provide this OR file_url.",
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "file_name": {
+          "description": "File name with its extension (.csv, .tsv or .json), used with file_text.",
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string"
+        },
+        "file_sha256": {
+          "description": "Hex SHA-256 of the exact file_text UTF-8 text. Optional; checked when given.",
+          "maxLength": 64,
+          "minLength": 64,
+          "type": "string"
+        },
+        "file_text": {
+          "description": "Use only for a small CSV, TSV or JSON file whose full text you already have. Practical limit about 2,000 cells or 40 KB (the server hard cap is 256 KB); above that use file_url, or xlsx_upload_link and file_handle. Requires file_name. Never encode or retype a binary file by hand. Provide this OR file_url OR file_handle.",
+          "maxLength": 262144,
+          "minLength": 1,
+          "type": "string"
+        },
+        "file_url": {
+          "description": "https URL of the spreadsheet file (e.g. a shared Google Drive, Google Sheets, Dropbox, OneDrive or S3 link; must be viewable by anyone with the link). The server downloads it directly. Provide this OR file_handle.",
+          "maxLength": 8192,
+          "minLength": 1,
           "type": "string"
         },
         "options": {
           "properties": {
             "currency_code": {
-              "description": "ISO-4217 currency code for every price, e.g. USD.",
+              "description": "Optional ISO-4217 currency code for every price, e.g. USD. If omitted, a single currency column in the file is used, else USD; the result says which.",
+              "type": "string"
+            },
+            "link_base": {
+              "description": "Optional. The base web address used to build product links in the feed, e.g. https://www.example.com (links become <base>/products/<handle>). Nothing is fetched from it. If omitted, a placeholder address is used and the result says so.",
               "type": "string"
             },
             "store_domain": {
-              "description": "Store base origin for product links, e.g. https://shop.example.com",
+              "description": "Older name for link_base; still accepted.",
               "type": "string"
             }
           },
-          "required": [
-            "currency_code",
-            "store_domain"
-          ],
           "type": "object"
         }
       },
-      "required": [
-        "file_b64",
-        "options"
-      ],
+      "required": [],
       "type": "object"
     }
   },
@@ -433,8 +614,70 @@ const GENERATED_FLOOR_TOOLS = [
     "description": "Produce Shopify inventory import CSV",
     "inputSchema": {
       "properties": {
+        "file": {
+          "additionalProperties": false,
+          "description": "The spreadsheet file, handed off by a host that fills in the OpenAI file-parameter convention (openai/fileParams) from an uploaded or attached file. The server downloads download_url once, server-side; never a local sandbox path.",
+          "properties": {
+            "download_url": {
+              "description": "Temporary https URL to download the file. Valid only for this call.",
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "file_id": {
+              "description": "Host file identifier.",
+              "maxLength": 256,
+              "type": "string"
+            },
+            "file_name": {
+              "description": "Original file name (advisory only; never used as a path).",
+              "maxLength": 256,
+              "type": "string"
+            },
+            "mime_type": {
+              "description": "Declared MIME type (advisory only).",
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          "required": [
+            "download_url",
+            "file_id"
+          ],
+          "type": "object"
+        },
         "file_b64": {
-          "description": "Base64-encoded inventory CSV or XLSX file.",
+          "description": "Base64-encoded inventory CSV or XLSX file. Send exactly one file source: file_b64 (this field), file_url, file_handle, or file_text together with file_name.",
+          "type": "string"
+        },
+        "file_handle": {
+          "description": "Handle returned by xlsx_upload_link, once the user has uploaded the spreadsheet file on that page. Use this when the user attached the file in chat or has no link. Provide this OR file_url.",
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "file_name": {
+          "description": "File name with its extension (.csv, .tsv or .json), used with file_text.",
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string"
+        },
+        "file_sha256": {
+          "description": "Hex SHA-256 of the exact file_text UTF-8 text. Optional; checked when given.",
+          "maxLength": 64,
+          "minLength": 64,
+          "type": "string"
+        },
+        "file_text": {
+          "description": "Use only for a small CSV, TSV or JSON file whose full text you already have. Practical limit about 2,000 cells or 40 KB (the server hard cap is 256 KB); above that use file_url, or xlsx_upload_link and file_handle. Requires file_name. Never encode or retype a binary file by hand. Provide this OR file_url OR file_handle.",
+          "maxLength": 262144,
+          "minLength": 1,
+          "type": "string"
+        },
+        "file_url": {
+          "description": "https URL of the spreadsheet file (e.g. a shared Google Drive, Google Sheets, Dropbox, OneDrive or S3 link; must be viewable by anyone with the link). The server downloads it directly. Provide this OR file_handle.",
+          "maxLength": 8192,
+          "minLength": 1,
           "type": "string"
         },
         "filename": {
@@ -446,9 +689,7 @@ const GENERATED_FLOOR_TOOLS = [
           "type": "object"
         }
       },
-      "required": [
-        "file_b64"
-      ],
+      "required": [],
       "type": "object"
     }
   },
@@ -457,8 +698,70 @@ const GENERATED_FLOOR_TOOLS = [
     "description": "Produce a safe Shopify metafields re-import CSV",
     "inputSchema": {
       "properties": {
+        "file": {
+          "additionalProperties": false,
+          "description": "The spreadsheet file, handed off by a host that fills in the OpenAI file-parameter convention (openai/fileParams) from an uploaded or attached file. The server downloads download_url once, server-side; never a local sandbox path.",
+          "properties": {
+            "download_url": {
+              "description": "Temporary https URL to download the file. Valid only for this call.",
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "file_id": {
+              "description": "Host file identifier.",
+              "maxLength": 256,
+              "type": "string"
+            },
+            "file_name": {
+              "description": "Original file name (advisory only; never used as a path).",
+              "maxLength": 256,
+              "type": "string"
+            },
+            "mime_type": {
+              "description": "Declared MIME type (advisory only).",
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          "required": [
+            "download_url",
+            "file_id"
+          ],
+          "type": "object"
+        },
         "file_b64": {
-          "description": "Base64-encoded CSV or XLSX metafields sheet in row mode: Owner Type, Owner ID, Owner Handle, Owner Parent Handle, Variant SKU, Namespace, Key, Type, Value and an optional Command column — the shape a Shopify metafields export hands back.",
+          "description": "Base64-encoded CSV or XLSX metafields sheet in row mode: Owner Type, Owner ID, Owner Handle, Owner Parent Handle, Variant SKU, Namespace, Key, Type, Value and an optional Command column — the shape a Shopify metafields export hands back. Send exactly one file source: file_b64 (this field), file_url, file_handle, or file_text together with file_name.",
+          "type": "string"
+        },
+        "file_handle": {
+          "description": "Handle returned by xlsx_upload_link, once the user has uploaded the spreadsheet file on that page. Use this when the user attached the file in chat or has no link. Provide this OR file_url.",
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "file_name": {
+          "description": "File name with its extension (.csv, .tsv or .json), used with file_text.",
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string"
+        },
+        "file_sha256": {
+          "description": "Hex SHA-256 of the exact file_text UTF-8 text. Optional; checked when given.",
+          "maxLength": 64,
+          "minLength": 64,
+          "type": "string"
+        },
+        "file_text": {
+          "description": "Use only for a small CSV, TSV or JSON file whose full text you already have. Practical limit about 2,000 cells or 40 KB (the server hard cap is 256 KB); above that use file_url, or xlsx_upload_link and file_handle. Requires file_name. Never encode or retype a binary file by hand. Provide this OR file_url OR file_handle.",
+          "maxLength": 262144,
+          "minLength": 1,
+          "type": "string"
+        },
+        "file_url": {
+          "description": "https URL of the spreadsheet file (e.g. a shared Google Drive, Google Sheets, Dropbox, OneDrive or S3 link; must be viewable by anyone with the link). The server downloads it directly. Provide this OR file_handle.",
+          "maxLength": 8192,
+          "minLength": 1,
           "type": "string"
         },
         "filename": {
@@ -470,9 +773,7 @@ const GENERATED_FLOOR_TOOLS = [
           "type": "object"
         }
       },
-      "required": [
-        "file_b64"
-      ],
+      "required": [],
       "type": "object"
     }
   },
@@ -481,8 +782,70 @@ const GENERATED_FLOOR_TOOLS = [
     "description": "Produce Shopify product-metafields import CSV",
     "inputSchema": {
       "properties": {
+        "file": {
+          "additionalProperties": false,
+          "description": "The spreadsheet file, handed off by a host that fills in the OpenAI file-parameter convention (openai/fileParams) from an uploaded or attached file. The server downloads download_url once, server-side; never a local sandbox path.",
+          "properties": {
+            "download_url": {
+              "description": "Temporary https URL to download the file. Valid only for this call.",
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "file_id": {
+              "description": "Host file identifier.",
+              "maxLength": 256,
+              "type": "string"
+            },
+            "file_name": {
+              "description": "Original file name (advisory only; never used as a path).",
+              "maxLength": 256,
+              "type": "string"
+            },
+            "mime_type": {
+              "description": "Declared MIME type (advisory only).",
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          "required": [
+            "download_url",
+            "file_id"
+          ],
+          "type": "object"
+        },
         "file_b64": {
-          "description": "Base64-encoded CSV or XLSX with one row per product: a product handle column plus one column per scalar metafield, named however you already name them (for example \"Fabric Content\", \"Wash Instructions\", \"Ingredients\").",
+          "description": "Base64-encoded CSV or XLSX with one row per product: a product handle column plus one column per scalar metafield, named however you already name them (for example \"Fabric Content\", \"Wash Instructions\", \"Ingredients\"). Send exactly one file source: file_b64 (this field), file_url, file_handle, or file_text together with file_name.",
+          "type": "string"
+        },
+        "file_handle": {
+          "description": "Handle returned by xlsx_upload_link, once the user has uploaded the spreadsheet file on that page. Use this when the user attached the file in chat or has no link. Provide this OR file_url.",
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "file_name": {
+          "description": "File name with its extension (.csv, .tsv or .json), used with file_text.",
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string"
+        },
+        "file_sha256": {
+          "description": "Hex SHA-256 of the exact file_text UTF-8 text. Optional; checked when given.",
+          "maxLength": 64,
+          "minLength": 64,
+          "type": "string"
+        },
+        "file_text": {
+          "description": "Use only for a small CSV, TSV or JSON file whose full text you already have. Practical limit about 2,000 cells or 40 KB (the server hard cap is 256 KB); above that use file_url, or xlsx_upload_link and file_handle. Requires file_name. Never encode or retype a binary file by hand. Provide this OR file_url OR file_handle.",
+          "maxLength": 262144,
+          "minLength": 1,
+          "type": "string"
+        },
+        "file_url": {
+          "description": "https URL of the spreadsheet file (e.g. a shared Google Drive, Google Sheets, Dropbox, OneDrive or S3 link; must be viewable by anyone with the link). The server downloads it directly. Provide this OR file_handle.",
+          "maxLength": 8192,
+          "minLength": 1,
           "type": "string"
         },
         "filename": {
@@ -494,9 +857,7 @@ const GENERATED_FLOOR_TOOLS = [
           "type": "object"
         }
       },
-      "required": [
-        "file_b64"
-      ],
+      "required": [],
       "type": "object"
     }
   },
@@ -505,8 +866,70 @@ const GENERATED_FLOOR_TOOLS = [
     "description": "Produce Shopify products import CSV",
     "inputSchema": {
       "properties": {
+        "file": {
+          "additionalProperties": false,
+          "description": "The spreadsheet file, handed off by a host that fills in the OpenAI file-parameter convention (openai/fileParams) from an uploaded or attached file. The server downloads download_url once, server-side; never a local sandbox path.",
+          "properties": {
+            "download_url": {
+              "description": "Temporary https URL to download the file. Valid only for this call.",
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "file_id": {
+              "description": "Host file identifier.",
+              "maxLength": 256,
+              "type": "string"
+            },
+            "file_name": {
+              "description": "Original file name (advisory only; never used as a path).",
+              "maxLength": 256,
+              "type": "string"
+            },
+            "mime_type": {
+              "description": "Declared MIME type (advisory only).",
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          "required": [
+            "download_url",
+            "file_id"
+          ],
+          "type": "object"
+        },
         "file_b64": {
-          "description": "Base64-encoded products CSV or XLSX file.",
+          "description": "Base64-encoded products CSV or XLSX file. Send exactly one file source: file_b64 (this field), file_url, file_handle, or file_text together with file_name.",
+          "type": "string"
+        },
+        "file_handle": {
+          "description": "Handle returned by xlsx_upload_link, once the user has uploaded the spreadsheet file on that page. Use this when the user attached the file in chat or has no link. Provide this OR file_url.",
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "file_name": {
+          "description": "File name with its extension (.csv, .tsv or .json), used with file_text.",
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string"
+        },
+        "file_sha256": {
+          "description": "Hex SHA-256 of the exact file_text UTF-8 text. Optional; checked when given.",
+          "maxLength": 64,
+          "minLength": 64,
+          "type": "string"
+        },
+        "file_text": {
+          "description": "Use only for a small CSV, TSV or JSON file whose full text you already have. Practical limit about 2,000 cells or 40 KB (the server hard cap is 256 KB); above that use file_url, or xlsx_upload_link and file_handle. Requires file_name. Never encode or retype a binary file by hand. Provide this OR file_url OR file_handle.",
+          "maxLength": 262144,
+          "minLength": 1,
+          "type": "string"
+        },
+        "file_url": {
+          "description": "https URL of the spreadsheet file (e.g. a shared Google Drive, Google Sheets, Dropbox, OneDrive or S3 link; must be viewable by anyone with the link). The server downloads it directly. Provide this OR file_handle.",
+          "maxLength": 8192,
+          "minLength": 1,
           "type": "string"
         },
         "filename": {
@@ -527,9 +950,7 @@ const GENERATED_FLOOR_TOOLS = [
           "type": "string"
         }
       },
-      "required": [
-        "file_b64"
-      ],
+      "required": [],
       "type": "object"
     }
   },
@@ -538,6 +959,38 @@ const GENERATED_FLOOR_TOOLS = [
     "description": "Fix Shopify products import CSV",
     "inputSchema": {
       "properties": {
+        "file": {
+          "additionalProperties": false,
+          "description": "The spreadsheet file, handed off by a host that fills in the OpenAI file-parameter convention (openai/fileParams) from an uploaded or attached file. The server downloads download_url once, server-side; never a local sandbox path.",
+          "properties": {
+            "download_url": {
+              "description": "Temporary https URL to download the file. Valid only for this call.",
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "file_id": {
+              "description": "Host file identifier.",
+              "maxLength": 256,
+              "type": "string"
+            },
+            "file_name": {
+              "description": "Original file name (advisory only; never used as a path).",
+              "maxLength": 256,
+              "type": "string"
+            },
+            "mime_type": {
+              "description": "Declared MIME type (advisory only).",
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          "required": [
+            "download_url",
+            "file_id"
+          ],
+          "type": "object"
+        },
         "file_b64": {
           "description": "Base64-encoded broken products CSV file.",
           "type": "string"
@@ -558,8 +1011,70 @@ const GENERATED_FLOOR_TOOLS = [
     "description": "Produce UPS WorldShip batch CSV",
     "inputSchema": {
       "properties": {
+        "file": {
+          "additionalProperties": false,
+          "description": "The spreadsheet file, handed off by a host that fills in the OpenAI file-parameter convention (openai/fileParams) from an uploaded or attached file. The server downloads download_url once, server-side; never a local sandbox path.",
+          "properties": {
+            "download_url": {
+              "description": "Temporary https URL to download the file. Valid only for this call.",
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "file_id": {
+              "description": "Host file identifier.",
+              "maxLength": 256,
+              "type": "string"
+            },
+            "file_name": {
+              "description": "Original file name (advisory only; never used as a path).",
+              "maxLength": 256,
+              "type": "string"
+            },
+            "mime_type": {
+              "description": "Declared MIME type (advisory only).",
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          "required": [
+            "download_url",
+            "file_id"
+          ],
+          "type": "object"
+        },
         "file_b64": {
-          "description": "Base64-encoded Shopify Orders export CSV.",
+          "description": "Base64-encoded Shopify Orders export CSV. Send exactly one file source: file_b64 (this field), file_url, file_handle, or file_text together with file_name.",
+          "type": "string"
+        },
+        "file_handle": {
+          "description": "Handle returned by xlsx_upload_link, once the user has uploaded the spreadsheet file on that page. Use this when the user attached the file in chat or has no link. Provide this OR file_url.",
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "file_name": {
+          "description": "File name with its extension (.csv, .tsv or .json), used with file_text.",
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string"
+        },
+        "file_sha256": {
+          "description": "Hex SHA-256 of the exact file_text UTF-8 text. Optional; checked when given.",
+          "maxLength": 64,
+          "minLength": 64,
+          "type": "string"
+        },
+        "file_text": {
+          "description": "Use only for a small CSV, TSV or JSON file whose full text you already have. Practical limit about 2,000 cells or 40 KB (the server hard cap is 256 KB); above that use file_url, or xlsx_upload_link and file_handle. Requires file_name. Never encode or retype a binary file by hand. Provide this OR file_url OR file_handle.",
+          "maxLength": 262144,
+          "minLength": 1,
+          "type": "string"
+        },
+        "file_url": {
+          "description": "https URL of the spreadsheet file (e.g. a shared Google Drive, Google Sheets, Dropbox, OneDrive or S3 link; must be viewable by anyone with the link). The server downloads it directly. Provide this OR file_handle.",
+          "maxLength": 8192,
+          "minLength": 1,
           "type": "string"
         },
         "options": {
@@ -601,9 +1116,7 @@ const GENERATED_FLOOR_TOOLS = [
           "type": "object"
         }
       },
-      "required": [
-        "file_b64"
-      ],
+      "required": [],
       "type": "object"
     }
   },
@@ -612,8 +1125,70 @@ const GENERATED_FLOOR_TOOLS = [
     "description": "Produce Shopify URL redirects import CSV",
     "inputSchema": {
       "properties": {
+        "file": {
+          "additionalProperties": false,
+          "description": "The spreadsheet file, handed off by a host that fills in the OpenAI file-parameter convention (openai/fileParams) from an uploaded or attached file. The server downloads download_url once, server-side; never a local sandbox path.",
+          "properties": {
+            "download_url": {
+              "description": "Temporary https URL to download the file. Valid only for this call.",
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "file_id": {
+              "description": "Host file identifier.",
+              "maxLength": 256,
+              "type": "string"
+            },
+            "file_name": {
+              "description": "Original file name (advisory only; never used as a path).",
+              "maxLength": 256,
+              "type": "string"
+            },
+            "mime_type": {
+              "description": "Declared MIME type (advisory only).",
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          "required": [
+            "download_url",
+            "file_id"
+          ],
+          "type": "object"
+        },
         "file_b64": {
-          "description": "Base64-encoded URL redirects CSV or XLSX file.",
+          "description": "Base64-encoded URL redirects CSV or XLSX file. Send exactly one file source: file_b64 (this field), file_url, file_handle, or file_text together with file_name.",
+          "type": "string"
+        },
+        "file_handle": {
+          "description": "Handle returned by xlsx_upload_link, once the user has uploaded the spreadsheet file on that page. Use this when the user attached the file in chat or has no link. Provide this OR file_url.",
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "file_name": {
+          "description": "File name with its extension (.csv, .tsv or .json), used with file_text.",
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string"
+        },
+        "file_sha256": {
+          "description": "Hex SHA-256 of the exact file_text UTF-8 text. Optional; checked when given.",
+          "maxLength": 64,
+          "minLength": 64,
+          "type": "string"
+        },
+        "file_text": {
+          "description": "Use only for a small CSV, TSV or JSON file whose full text you already have. Practical limit about 2,000 cells or 40 KB (the server hard cap is 256 KB); above that use file_url, or xlsx_upload_link and file_handle. Requires file_name. Never encode or retype a binary file by hand. Provide this OR file_url OR file_handle.",
+          "maxLength": 262144,
+          "minLength": 1,
+          "type": "string"
+        },
+        "file_url": {
+          "description": "https URL of the spreadsheet file (e.g. a shared Google Drive, Google Sheets, Dropbox, OneDrive or S3 link; must be viewable by anyone with the link). The server downloads it directly. Provide this OR file_handle.",
+          "maxLength": 8192,
+          "minLength": 1,
           "type": "string"
         },
         "filename": {
@@ -625,9 +1200,7 @@ const GENERATED_FLOOR_TOOLS = [
           "type": "object"
         }
       },
-      "required": [
-        "file_b64"
-      ],
+      "required": [],
       "type": "object"
     }
   },
@@ -636,8 +1209,70 @@ const GENERATED_FLOOR_TOOLS = [
     "description": "Produce Shopify variant-metafields import CSV",
     "inputSchema": {
       "properties": {
+        "file": {
+          "additionalProperties": false,
+          "description": "The spreadsheet file, handed off by a host that fills in the OpenAI file-parameter convention (openai/fileParams) from an uploaded or attached file. The server downloads download_url once, server-side; never a local sandbox path.",
+          "properties": {
+            "download_url": {
+              "description": "Temporary https URL to download the file. Valid only for this call.",
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "file_id": {
+              "description": "Host file identifier.",
+              "maxLength": 256,
+              "type": "string"
+            },
+            "file_name": {
+              "description": "Original file name (advisory only; never used as a path).",
+              "maxLength": 256,
+              "type": "string"
+            },
+            "mime_type": {
+              "description": "Declared MIME type (advisory only).",
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          "required": [
+            "download_url",
+            "file_id"
+          ],
+          "type": "object"
+        },
         "file_b64": {
-          "description": "Base64-encoded CSV or XLSX with one row per variant: a Variant SKU column plus one `Variant Metafield: <namespace>.<key> [<type>]` column per metafield.",
+          "description": "Base64-encoded CSV or XLSX with one row per variant: a Variant SKU column plus one `Variant Metafield: <namespace>.<key> [<type>]` column per metafield. Send exactly one file source: file_b64 (this field), file_url, file_handle, or file_text together with file_name.",
+          "type": "string"
+        },
+        "file_handle": {
+          "description": "Handle returned by xlsx_upload_link, once the user has uploaded the spreadsheet file on that page. Use this when the user attached the file in chat or has no link. Provide this OR file_url.",
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "file_name": {
+          "description": "File name with its extension (.csv, .tsv or .json), used with file_text.",
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string"
+        },
+        "file_sha256": {
+          "description": "Hex SHA-256 of the exact file_text UTF-8 text. Optional; checked when given.",
+          "maxLength": 64,
+          "minLength": 64,
+          "type": "string"
+        },
+        "file_text": {
+          "description": "Use only for a small CSV, TSV or JSON file whose full text you already have. Practical limit about 2,000 cells or 40 KB (the server hard cap is 256 KB); above that use file_url, or xlsx_upload_link and file_handle. Requires file_name. Never encode or retype a binary file by hand. Provide this OR file_url OR file_handle.",
+          "maxLength": 262144,
+          "minLength": 1,
+          "type": "string"
+        },
+        "file_url": {
+          "description": "https URL of the spreadsheet file (e.g. a shared Google Drive, Google Sheets, Dropbox, OneDrive or S3 link; must be viewable by anyone with the link). The server downloads it directly. Provide this OR file_handle.",
+          "maxLength": 8192,
+          "minLength": 1,
           "type": "string"
         },
         "filename": {
@@ -649,17 +1284,47 @@ const GENERATED_FLOOR_TOOLS = [
           "type": "object"
         }
       },
-      "required": [
-        "file_b64"
-      ],
+      "required": [],
       "type": "object"
     }
   },
   {
     "name": "xlsx_check",
-    "description": "Verify Excel workbook with an independent engine",
+    "description": "Verify Excel workbook structure and stored values",
     "inputSchema": {
       "properties": {
+        "file": {
+          "additionalProperties": false,
+          "description": "The spreadsheet file, handed off by a host that fills in the OpenAI file-parameter convention (openai/fileParams) from an uploaded or attached file. The server downloads download_url once, server-side; never a local sandbox path.",
+          "properties": {
+            "download_url": {
+              "description": "Temporary https URL to download the file. Valid only for this call.",
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "file_id": {
+              "description": "Host file identifier.",
+              "maxLength": 256,
+              "type": "string"
+            },
+            "file_name": {
+              "description": "Original file name (advisory only; never used as a path).",
+              "maxLength": 256,
+              "type": "string"
+            },
+            "mime_type": {
+              "description": "Declared MIME type (advisory only).",
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          "required": [
+            "download_url",
+            "file_id"
+          ],
+          "type": "object"
+        },
         "file_b64": {
           "type": "string"
         }
@@ -676,8 +1341,40 @@ const GENERATED_FLOOR_TOOLS = [
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "file": {
+          "additionalProperties": false,
+          "description": "The spreadsheet file, handed off by a host that fills in the OpenAI file-parameter convention (openai/fileParams) from an uploaded or attached file. The server downloads download_url once, server-side; never a local sandbox path.",
+          "properties": {
+            "download_url": {
+              "description": "Temporary https URL to download the file. Valid only for this call.",
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "file_id": {
+              "description": "Host file identifier.",
+              "maxLength": 256,
+              "type": "string"
+            },
+            "file_name": {
+              "description": "Original file name (advisory only; never used as a path).",
+              "maxLength": 256,
+              "type": "string"
+            },
+            "mime_type": {
+              "description": "Declared MIME type (advisory only).",
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          "required": [
+            "download_url",
+            "file_id"
+          ],
+          "type": "object"
+        },
         "file_b64": {
-          "maxLength": 28027563,
+          "maxLength": 279685803,
           "type": "string"
         },
         "mode": {
@@ -723,13 +1420,78 @@ const GENERATED_FLOOR_TOOLS = [
     }
   },
   {
+    "name": "xlsx_pii_job_status",
+    "description": "Get the names and addresses of a deferred PII scan",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "ner_job_id": {
+          "description": "The ner_job_id a deferred xlsx_pii_scan returned.",
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "ner_job_id"
+      ],
+      "type": "object"
+    }
+  },
+  {
     "name": "xlsx_pii_scan",
     "description": "Scan Excel for personal or sensitive data",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "cache_scope": {
+          "description": "Optional: your own end-user or account id, used only to keep remembered answers separate.",
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "file": {
+          "additionalProperties": false,
+          "description": "The spreadsheet file, handed off by a host that fills in the OpenAI file-parameter convention (openai/fileParams) from an uploaded or attached file. The server downloads download_url once, server-side; never a local sandbox path.",
+          "properties": {
+            "download_url": {
+              "description": "Temporary https URL to download the file. Valid only for this call.",
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "file_id": {
+              "description": "Host file identifier.",
+              "maxLength": 256,
+              "type": "string"
+            },
+            "file_name": {
+              "description": "Original file name (advisory only; never used as a path).",
+              "maxLength": 256,
+              "type": "string"
+            },
+            "mime_type": {
+              "description": "Declared MIME type (advisory only).",
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          "required": [
+            "download_url",
+            "file_id"
+          ],
+          "type": "object"
+        },
         "file_b64": {
-          "maxLength": 28027563,
+          "maxLength": 279685803,
+          "type": "string"
+        },
+        "ner": {
+          "description": "Optional, for apps that scan on a write path. \"inline\" (default) waits for the name and address check. \"deferred\" answers at once without names and addresses; fetch them later with xlsx_pii_job_status and the returned ner_job_id. Chat callers leave this unset.",
+          "enum": [
+            "inline",
+            "deferred"
+          ],
           "type": "string"
         }
       },
@@ -740,13 +1502,59 @@ const GENERATED_FLOOR_TOOLS = [
     }
   },
   {
+    "name": "xlsx_upload_link",
+    "description": "Get a file upload link",
+    "inputSchema": {
+      "properties": {
+        "purpose": {
+          "description": "Optional short note shown on the upload page. The returned upload_url takes the file in one PUT, or in resumable parts: PUT each part with Content-Range: bytes <first>-<last>/<total>, HEAD the link for Upload-Offset (bytes received so far) and send the rest from there. Then pass file_handle to any tool.",
+          "maxLength": 200,
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
     "name": "xlsx_vault_cure",
     "description": "Clean hidden or risky content from an Excel file",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "file": {
+          "additionalProperties": false,
+          "description": "The spreadsheet file, handed off by a host that fills in the OpenAI file-parameter convention (openai/fileParams) from an uploaded or attached file. The server downloads download_url once, server-side; never a local sandbox path.",
+          "properties": {
+            "download_url": {
+              "description": "Temporary https URL to download the file. Valid only for this call.",
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "file_id": {
+              "description": "Host file identifier.",
+              "maxLength": 256,
+              "type": "string"
+            },
+            "file_name": {
+              "description": "Original file name (advisory only; never used as a path).",
+              "maxLength": 256,
+              "type": "string"
+            },
+            "mime_type": {
+              "description": "Declared MIME type (advisory only).",
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          "required": [
+            "download_url",
+            "file_id"
+          ],
+          "type": "object"
+        },
         "file_b64": {
-          "maxLength": 28027563,
+          "maxLength": 279685803,
           "type": "string"
         },
         "mode": {
@@ -809,8 +1617,40 @@ const GENERATED_FLOOR_TOOLS = [
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "file": {
+          "additionalProperties": false,
+          "description": "The spreadsheet file, handed off by a host that fills in the OpenAI file-parameter convention (openai/fileParams) from an uploaded or attached file. The server downloads download_url once, server-side; never a local sandbox path.",
+          "properties": {
+            "download_url": {
+              "description": "Temporary https URL to download the file. Valid only for this call.",
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "file_id": {
+              "description": "Host file identifier.",
+              "maxLength": 256,
+              "type": "string"
+            },
+            "file_name": {
+              "description": "Original file name (advisory only; never used as a path).",
+              "maxLength": 256,
+              "type": "string"
+            },
+            "mime_type": {
+              "description": "Declared MIME type (advisory only).",
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          "required": [
+            "download_url",
+            "file_id"
+          ],
+          "type": "object"
+        },
         "file_b64": {
-          "maxLength": 28027563,
+          "maxLength": 279685803,
           "type": "string"
         }
       },
@@ -828,11 +1668,6 @@ const GENERATED_FLOOR_ANNOTATIONS = {
     "readOnlyHint": true,
     "destructiveHint": false
   },
-  "importable_connect": {
-    "title": "Connect this agent to a Shopify store via a merchant-minted code",
-    "readOnlyHint": false,
-    "destructiveHint": false
-  },
   "importable_convert": {
     "title": "Convert a merchant file to a Shopify import plan (dry-run)",
     "readOnlyHint": false,
@@ -843,25 +1678,10 @@ const GENERATED_FLOOR_ANNOTATIONS = {
     "readOnlyHint": true,
     "destructiveHint": false
   },
-  "importable_export": {
-    "title": "Export a Shopify entity from the connected store",
-    "readOnlyHint": false,
-    "destructiveHint": false
-  },
-  "importable_import": {
-    "title": "Apply a file to the connected Shopify store (dry-run, then owner-approved commit)",
-    "readOnlyHint": false,
-    "destructiveHint": true
-  },
-  "importable_job_status": {
-    "title": "Check the status of an Importable import or export run",
-    "readOnlyHint": true,
-    "destructiveHint": false
-  },
   "printful_catalog_import": {
     "title": "Produce Shopify products import CSV from Printful catalog",
     "readOnlyHint": false,
-    "destructiveHint": false
+    "destructiveHint": true
   },
   "printful_catalog_pull": {
     "title": "Pull Printful catalog snapshot",
@@ -871,7 +1691,7 @@ const GENERATED_FLOOR_ANNOTATIONS = {
   "printify_catalog_import": {
     "title": "Produce Shopify products import CSV from Printify catalog",
     "readOnlyHint": false,
-    "destructiveHint": false
+    "destructiveHint": true
   },
   "printify_catalog_pull": {
     "title": "Pull Printify catalog snapshot",
@@ -886,7 +1706,7 @@ const GENERATED_FLOOR_ANNOTATIONS = {
   "shopify_collections_import": {
     "title": "Produce Shopify collections import CSV",
     "readOnlyHint": false,
-    "destructiveHint": false
+    "destructiveHint": true
   },
   "shopify_ebay_feed": {
     "title": "Produce eBay File Exchange feed CSV",
@@ -901,27 +1721,27 @@ const GENERATED_FLOOR_ANNOTATIONS = {
   "shopify_inventory_import": {
     "title": "Produce Shopify inventory import CSV",
     "readOnlyHint": false,
-    "destructiveHint": false
+    "destructiveHint": true
   },
   "shopify_metafields_safe_reimport": {
     "title": "Produce a safe Shopify metafields re-import CSV",
     "readOnlyHint": false,
-    "destructiveHint": false
+    "destructiveHint": true
   },
   "shopify_product_metafields_import": {
     "title": "Produce Shopify product-metafields import CSV",
     "readOnlyHint": false,
-    "destructiveHint": false
+    "destructiveHint": true
   },
   "shopify_products_import": {
     "title": "Produce Shopify products import CSV",
     "readOnlyHint": false,
-    "destructiveHint": false
+    "destructiveHint": true
   },
   "shopify_products_import_fix": {
     "title": "Fix Shopify products import CSV",
     "readOnlyHint": false,
-    "destructiveHint": false
+    "destructiveHint": true
   },
   "shopify_ups_feed": {
     "title": "Produce UPS WorldShip batch CSV",
@@ -931,21 +1751,26 @@ const GENERATED_FLOOR_ANNOTATIONS = {
   "shopify_url_redirects_import": {
     "title": "Produce Shopify URL redirects import CSV",
     "readOnlyHint": false,
-    "destructiveHint": false
+    "destructiveHint": true
   },
   "shopify_variant_metafields_import": {
     "title": "Produce Shopify variant-metafields import CSV",
     "readOnlyHint": false,
-    "destructiveHint": false
+    "destructiveHint": true
   },
   "xlsx_check": {
-    "title": "Verify Excel workbook with an independent engine",
+    "title": "Verify Excel workbook structure and stored values",
     "readOnlyHint": true,
     "destructiveHint": false
   },
   "xlsx_pii_clean": {
     "title": "Redact personal or sensitive data from an Excel file",
     "readOnlyHint": false,
+    "destructiveHint": true
+  },
+  "xlsx_pii_job_status": {
+    "title": "Get the names and addresses of a deferred PII scan",
+    "readOnlyHint": true,
     "destructiveHint": false
   },
   "xlsx_pii_scan": {
@@ -953,10 +1778,15 @@ const GENERATED_FLOOR_ANNOTATIONS = {
     "readOnlyHint": true,
     "destructiveHint": false
   },
+  "xlsx_upload_link": {
+    "title": "Get a file upload link",
+    "readOnlyHint": false,
+    "destructiveHint": false
+  },
   "xlsx_vault_cure": {
     "title": "Clean hidden or risky content from an Excel file",
     "readOnlyHint": false,
-    "destructiveHint": false
+    "destructiveHint": true
   },
   "xlsx_vault_scan": {
     "title": "Scan Excel for hidden or risky content",

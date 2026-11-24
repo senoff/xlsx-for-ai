@@ -1,17 +1,17 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.senoff/xlsx-for-ai",
-  "description": "78 spreadsheet tools: recalc over 350 Excel functions, repair refs, read, write, diff, audit.",
+  "description": "76 spreadsheet tools: recalc over 350 Excel functions, repair refs, read, write, diff, audit.",
   "repository": {
     "url": "https://github.com/senoff/xlsx-for-ai",
     "source": "github"
   },
-  "version": "4.3.0",
+  "version": "4.3.1",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "xlsx-for-ai",
-      "version": "4.3.0",
+      "version": "4.3.1",
       "transport": {
         "type": "stdio"
       }

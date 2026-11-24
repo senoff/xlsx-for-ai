@@ -9,6 +9,11 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 
 ## [Unreleased]
 
+## [4.3.1]
+
+- README: set-up steps for 20 AI apps; Gemini CLI extension installable from the latest release (XLS-11316).
+- The bundled tool list matches the 76 tools the service serves today: adds the upload-link and job-status tools, and drops four store-connection tools the service no longer lists. This also clears the tool-list check that was blocking a publish.
+
 ## [4.3.0]
 
 - The tools the hosted service takes more than a file for now work over MCP: arguments beyond the file, such as `category_map` for `shopify_ebay_feed` and `selection` for `xlsx_pii_clean` and `xlsx_vault_cure`, were dropped before the call and the service refused it. They are sent as given (XLS-10521).
