@@ -17,7 +17,11 @@ claude plugin install xlsx-for-ai --marketplace senoff/xlsx-for-ai
 
 This needs Claude Code 2.1.292 or later. On older versions, run `claude plugin marketplace add senoff/xlsx-for-ai` and then `claude plugin install xlsx-for-ai@xlsx-for-ai`. If you added the plugin from the claude.ai directory, Claude Code loads it for you as `xlsx-for-ai@synced`.
 
-The first time Claude uses a tool, sign in when prompted (run `/mcp`, pick the spreadsheets server, and sign in with Google or an email link).
+Then, once:
+
+1. Restart Claude Code (quit it and start it again), so it loads the plugin.
+2. Run `/mcp`, pick `plugin:xlsx-for-ai:spreadsheets`, choose **Authenticate** and sign in in the browser with Google or an email link. The xlsx-for-ai tools do not appear until you sign in, so Claude cannot offer the sign-in itself. From a terminal, `claude mcp login plugin:xlsx-for-ai:spreadsheets` does the same.
+3. Ask Claude about a spreadsheet.
 
 ## Where your files go
 
