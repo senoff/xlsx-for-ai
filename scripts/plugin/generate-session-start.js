@@ -36,7 +36,7 @@ function generate(manifest) {
   lines.push('4. Only if those fail: show the user the upload page link from xlsx_upload_link and ask them to drop the file there.');
   lines.push('Never base64-encode a workbook into a tool argument and never pass a local file path. Every tool that makes a file returns a download link in its result; show it to the user.');
   lines.push('');
-  lines.push('If the xlsx-for-ai tools are not available yet, the connection needs a one-time sign-in: ask the user to run /mcp, pick the spreadsheets server (plugin:xlsx-for-ai:spreadsheets) and sign in. Say so, and tell the user if you read the file locally instead.');
+  lines.push('Sign-in: until the user signs in once, a tool call answers a one-time sign-in link and code instead of a result. Show the user that message as given, with the sign-in link and code; once they approve in the browser, make the same call again (no restart). If the spreadsheets server (plugin:xlsx-for-ai:spreadsheets) is not connected at all, tell the user, and say so if you read the file locally instead.');
   lines.push('');
   lines.push(`All ${count} tools (call by exact name; they appear as ${TOOL_PREFIX}<name>):`);
   for (const group of manifest.groups) {

@@ -36,9 +36,9 @@ Never base64-encode a workbook into a tool argument and never pass a local file 
 
 The full list with one line each is in the session-start text. Every tool that makes a file returns a download link; show it to the user.
 
-## If the tools are missing
+## Sign-in
 
-The connection needs a one-time sign-in. Ask the user to run `/mcp`, choose the spreadsheets server (`plugin:xlsx-for-ai:spreadsheets`) and sign in with Google in the browser. Tell the user this, and if you read the file locally instead, say so.
+Until the user signs in once, a tool call answers a one-time sign-in link and code instead of a result. Show the user that message as given, with the sign-in link and code. Once they approve in the browser, make the same call again; it works with no restart. If the spreadsheets server (`plugin:xlsx-for-ai:spreadsheets`) is not connected at all, tell the user, and if you read the file locally instead, say so.
 
 ## Limits
 

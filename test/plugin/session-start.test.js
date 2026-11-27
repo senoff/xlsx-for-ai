@@ -96,13 +96,22 @@ test('plugin files are text and pointers only', () => {
     assert.match(s.url, /^https:\/\/api\.xlsx-for-ai\.dev\/mcp$/);
     assert.equal(s.command, undefined);
     assert.equal(s.alwaysLoad, true, 'XLS-4746: the server loads its tools up front');
+    // XLS-11647: the one command is the install-id header helper, run with the plugin's own data folder.
+    assert.equal(s.headersHelper, 'sh "${CLAUDE_PLUGIN_ROOT}/scripts/install-id.sh" "${CLAUDE_PLUGIN_DATA}"');
+    assert.deepEqual(s.headers, { 'x-xfa-toolset': 'all' });
   }
   const hooks = JSON.parse(fs.readFileSync(path.join(dir, 'hooks', 'hooks.json'), 'utf8'));
   const entry = hooks.hooks.SessionStart[0];
   assert.equal(entry.matcher, 'startup|resume|clear|compact');
   assert.match(entry.hooks[0].command, /^cat "\$\{CLAUDE_PLUGIN_ROOT\}\/hooks\/session-start\.txt"$/);
   const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]));
-  for (const f of walk(dir)) assert.ok(!/\.(js|mjs|cjs|ts|py|sh|ps1|exe|node|wasm)$/.test(f), `code file shipped in plugin: ${f}`);
+  // XLS-11647: exactly one script ships, the install-id header helper (test/plugin/install-id.test.js pins what it does).
+  const helper = path.join(dir, 'scripts', 'install-id.sh');
+  for (const f of walk(dir)) {
+    if (f === helper) continue;
+    assert.ok(!/\.(js|mjs|cjs|ts|py|sh|ps1|exe|node|wasm)$/.test(f), `code file shipped in plugin: ${f}`);
+  }
+  assert.ok(fs.existsSync(helper), 'the install-id helper ships');
 });
 
 test('skill description is within the truncation limit and lists the paths', () => {

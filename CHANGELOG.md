@@ -9,6 +9,8 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 
 ## [Unreleased]
 
+- Claude Code plugin 0.2.0: the xlsx-for-ai tools appear as soon as Claude Code restarts, before sign-in, and the first tool call answers a sign-in link and code. There is no /mcp step any more. The plugin keeps a random install id in its own data folder (readable by the user only) and sends it as the `x-xfa-install` header through a small `headersHelper` script (XLS-11647).
+
 ## [4.3.2]
 
 - README: the Claude Code plugin and npm routes now give numbered onboarding steps: restart Claude Code, sign in (in /mcp for the plugin, through the link for the npm package), then ask it about a spreadsheet. The plugin README says its tools stay hidden until sign-in.
