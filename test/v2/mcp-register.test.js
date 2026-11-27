@@ -47,6 +47,19 @@ test('net-new: creates ~/.claude.json with minimal stdio entry', () => {
   });
 });
 
+test('XLS-11638: a fresh registration tells the user to restart Claude Code; a no-op stays quiet', () => {
+  const { cfg } = sandbox();
+  withEnv(cfg, () => {
+    const { registerMcpServer } = load();
+    const first = [];
+    registerMcpServer({ mode: 'cli', log: (m) => first.push(m) });
+    assert.ok(first.join('').includes('Restart Claude Code, then ask it about a spreadsheet.'));
+    const second = [];
+    registerMcpServer({ mode: 'cli', log: (m) => second.push(m) });
+    assert.ok(!second.join('').includes('Restart Claude Code'));
+  });
+});
+
 test('preserves other servers and other top-level keys', () => {
   const { cfg } = sandbox();
   fs.writeFileSync(cfg, JSON.stringify({
