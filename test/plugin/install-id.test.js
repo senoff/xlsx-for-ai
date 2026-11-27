@@ -69,6 +69,47 @@ test('a data folder it cannot create prints {}', () => {
   assert.equal(run([path.join(file, 'sub')]), '{}\n');
 });
 
+// Many sessions starting at once on a fresh folder must all print the one id the file keeps.
+const { spawn } = require('node:child_process');
+const runAsync = (data) => new Promise((resolve, reject) => {
+  const c = spawn('sh', [SCRIPT, data], { env: { PATH: process.env.PATH } });
+  let out = '';
+  let err = '';
+  c.stdout.on('data', (d) => { out += d; });
+  c.stderr.on('data', (d) => { err += d; });
+  c.on('error', reject);
+  c.on('close', (code) => resolve({ code, out, err }));
+});
+
+test('parallel first runs on a fresh folder all print the same id as the file (200 rounds)', { timeout: 120_000 }, async () => {
+  const ROUNDS = Number(process.env.INSTALL_ID_ROUNDS || 200);
+  const PARALLEL = 8;
+  for (let round = 0; round < ROUNDS; round++) {
+    const data = path.join(tmp(), 'data');
+    const results = await Promise.all(Array.from({ length: PARALLEL }, () => runAsync(data)));
+    const file = fs.readFileSync(path.join(data, 'install-id'), 'utf8');
+    for (const r of results) {
+      assert.equal(r.code, 0);
+      assert.equal(r.err, '');
+      assert.equal(r.out, `{"x-xfa-install":"${file}"}\n`, `round ${round}: a run printed another id than the file`);
+    }
+    assert.deepEqual(fs.readdirSync(data), ['install-id'], `round ${round}: temp file left behind`);
+  }
+});
+
+test('a read-only data folder prints only {} and nothing on stderr', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, () => {
+  const data = tmp();
+  fs.chmodSync(data, 0o500);
+  try {
+    const r = spawnSync('sh', [SCRIPT, data], { encoding: 'utf8', env: { PATH: process.env.PATH }, timeout: 10_000 });
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '{}\n');
+    assert.equal(r.stderr, '');
+  } finally {
+    fs.chmodSync(data, 0o700);
+  }
+});
+
 test('the script reads only its own id file and /dev/urandom', () => {
   const src = fs.readFileSync(SCRIPT, 'utf8');
   const code = src.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n');

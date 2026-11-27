@@ -31,15 +31,16 @@ if ! is_id "$id"; then
   new=$(od -An -tx1 -N32 /dev/urandom 2>/dev/null | tr -d ' \n')
   is_id "$new" || none
   tmp=$f.$$
-  printf '%s' "$new" > "$tmp" 2>/dev/null || none
+  { printf '%s' "$new" > "$tmp"; } 2>/dev/null || none
   chmod 600 "$tmp" 2>/dev/null
-  if [ -e "$f" ]; then
-    # A damaged file: replace it.
-    mv -f "$tmp" "$f" 2>/dev/null
-  elif ! ln "$tmp" "$f" 2>/dev/null; then
-    # ln refuses when another session made the file first: keep theirs.
-    # Where hard links are not supported, move the file into place.
-    [ -e "$f" ] || mv -f "$tmp" "$f" 2>/dev/null
+  # Always try to create the file first: ln puts the complete temp file in
+  # place only when no file is there yet, so of several sessions starting at
+  # once exactly one wins and every other one keeps the winner's id.
+  if ! ln "$tmp" "$f" 2>/dev/null; then
+    # Not created: another session's file is there, the file is damaged, or
+    # hard links are not supported here. Replace it only if it is still not
+    # a valid id.
+    is_id "$(cat "$f" 2>/dev/null)" || mv -f "$tmp" "$f" 2>/dev/null
   fi
   rm -f "$tmp" 2>/dev/null
   id=$(cat "$f" 2>/dev/null)
