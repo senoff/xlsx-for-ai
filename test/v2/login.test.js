@@ -132,6 +132,8 @@ test('no key + interactive: device flow prints the URL, polls, stores an OAuth-b
   assert.equal(r.api_key, 'xfa_oauth_key');
   assert.equal(readConfig().api_key, 'xfa_oauth_key');
   assert.ok(lines.join('\n').includes('/oauth/device?user_code=ABCD-EFGH'), 'verification URL printed');
+  // XLS-11638: the login ends by telling a Claude Code user the next step.
+  assert.equal(lines[lines.length - 1], 'Restart Claude Code, then ask it about a spreadsheet.');
   const auth = hits.find((h) => h.url === '/oauth/device/auth');
   assert.match(auth.body, /resource=/);
   assert.ok(tokenPolls >= 2, 'polled through authorization_pending');
