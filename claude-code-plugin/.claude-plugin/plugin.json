@@ -1,7 +1,7 @@
 {
   "name": "xlsx-for-ai",
   "displayName": "xlsx-for-ai",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Recalculate spreadsheet formulas, check a sheet for errors, and write real .xlsx files from Claude. Use it when the answer depends on formula results, on whether saved values are current, or on handing back a working spreadsheet file. Your spreadsheet files are sent to the hosted xlsx-for-ai server for processing.",
   "author": { "name": "xlsx-for-ai", "url": "https://xlsx-for-ai.dev" },
   "homepage": "https://xlsx-for-ai.dev",
