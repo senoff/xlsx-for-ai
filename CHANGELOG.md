@@ -9,6 +9,11 @@ The 1.5.x line stays maintained on `main` — existing users keep working withou
 
 ## [Unreleased]
 
+## [4.3.2]
+
+- README: the Claude Code plugin and npm routes now give numbered onboarding steps: restart Claude Code, sign in (in /mcp for the plugin, through the link for the npm package), then ask it about a spreadsheet. The plugin README says its tools stay hidden until sign-in.
+- `xlsx-for-ai login` and `xlsx-for-ai setup` end with "Restart Claude Code, then ask it about a spreadsheet." (XLS-11638).
+
 ## [4.3.1]
 
 - README: set-up steps for 20 AI apps; Gemini CLI extension installable from the latest release (XLS-11316).
